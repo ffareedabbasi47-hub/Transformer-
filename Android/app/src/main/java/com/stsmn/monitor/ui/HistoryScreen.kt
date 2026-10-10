@@ -132,19 +132,34 @@ fun HistoryScreen(live: LiveSnapshot, events: List<EventRecord>, onClear: () -> 
 @Composable
 private fun EventRow(e: EventRecord) {
     val c = eventColor(e)
+    val glyph = when (c) {
+        StsmnColors.Safe -> "✓"
+        StsmnColors.Info -> "↻"
+        else -> "!"
+    }
+    val title = if (isConnectionEvent(e.type)) e.type.label.uppercase() else (e.status ?: e.type.label).uppercase()
     AppCard {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(Modifier.padding(top = 6.dp).size(10.dp).clip(CircleShape).background(c))
-            Column(Modifier.weight(1f)) {
-                Text(e.type.label, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                Text(e.message, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    "${fmtDateTime(e.timestampMs)} · ${e.deviceId}",
-                    fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp),
-                )
+            Box(Modifier.size(36.dp).clip(CircleShape).background(c.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
+                Text(glyph, color = c, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
             }
-            if (e.risk != null) Pill("RISK ${e.risk}", c)
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.ExtraBold, color = c, fontSize = 15.sp)
+                Text(
+                    (if (e.risk != null) "Risk: ${e.risk}  |  " else "") + e.message,
+                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface,
+                )
+                if (e.relay != null) {
+                    Text(
+                        "Relay " + if (e.relay) "ON" else "OFF",
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text(fmtClock(e.timestampMs), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(e.deviceId, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }

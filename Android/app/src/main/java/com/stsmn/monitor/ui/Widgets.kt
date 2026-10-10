@@ -1,5 +1,6 @@
 package com.stsmn.monitor.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -23,7 +24,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
@@ -57,6 +60,7 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
         modifier = modifier,
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
     ) {
         Row(
             Modifier.padding(12.dp).alpha(if (dimmed) 0.45f else 1f),
@@ -81,6 +85,7 @@ fun StateToggle(label: String, on: Boolean?, onColor: Color, offColor: Color, mo
         modifier = modifier,
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp).alpha(if (dimmed) 0.45f else 1f),
@@ -137,5 +142,28 @@ fun BigBanner(text: String, color: Color, glyph: String = "⚠") {
     ) {
         Text(glyph, fontSize = 18.sp, color = color)
         Text(text, fontWeight = FontWeight.ExtraBold, color = color, letterSpacing = 1.sp, fontSize = 15.sp)
+    }
+}
+
+/** Small line-art transformer (tank, cooling fins, three bushings) drawn with Canvas - no image files needed. */
+@Composable
+fun TransformerArt(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier.size(width = 92.dp, height = 84.dp)) {
+        val w = size.width
+        val h = size.height
+        val line = 3.dp.toPx()
+        listOf(0.25f, 0.5f, 0.75f).forEach { fx ->
+            val x = w * fx
+            drawLine(tint, Offset(x, h * 0.08f), Offset(x, h * 0.34f), line, StrokeCap.Round)
+            drawCircle(tint, 3.5.dp.toPx(), Offset(x, h * 0.07f))
+        }
+        val topLeft = Offset(w * 0.06f, h * 0.34f)
+        val body = Size(w * 0.88f, h * 0.6f)
+        drawRoundRect(tint.copy(alpha = 0.28f), topLeft, body, CornerRadius(8.dp.toPx()))
+        drawRoundRect(tint, topLeft, body, CornerRadius(8.dp.toPx()), style = Stroke(width = line))
+        for (i in 1..5) {
+            val x = w * 0.06f + body.width * i / 6f
+            drawLine(tint.copy(alpha = 0.7f), Offset(x, h * 0.42f), Offset(x, h * 0.86f), 2.dp.toPx(), StrokeCap.Round)
+        }
     }
 }

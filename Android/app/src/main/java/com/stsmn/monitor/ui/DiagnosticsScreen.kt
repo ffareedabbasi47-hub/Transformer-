@@ -101,7 +101,15 @@ private fun sensorState(valid: Boolean, have: Boolean): Pair<String, Color> = wh
 @Composable
 private fun CheckRow(label: String, state: Pair<String, Color>) {
     Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(12.dp).clip(CircleShape).background(state.second))
+        val mark = when (state.second) {
+            StsmnColors.Safe -> "✓"
+            StsmnColors.Warning -> "!"
+            StsmnColors.Emergency -> "✕"
+            else -> "–"
+        }
+        Box(Modifier.size(22.dp).clip(CircleShape).background(state.second.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
+            Text(mark, color = state.second, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold)
+        }
         Text(label, modifier = Modifier.weight(1f).padding(start = 12.dp), fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
         Text(state.first, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = state.second)
     }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -150,10 +151,10 @@ private fun HeroCard(live: LiveSnapshot, onConnect: () -> Unit) {
         Column(Modifier.padding(18.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Box(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.22f)).padding(horizontal = 16.dp, vertical = 10.dp),
-                ) { Text(glyph, fontSize = 34.sp, color = Color.White, fontWeight = FontWeight.Bold) }
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.22f)).padding(horizontal = 12.dp, vertical = 8.dp),
+                ) { Text(glyph, fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold) }
                 Column(Modifier.weight(1f)) {
-                    Text(title, fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
+                    Text(title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 2)
                     Text(
                         if (isLive) "Risk Score" else "Risk Score (last known)",
                         fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f),
@@ -163,6 +164,7 @@ private fun HeroCard(live: LiveSnapshot, onConnect: () -> Unit) {
                         fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White,
                     )
                 }
+                TransformerArt(Color.White.copy(alpha = 0.92f), Modifier.size(width = 72.dp, height = 66.dp))
             }
             Text(description, fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), modifier = Modifier.padding(top = 10.dp))
             if (live.connection == ConnectionState.IDLE) {

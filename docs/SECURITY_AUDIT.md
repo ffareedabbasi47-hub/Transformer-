@@ -14,7 +14,7 @@ Secret values are never written in this file.
 | 4 | Medium | Fixed (compile/run unverified) | Cloud viewer key and device token were stored in plaintext SharedPreferences | `KeystoreCodec` (AES-256-GCM, Android Keystore key). Plain copy is erased; old plain values are migrated once; if encryption fails the secret is **not** stored (no plaintext fallback). `allowBackup=false` already prevents backup extraction |
 | 5 | Medium | Fixed + tested | Server read `devices.json` only at start: a revoked token kept working until restart, new devices needed a restart | `Registry.reload()` on every sweep (2 s), revoked publishers are disconnected (test: "device added or revoked ... without restart"). Added `scripts/revoke-device.js` (revoke / `--rotate`) |
 | 6 | Medium | Design limit | One shared viewer key: everyone who has it sees every transformer. No per-user accounts or expiry | Rotate by changing `STSMN_VIEWER_KEY` and restarting. Next step: per-user keys/roles |
-| 7 | Medium | Not verified | Dependencies: `ws` pinned to an exact version, Compose/AGP/OkHttp/osmdroid pinned, but no lockfile (registry unreachable in my sandbox) and no vulnerability scan was possible | CI now runs `npm audit --omit=dev --audit-level=high`; commit the generated `package-lock.json`; use Dependabot |
+| 7 | High | **Fixed** (found by the CI `npm audit` on first run) | `server/package.json` pinned `ws` 8.18.0, which is in the affected range 8.0.0-8.20.1 of two advisories (GHSA-58qx-3vcg-4xpx uninitialized memory disclosure, GHSA-96hv-2xvq-fx4p memory-exhaustion DoS). Evidence: failed GitHub Actions job "Realtime server tests" | Pinned to `ws` 8.21.3 (outside the affected range; the 8 server tests were run on exactly this version). `npm audit --omit=dev --audit-level=high` stays a blocking CI step. Commit `package-lock.json` once generated; other dependencies (Compose, AGP, OkHttp, osmdroid) were not scanned |
 | 8 | Low | Fixed | ESP32 `buildStatusJson` could truncate silently if fields grew | Overflow now serves an explicit error JSON; the app rejects it and goes STALE instead of showing a half value |
 | 9 | Low | Accepted | ESP32 `/api/status` and `/api/health` are unauthenticated, plain HTTP. Read-only, no control endpoint, protected by the WPA2 access point (max 3 clients) | Keep it read-only. If a control endpoint is ever added it MUST have a token |
 | 10 | Low | Accepted | GitHub Actions pinned by major tag, not commit SHA; the CI artifact is a debug (debuggable) APK | Pin SHAs for a public repo; use the signed release APK (secrets in README) for the exhibition |
@@ -33,7 +33,7 @@ Verified by `server/test/server.test.js` (8 tests, all pass in this sandbox):
 ## Tests and results (actual)
 | What | Command | Result |
 |---|---|---|
-| Realtime server | `cd server && npm test` | 8/8 pass (used preinstalled `ws` 8.21.3; package pins 8.18.0, will resolve in CI) |
+| Realtime server | `cd server && npm test` | 8/8 pass on `ws` 8.21.3 (same version now pinned) |
 | Kotlin domain + settings validation | kotlinc 2.0.21 + JUnit 4.13.2, test-only stand-ins for `org.json`/Android `Context` | 41/41 pass |
 | ESP32 risk engine (host) | `g++ -std=c++17 tests/risk_engine_test.cpp` | ALL PASSED |
 | CI workflow YAML | parsed with PyYAML | valid, 4 jobs |

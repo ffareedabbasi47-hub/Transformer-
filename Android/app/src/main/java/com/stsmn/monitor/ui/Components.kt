@@ -3,7 +3,13 @@
 package com.stsmn.monitor.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -50,6 +56,7 @@ fun AppCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = container),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
     ) {
         Column(Modifier.padding(16.dp), content = content)
     }
@@ -108,6 +115,11 @@ fun ConnectionChip(state: ConnectionState) {
         ConnectionState.IDLE -> "NOT CONNECTED"
     }
     val color = connectionColor(state)
+    // The dot pulses only while data is really LIVE, so a static dot never looks "alive".
+    val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
+        initialValue = 0.35f, targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "pulseAlpha",
+    )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -115,7 +127,7 @@ fun ConnectionChip(state: ConnectionState) {
             .background(color.copy(alpha = 0.16f))
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Box(Modifier.size(8.dp).clip(CircleShape).background(color))
+        Box(Modifier.size(8.dp).alpha(if (state == ConnectionState.LIVE) pulse else 1f).clip(CircleShape).background(color))
         Text(label, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp))
     }
 }

@@ -1,0 +1,16 @@
+{
+  "name": "stsmn-realtime-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "STSMN realtime relay: transformers publish live status, viewers see every transformer live",
+  "type": "commonjs",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node src/server.js",
+    "add-device": "node scripts/add-device.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "ws": "8.18.0"
+  }
+}

@@ -1,0 +1,9 @@
+# secrets and signing keys must never be committed
+ESP32/stsmn_firmware/secrets.h
+*.jks
+*.keystore
+local.properties
+.env
+.env.*
+server/data/
+server/node_modules/

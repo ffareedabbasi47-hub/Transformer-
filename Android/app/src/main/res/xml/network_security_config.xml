@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The ESP32 serves plain HTTP on a closed local Wi-Fi network (no internet,
+     no TLS on the microcontroller). The app only ever talks to the device
+     address configured in Settings. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

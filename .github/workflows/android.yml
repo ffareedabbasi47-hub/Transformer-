@@ -1,0 +1,135 @@
+name: Build STSMN APK
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read   # least privilege: the build never needs to write to the repo
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Optional: set these repository secrets to get a SIGNED release APK.
+  STSMN_KEYSTORE_B64: ${{ secrets.STSMN_KEYSTORE_BASE64 }}
+
+jobs:
+  build-apk:
+    name: Build APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Normal layout: repo contains the Android/ folder.
+      # Phone-friendly layout: repo contains only STSMN.zip (+ this workflow); it is unpacked here.
+      - name: Locate Android project
+        run: |
+          if [ -d Android ]; then
+            echo "ANDROID_DIR=Android" >> "$GITHUB_ENV"
+          elif [ -f STSMN.zip ]; then
+            unzip -q STSMN.zip -d _src
+            echo "ANDROID_DIR=_src/STSMN/Android" >> "$GITHUB_ENV"
+          else
+            echo "Neither Android/ nor STSMN.zip found in the repository"; exit 1
+          fi
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        working-directory: ${{ env.ANDROID_DIR }}
+        run: gradle --no-daemon assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: STSMN-debug-apk
+          path: ${{ env.ANDROID_DIR }}/app/build/outputs/apk/debug/*.apk
+
+      - name: Build signed release APK (only if keystore secrets exist)
+        if: ${{ env.STSMN_KEYSTORE_B64 != '' }}
+        working-directory: ${{ env.ANDROID_DIR }}
+        env:
+          STSMN_KEYSTORE_PASSWORD: ${{ secrets.STSMN_KEYSTORE_PASSWORD }}
+          STSMN_KEY_ALIAS: ${{ secrets.STSMN_KEY_ALIAS }}
+          STSMN_KEY_PASSWORD: ${{ secrets.STSMN_KEY_PASSWORD }}
+        run: |
+          echo "$STSMN_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/stsmn.jks"
+          export STSMN_KEYSTORE_PATH="$RUNNER_TEMP/stsmn.jks"
+          gradle --no-daemon assembleRelease
+
+      - name: Upload release APK
+        if: ${{ env.STSMN_KEYSTORE_B64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: STSMN-release-apk
+          path: ${{ env.ANDROID_DIR }}/app/build/outputs/apk/release/*.apk
+
+  unit-tests:
+    name: Unit tests (separate job, never blocks the APK)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate Android project
+        run: |
+          if [ -d Android ]; then echo "ANDROID_DIR=Android" >> "$GITHUB_ENV"
+          elif [ -f STSMN.zip ]; then unzip -q STSMN.zip -d _src; echo "ANDROID_DIR=_src/STSMN/Android" >> "$GITHUB_ENV"
+          else echo "Android project not found"; exit 1; fi
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Run unit tests
+        working-directory: ${{ env.ANDROID_DIR }}
+        run: gradle --no-daemon testDebugUnitTest
+
+  server-tests:
+    name: Realtime server tests (Node)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate server
+        run: |
+          if [ -d server ]; then echo "SERVER_DIR=server" >> "$GITHUB_ENV"
+          elif [ -f STSMN.zip ]; then unzip -q STSMN.zip -d _src; echo "SERVER_DIR=_src/STSMN/server" >> "$GITHUB_ENV"
+          else echo "server folder not found"; exit 1; fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install (exact pinned version) and test
+        working-directory: ${{ env.SERVER_DIR }}
+        run: |
+          npm install --no-audit --no-fund
+          npm audit --omit=dev --audit-level=high
+          npm test
+
+  firmware-host-tests:
+    name: ESP32 risk-engine host test (no hardware)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate project
+        run: |
+          if [ -d ESP32 ]; then echo "ROOT_DIR=." >> "$GITHUB_ENV"
+          elif [ -f STSMN.zip ]; then unzip -q STSMN.zip -d _src; echo "ROOT_DIR=_src/STSMN" >> "$GITHUB_ENV"
+          else echo "ESP32 folder not found"; exit 1; fi
+      - name: Build and run
+        working-directory: ${{ env.ROOT_DIR }}/tests
+        run: |
+          g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware risk_engine_test.cpp -o risk_test
+          ./risk_test

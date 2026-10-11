@@ -21,7 +21,6 @@
     var sat = kind !== 'street';
     var s = {
       version: 8,
-      projection: { type: 'globe' },
       sky: SKY,
       sources: {
         base: sat
@@ -40,10 +39,14 @@
   // ---- map -------------------------------------------------------------------------------
   var kind = 'sat';
   var map = new maplibregl.Map({
-    container: 'map', style: style(kind), center: [60, 20], zoom: 1.4, pitch: 0, bearing: 0,
+    container: 'map', style: style(kind), center: [70, 22], zoom: 0.9, minZoom: -1, pitch: 0, bearing: 0,
     maxPitch: 75, attributionControl: { compact: true }, canvasContextAttributes: { antialias: true }
   });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-right');
+
+  map.on('style.load', function () {
+    try { map.setProjection({ type: 'globe' }); } catch (e) { report('Globe projection unavailable: ' + e.message); }
+  });
 
   var spinning = true, userTouched = false, fitted = false;
   function stopSpin() { spinning = false; }
@@ -65,7 +68,11 @@
   }
   map.on('zoomend', syncTerrain);
   map.on('styledata', syncTerrain);
-  map.on('load', function () { setTimeout(spinStep, 300); });
+  var announced = false;
+  map.on('load', function () {
+    setTimeout(spinStep, 300);
+    if (!announced) { announced = true; if (window.AndroidBridge && window.AndroidBridge.onReady) window.AndroidBridge.onReady(); }
+  });
 
   // ---- markers (DOM built with textContent only: server text can never become HTML) ----------
   var markers = {}; // id -> {marker, el, sig, d}
@@ -139,7 +146,7 @@
     },
     setStyle: function (k) {
       if (k !== 'sat' && k !== 'street') return;
-      kind = k; map.setStyle(style(k), { diff: false });
+      kind = k; map.setStyle(style(k));
     },
     tilt: function (on) { map.easeTo({ pitch: on ? 60 : 0, duration: 700 }); },
     spin: function (on) { spinning = !!on; if (on) spinStep(); },
@@ -147,5 +154,4 @@
   };
   window.stsmn = api;
   map.on('click', function () { pick(null, true); });
-  if (window.AndroidBridge && window.AndroidBridge.onReady) window.AndroidBridge.onReady();
 })();

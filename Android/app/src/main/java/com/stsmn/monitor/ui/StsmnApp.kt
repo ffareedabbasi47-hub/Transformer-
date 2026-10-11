@@ -65,7 +65,7 @@ fun StsmnApp(vm: MainViewModel) {
     val events by vm.events.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
-    var mapMode by rememberSaveable { mutableIntStateOf(0) } // 0 = flat map, 1 = 3D globe, 2 = all transformers
+    var mapMode by rememberSaveable { mutableIntStateOf(0) } // 0 = 3D globe map (default), 1 = flat map (backup), 2 = all transformers
     val nowElapsed by rememberElapsedNow()
     var showSplash by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(Unit) { delay(1300); showSplash = false }
@@ -134,16 +134,17 @@ fun StsmnApp(vm: MainViewModel) {
                             when (mapMode) {
                                 2 -> FleetScreen(
                                     devices, fleet, settings.cloudEnabled,
-                                    onOpenOnMap = { id -> selectedId = id; mapMode = 1 },
+                                    onOpenOnMap = { id -> selectedId = id; mapMode = 0 },
                                     onOpenSettings = { tab = Tab.SETTINGS.ordinal },
                                 )
-                                1 -> GlobeScreen(
+                                1 -> MapScreen(
                                     devices, fleet, settings.cloudEnabled, selectedId,
                                     onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
                                 )
-                                else -> MapScreen(
+                                else -> GlobeScreen(
                                     devices, fleet, settings.cloudEnabled, selectedId,
                                     onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
+                                    onUseFlatMap = { mapMode = 1 },
                                 )
                             }
                         }
@@ -172,10 +173,10 @@ fun StsmnApp(vm: MainViewModel) {
     }
 }
 
-/** Three views of the same live data: flat map, 3D globe, list of every transformer. */
+/** Three views of the same live data: 3D globe map (default), flat map (backup), list of every transformer. */
 @Composable
 private fun MapModeSwitch(mode: Int, onChange: (Int) -> Unit) {
-    val names = listOf("Map", "3D Globe", "All")
+    val names = listOf("3D Map", "Flat", "All")
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         names.forEachIndexed { i, n ->
             if (i == mode) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(n, maxLines = 1, softWrap = false) }

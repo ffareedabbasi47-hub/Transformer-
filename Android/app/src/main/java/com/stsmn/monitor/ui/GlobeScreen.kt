@@ -77,6 +77,7 @@ fun GlobeScreen(
     selectedId: String?,
     onSelect: (String?) -> Unit,
     onOpenSettings: () -> Unit,
+    onUseFlatMap: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     var ready by remember { mutableStateOf(false) }
@@ -123,13 +124,14 @@ fun GlobeScreen(
 
     if (view == null || failed != null) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ScreenTitle("3D Globe", "${devices.size} transformer(s)")
+            ScreenTitle("3D Map", "${devices.size} transformer(s)")
             AppCard(container = StsmnColors.Emergency.copy(alpha = 0.14f)) {
                 Text("3D globe could not be loaded", fontWeight = FontWeight.Bold, color = StsmnColors.Emergency)
                 Text(
-                    "${web.exceptionOrNull()?.message ?: failed ?: "Unknown error"}. Use the flat Map or the list; live data and alerts are not affected.",
+                    "${web.exceptionOrNull()?.message ?: failed ?: "Unknown error"}. Use the flat map or the list; live data and alerts are not affected.",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                Button(onClick = onUseFlatMap, modifier = Modifier.padding(top = 8.dp)) { Text("Open flat map") }
             }
         }
         return
@@ -152,7 +154,7 @@ fun GlobeScreen(
         AndroidView(modifier = Modifier.fillMaxSize(), factory = { view })
 
         Column(Modifier.align(Alignment.TopStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            SummaryBar(devices, fleet, cloudEnabled, title = "3D GLOBE")
+            SummaryBar(devices, fleet, cloudEnabled, title = "3D MAP")
             if (cloudEnabled && fleet.cloud != CloudState.ONLINE) {
                 Banner(
                     when (fleet.cloud) {
@@ -180,7 +182,7 @@ fun GlobeScreen(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = { view.evaluateJavascript("stsmn.fitAll()", null) }, enabled = devices.any { it.hasLocation }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Show all", fontSize = 13.sp, maxLines = 1, softWrap = false) }
                 OutlinedButton(onClick = { satellite = !satellite; view.evaluateJavascript("stsmn.setStyle('${if (satellite) "sat" else "street"}')", null) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text(if (satellite) "Street map" else "Satellite", fontSize = 13.sp, maxLines = 1, softWrap = false)
+                    Text(if (satellite) "Streets" else "Satellite", fontSize = 13.sp, maxLines = 1, softWrap = false)
                 }
                 OutlinedButton(onClick = { tilted = !tilted; view.evaluateJavascript("stsmn.tilt($tilted)", null) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (tilted) "Flat" else "Tilt 3D", fontSize = 13.sp, maxLines = 1, softWrap = false) }
             }

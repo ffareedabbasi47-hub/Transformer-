@@ -63,3 +63,15 @@ Verified by `server/test/server.test.js` (8 tests, all pass in this sandbox):
 | Third-party tiles | Esri World Imagery, OpenStreetMap, AWS terrain: device positions are NOT sent to them, only tile requests |
 
 Verified: the page was run in headless Chromium (markers drawn, hostile ID rejected, no JS errors). Not verified: the Kotlin side (compiled only by CI) and a real phone WebView with real tiles. Check Esri's and OSM's tile usage terms before heavy or public use.
+
+### Addendum 2: 3D globe hardening (2026-10-11)
+
+| Item | Result |
+|---|---|
+| JS bridge | Exactly 4 methods (`onSelect`, `onReady`, `onFatal`, `onNotice`); every string is length-limited and validated; `alive` flag drops callbacks after the screen is disposed |
+| Error classification | Fatal (WebGL missing, map cannot start, style load error, 20 s start timeout, renderer crash) is separated from notices (tiles, terrain, stray script error). A started globe is never destroyed by a notice |
+| Renderer crash | `onRenderProcessGone` shows a fallback card (Retry / Flat map) instead of Android killing the app |
+| Retry | A new WebView is built (`key(attempt)`); callbacks of old pages are ignored; no automatic retry loops |
+| Network | The app does NOT bind its process to the ESP32 Wi-Fi (`WifiNetworkBinder` only opens ESP32 connections through that network), so WebView tiles use Android's default internet route. Not verified on a physical phone |
+| Diagnostics | Logcat tag `StsmnGlobe`; tap the credit line on the globe to show the developer line (tiles ok/failed, JS errors, network). Hidden by default |
+| Still open | HTTP cleartext is not yet restricted to 192.168.4.1 (needs your decision: breaking if the ESP32 IP changes). Satellite tiles need internet; no offline satellite cache exists |

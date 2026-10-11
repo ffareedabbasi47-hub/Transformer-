@@ -1,477 +1,233 @@
 (function () {
   'use strict';
+  // ---- reporting to the app --------------------------------------------------------------
+  // Fatal = the globe cannot work at all (WebGL missing, map could not be created, style failed to load).
+  // Notice = something degraded but the globe stays usable (tiles, terrain, a stray script error).
+  var bridge = window.AndroidBridge || {};
+  var sent = {};
+  function once(key) { if (sent[key]) return false; sent[key] = true; return true; }
+  function fatal(kind, detail) { if (once('F' + kind)) { try { bridge.onFatal && bridge.onFatal(kind, String(detail || '').slice(0, 160)); } catch (e) {} } }
+  function notice(kind, detail) { if (once('N' + kind)) { try { bridge.onNotice && bridge.onNotice(kind, String(detail || '').slice(0, 160)); } catch (e) {} } }
 
-  function report(m) {
-    try {
-      if (window.AndroidBridge && window.AndroidBridge.onError) {
-        window.AndroidBridge.onError(String(m));
-      }
-    } catch (e) {}
-  }
-
-  window.addEventListener('error', function (e) { report('JS: ' + (e && e.message)); });
-  window.addEventListener('unhandledrejection', function (e) { report('JS: ' + (e && e.reason)); });
+  var scriptErrors = 0;
+  window.addEventListener('error', function (e) {
+    // A stray script error must never kill a usable globe: count it, tell the app once, keep running.
+    scriptErrors++; notice('SCRIPT_ERROR', e && e.message);
+  });
+  window.addEventListener('unhandledrejection', function (e) { scriptErrors++; notice('SCRIPT_ERROR', e && e.reason); });
 
   try {
-    var c = document.createElement('canvas');
-    if (!(c.getContext('webgl2') || c.getContext('webgl'))) {
-      report('WebGL not supported on this phone');
-      return;
-    }
-  } catch (e) {
-    report('WebGL check failed');
-    return;
-  }
+    var probe = document.createElement('canvas');
+    if (!(probe.getContext('webgl2') || probe.getContext('webgl'))) { fatal('WEBGL_UNSUPPORTED', 'no WebGL context'); return; }
+  } catch (e) { fatal('WEBGL_UNSUPPORTED', 'WebGL check failed'); return; }
+  if (typeof maplibregl === 'undefined') { fatal('INIT_ERROR', 'map library missing'); return; }
 
   // ---- constants -------------------------------------------------------------------------
-  var COLORS = {
-    SAFE: '#2ECC71',
-    WARNING: '#FFD21F',
-    EMERGENCY: '#E5484D',
-    STALE: '#8A94A6',
-    OFFLINE: '#8A94A6'
-  };
-  var BG_COLORS = {
-    SAFE: 'rgba(46, 204, 113, 0.22)',
-    WARNING: 'rgba(255, 210, 31, 0.22)',
-    EMERGENCY: 'rgba(229, 72, 77, 0.28)',
-    STALE: 'rgba(138, 148, 166, 0.2)',
-    OFFLINE: 'rgba(138, 148, 166, 0.2)'
-  };
+  var COLORS = { SAFE: '#2ECC71', WARNING: '#FFD21F', EMERGENCY: '#E5484D', STALE: '#8A94A6', OFFLINE: '#8A94A6' };
   var ID_RE = /^[A-Z0-9][A-Z0-9-]{1,23}$/;
-  var HOME = { center: [80.9, 26.85], zoom: 3.5 }; // Uttar Pradesh, India
+  var HOME = { center: [80.9, 26.85], zoom: 3.2 }; // Uttar Pradesh, India
+  var MAX_MARKERS = 2000;
 
   var SKY = {
-    'sky-color': '#030712',
-    'horizon-color': '#0e2447',
-    'fog-color': '#040b17',
-    'sky-horizon-blend': 0.65,
-    'horizon-fog-blend': 0.5,
-    'fog-ground-blend': 0.3,
-    'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 6, 0.8, 8, 0]
+    'sky-color': '#0a1a3a', 'horizon-color': '#2a6fd6', 'fog-color': '#0b1b3a',
+    'sky-horizon-blend': 0.5, 'horizon-fog-blend': 0.5, 'fog-ground-blend': 0.2,
+    'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0]
   };
-
-  function buildDarkEarthStyle() {
-    var landData = (window.STSMN_LAND && window.STSMN_LAND.features)
-      ? window.STSMN_LAND
-      : { type: 'FeatureCollection', features: [] };
-    var graticulesData = (window.STSMN_GRATICULES && window.STSMN_GRATICULES.features)
-      ? window.STSMN_GRATICULES
-      : { type: 'FeatureCollection', features: [] };
-    var gridData = (window.STSMN_GRID && window.STSMN_GRID.features)
-      ? window.STSMN_GRID
-      : { type: 'FeatureCollection', features: [] };
-    var radarData = (window.STSMN_RADAR && window.STSMN_RADAR.features)
-      ? window.STSMN_RADAR
-      : { type: 'FeatureCollection', features: [] };
-
+  function style(kind) {
+    var sat = kind !== 'street';
     return {
       version: 8,
       sky: SKY,
       sources: {
-        land: { type: 'geojson', data: landData },
-        graticules: { type: 'geojson', data: graticulesData },
-        grid: { type: 'geojson', data: gridData },
-        radar: { type: 'geojson', data: radarData },
-        sat: {
-          type: 'raster', tileSize: 256, maxzoom: 19,
-          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
-          attribution: 'Imagery © Esri, Maxar'
-        },
-        street: {
-          type: 'raster', tileSize: 256, maxzoom: 19,
-          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-          attribution: '© OpenStreetMap contributors'
-        },
-        relief: {
-          type: 'raster-dem', tileSize: 256, maxzoom: 14, encoding: 'terrarium',
-          tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'],
-          attribution: 'Terrain: Mapzen/AWS'
-        }
+        base: sat
+          ? { type: 'raster', tileSize: 256, maxzoom: 19, tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+              attribution: 'Imagery © Esri, Maxar, Earthstar Geographics' }
+          : { type: 'raster', tileSize: 256, maxzoom: 19, tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+              attribution: '© OpenStreetMap contributors' },
+        relief: { type: 'raster-dem', tileSize: 256, maxzoom: 14, encoding: 'terrarium',
+                  tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], attribution: 'Terrain: Mapzen/AWS' }
       },
-      layers: [
-        // 1. Deep space ocean planetary base
-        { id: 'ocean-base', type: 'background', paint: { 'background-color': '#060d1a' } },
-
-        // 2. Graticules: Coordinate lines (parallels & meridians)
-        {
-          id: 'graticules-parallels', type: 'line', source: 'graticules',
-          filter: ['==', 'kind', 'parallel'],
-          paint: { 'line-color': '#0e1f3a', 'line-width': 0.7, 'line-opacity': 0.65 }
-        },
-        {
-          id: 'graticules-meridians', type: 'line', source: 'graticules',
-          filter: ['==', 'kind', 'meridian'],
-          paint: { 'line-color': '#0e1f3a', 'line-width': 0.7, 'line-opacity': 0.65 }
-        },
-        {
-          id: 'graticules-equator', type: 'line', source: 'graticules',
-          filter: ['==', 'kind', 'equator'],
-          paint: { 'line-color': '#1d4ed8', 'line-width': 1.6, 'line-dasharray': [3, 2], 'line-opacity': 0.85 }
-        },
-        {
-          id: 'graticules-tropics', type: 'line', source: 'graticules',
-          filter: ['==', 'kind', 'tropic'],
-          paint: { 'line-color': '#1e3a8a', 'line-width': 1.0, 'line-dasharray': [2, 2], 'line-opacity': 0.6 }
-        },
-
-        // 3. Continents: dark tech slate with glowing cyan coastlines
-        {
-          id: 'land-fill', type: 'fill', source: 'land',
-          filter: ['!=', 'type', 'sector'],
-          paint: { 'fill-color': '#0b162c', 'fill-opacity': 0.96 }
-        },
-        {
-          id: 'land-glow', type: 'line', source: 'land',
-          filter: ['!=', 'type', 'sector'],
-          paint: { 'line-color': '#1d4ed8', 'line-width': 2.2, 'line-opacity': 0.35 }
-        },
-        {
-          id: 'land-coastline', type: 'line', source: 'land',
-          filter: ['!=', 'type', 'sector'],
-          paint: { 'line-color': '#38bdf8', 'line-width': 0.9, 'line-opacity': 0.85 }
-        },
-
-        // 4. Uttar Pradesh Regional Monitoring Sector & Radar Rings
-        {
-          id: 'radar-rings', type: 'line', source: 'radar',
-          paint: { 'line-color': '#0284c7', 'line-width': 1.0, 'line-dasharray': [3, 3], 'line-opacity': 0.45 }
-        },
-        {
-          id: 'up-sector-fill', type: 'fill', source: 'land',
-          filter: ['==', 'type', 'sector'],
-          paint: { 'fill-color': '#0284c7', 'fill-opacity': 0.16 }
-        },
-        {
-          id: 'up-sector-line', type: 'line', source: 'land',
-          filter: ['==', 'type', 'sector'],
-          paint: { 'line-color': '#38bdf8', 'line-width': 1.8, 'line-opacity': 0.95 }
-        },
-
-        // 5. Regional Power Grid Transmission Lines
-        {
-          id: 'grid-lines', type: 'line', source: 'grid',
-          paint: { 'line-color': '#00f0ff', 'line-width': 1.2, 'line-opacity': 0.7, 'line-dasharray': [4, 2] }
-        },
-
-        // 6. Optional Remote Map Imagery Overlays (Off by default in standalone mode)
-        {
-          id: 'sat-layer', type: 'raster', source: 'sat',
-          layout: { visibility: 'none' },
-          paint: { 'raster-opacity': 0.92 }
-        },
-        {
-          id: 'street-layer', type: 'raster', source: 'street',
-          layout: { visibility: 'none' },
-          paint: { 'raster-opacity': 0.88 }
-        }
-      ]
+      layers: [{ id: 'base', type: 'raster', source: 'base' }]
     };
   }
 
-  // ---- Map initialization (Standalone Dark Earth Default) --------------------------------
-  var currentMode = 'dark'; // 'dark' (standalone offline), 'sat' (satellite), 'street' (streets)
-  var map = new maplibregl.Map({
-    container: 'map',
-    style: buildDarkEarthStyle(),
-    center: [78, 24],
-    zoom: 1.2,
-    minZoom: -1,
-    pitch: 0,
-    bearing: 0,
-    maxPitch: 75,
-    attributionControl: { compact: true },
-    pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
-    canvasContextAttributes: { antialias: true }
-  });
+  // ---- map -------------------------------------------------------------------------------
+  var kind = 'sat', loaded = false;
+  var map;
+  try {
+    map = new maplibregl.Map({
+      container: 'map', style: style(kind), center: [70, 22], zoom: 0.9, minZoom: -1, pitch: 0, bearing: 0,
+      maxPitch: 75, attributionControl: { compact: true },
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2), canvasContextAttributes: { antialias: false }
+    });
+  } catch (e) { fatal('INIT_ERROR', 'map could not start: ' + (e && e.message)); return; }
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-right');
 
+  // Globe projection must be applied after every style load (also after Satellite/Streets switches).
   map.on('style.load', function () {
-    try {
-      map.setProjection({ type: 'globe' });
-    } catch (e) {
-      report('Globe projection unavailable: ' + e.message);
-    }
+    try { map.setProjection({ type: 'globe' }); } catch (e) { notice('SCRIPT_ERROR', 'globe projection unavailable: ' + e.message); }
   });
 
-  // Preserve WebGL on background/resume
+  // GPU context can be taken away while the app is in the background: keep the map alive and redraw on return.
   var cv = map.getCanvas();
   cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); }, false);
-  cv.addEventListener('webglcontextrestored', function () {
-    try { map.resize(); map.triggerRepaint(); } catch (e) {}
-  }, false);
+  cv.addEventListener('webglcontextrestored', function () { try { map.resize(); map.triggerRepaint(); } catch (e) {} }, false);
 
-  // Status and tile error handling
-  var tileErrors = 0, tileOk = 0;
-  map.on('data', function (ev) {
-    if (ev && ev.dataType === 'source' && ev.tile) tileOk++;
-  });
+  // ---- diagnostics (hidden unless the app turns debug on, or something goes wrong) ---------
+  var tileOk = 0, tileFail = 0, lastErr = '', netInfo = '', dbgOn = false;
+  function dbgText() {
+    var d = document.getElementById('dbg'); if (!d) return;
+    d.style.display = dbgOn ? 'block' : 'none';
+    if (dbgOn) d.textContent = 'tiles ok ' + tileOk + ' / failed ' + tileFail + ' · z ' + map.getZoom().toFixed(1) +
+      ' · js errors ' + scriptErrors + (netInfo ? ' · ' + netInfo : '') + (lastErr ? ' · ' + lastErr : '');
+  }
+  setInterval(dbgText, 1000);
+  map.on('data', function (ev) { if (ev && ev.dataType === 'source' && ev.tile) tileOk++; });
   map.on('error', function (ev) {
-    if (ev && ev.sourceId) {
-      tileErrors++;
-      // Remote tiles failed, but offline dark earth stays 100% active!
-      if (tileErrors === 6 && window.AndroidBridge && window.AndroidBridge.onWarn) {
-        window.AndroidBridge.onWarn('remote_offline');
-      }
+    var msg = String((ev && ev.error && ev.error.message) || 'error').slice(0, 80);
+    lastErr = msg;
+    var src = ev && ev.sourceId;
+    if (src === 'relief') {              // terrain only: drop it, the globe itself keeps working
+      terrainOn = false; try { map.setTerrain(null); } catch (e) {}
+      notice('TERRAIN_FAILED', msg); return;
     }
+    if (src) {                           // individual satellite/street tile
+      tileFail++;
+      if (tileFail >= 8 && tileOk === 0) notice('TILES_FAILED', msg);
+      return;
+    }
+    if (!loaded) fatal('LOAD_ERROR', msg);   // style itself failed before the first load
+    else notice('SCRIPT_ERROR', msg);
   });
 
-  setInterval(function () {
-    var d = document.getElementById('dbg');
-    if (!d) return;
-    var z = map.getZoom().toFixed(1);
-    if (currentMode === 'dark') {
-      d.textContent = '3D EARTH · OFFLINE STANDALONE · z ' + z;
-    } else if (currentMode === 'sat') {
-      d.textContent = 'SATELLITE · ' + (tileErrors > 4 ? 'Offline (Dark Earth base)' : 'Tiles ok ' + tileOk) + ' · z ' + z;
-    } else {
-      d.textContent = 'STREETS · ' + (tileErrors > 4 ? 'Offline (Dark Earth base)' : 'Tiles ok ' + tileOk) + ' · z ' + z;
-    }
-  }, 1000);
-
-  // Smooth planetary auto-spin
-  var spinning = true;
+  // ---- camera ---------------------------------------------------------------------------
+  var spinning = true, fitted = false;
   function stopSpin() { spinning = false; }
   ['mousedown', 'touchstart', 'wheel'].forEach(function (e) { map.on(e, stopSpin); });
   function spinStep() {
     if (!spinning || map.getZoom() > 3.5) return;
     var c = map.getCenter();
-    map.easeTo({ center: [c.lng + 20, Math.max(-35, Math.min(35, c.lat))], duration: 2400, easing: function (t) { return t; } });
+    map.easeTo({ center: [c.lng + 25, Math.max(-40, Math.min(40, c.lat))], duration: 2000, easing: function (t) { return t; } });
   }
   map.on('moveend', spinStep);
 
-  // Optional 3D terrain relief when tilted and zoomed in
-  var terrainOn = false;
+  var terrainOn = false; // relief is heavy on weak phones: only after the user taps "Tilt 3D"
   function syncTerrain() {
     try {
       if (!map.getSource('relief')) return;
-      if (terrainOn && currentMode !== 'dark' && map.getZoom() >= 9) {
-        if (!map.getTerrain()) map.setTerrain({ source: 'relief', exaggeration: 1.35 });
-      } else if (map.getTerrain()) {
-        map.setTerrain(null);
-      }
-    } catch (e) {}
+      if (terrainOn && map.getZoom() >= 9) { if (!map.getTerrain()) map.setTerrain({ source: 'relief', exaggeration: 1.35 }); }
+      else if (map.getTerrain()) map.setTerrain(null);
+    } catch (e) { /* terrain unsupported: stay flat */ }
   }
   map.on('zoomend', syncTerrain);
+  map.on('styledata', syncTerrain);
 
-  var announced = false;
   map.on('load', function () {
-    setTimeout(spinStep, 400);
-    if (!announced) {
-      announced = true;
-      if (window.AndroidBridge && window.AndroidBridge.onReady) {
-        window.AndroidBridge.onReady();
-      }
-    }
+    if (loaded) return;
+    loaded = true;
+    setTimeout(spinStep, 300);
+    try { bridge.onReady && bridge.onReady(); } catch (e) {}
   });
 
-  // ---- Markers & Live Telemetry HUD ------------------------------------------------------
-  var markers = {}; // id -> { marker, el, parts, sig }
+  // ---- markers (DOM built with textContent only: server text can never become HTML) ----------
+  var markers = {}; // id -> {marker, el, parts, sig}
   var selectedId = null;
 
-  function buildMarker(d) {
+  function build(d) {
     var el = document.createElement('div'); el.className = 'mk';
-
-    var card = document.createElement('div'); card.className = 'card';
-    var topRow = document.createElement('div'); topRow.className = 'top-row';
-    var idEl = document.createElement('div'); idEl.className = 'id';
-    var stEl = document.createElement('div'); stEl.className = 'st';
-    topRow.appendChild(idEl); topRow.appendChild(stEl);
-
-    var telemEl = document.createElement('div'); telemEl.className = 'telem';
-    var critEl = document.createElement('div'); critEl.className = 'crit';
-    var demoEl = document.createElement('div'); demoEl.className = 'n';
-
-    card.appendChild(topRow);
-    card.appendChild(telemEl);
-    card.appendChild(critEl);
-    card.appendChild(demoEl);
-
-    var stem = document.createElement('div'); stem.className = 'stem';
-
-    var beacon = document.createElement('div'); beacon.className = 'beacon';
-    var core = document.createElement('div'); core.className = 'beacon-core';
-    var ring = document.createElement('div'); ring.className = 'beacon-ring';
-    beacon.appendChild(ring);
-    beacon.appendChild(core);
-
-    el.appendChild(card);
-    el.appendChild(stem);
-    el.appendChild(beacon);
-
-    el.addEventListener('click', function (ev) {
-      ev.stopPropagation();
-      pick(d.id, true);
-    });
-
-    return {
-      el: el, card: card, idEl: idEl, stEl: stEl,
-      telemEl: telemEl, critEl: critEl, demoEl: demoEl,
-      core: core, ring: ring
-    };
+    var pill = document.createElement('div'); pill.className = 'pill';
+    var t = document.createElement('div'); t.className = 't';
+    var s = document.createElement('div'); s.className = 's';
+    var n = document.createElement('div'); n.className = 'n';
+    pill.appendChild(t); pill.appendChild(s); pill.appendChild(n);
+    var dot = document.createElement('div'); dot.className = 'dot';
+    el.appendChild(pill); el.appendChild(dot);
+    el.addEventListener('click', function (ev) { ev.stopPropagation(); pick(d.id, true); });
+    return { el: el, t: t, s: s, n: n, dot: dot };
   }
-
-  function paintMarker(m, d) {
+  function paint(m, d) {
     var c = COLORS[d.state] || COLORS.OFFLINE;
-    var bg = BG_COLORS[d.state] || BG_COLORS.OFFLINE;
-
-    // Header: ID and Status badge
-    m.parts.idEl.textContent = 'STSMN-' + d.id.replace(/^STSMN-/, '');
-    m.parts.stEl.textContent = d.state;
-    m.parts.stEl.style.color = c;
-    m.parts.stEl.style.backgroundColor = bg;
-
-    // Telemetry strip
-    var snippets = [];
-    if (d.volt != null) snippets.push(d.volt.toFixed(1) + 'V');
-    if (d.amp != null) snippets.push(d.amp.toFixed(1) + 'A');
-    if (d.temp != null) snippets.push(d.temp.toFixed(0) + '°C');
-    if (d.risk != null) snippets.push('Risk ' + d.risk);
-
-    m.parts.telemEl.textContent = snippets.length > 0 ? snippets.join(' · ') : (d.isLive ? 'LIVE' : 'STANDBY');
-    m.parts.telemEl.style.display = snippets.length > 0 || d.isLive ? 'block' : 'none';
-
-    // Critical Alerts
-    var critMsg = '';
-    if (d.flame) critMsg = '🔥 FLAME DETECTED';
-    else if (d.smoke) critMsg = '💨 SMOKE DETECTED';
-    else if (d.relay === false) critMsg = '⛔ RELAY CUTOFF';
-    m.parts.critEl.textContent = critMsg;
-    m.parts.critEl.style.display = critMsg ? 'block' : 'none';
-
-    // Demo location tag
-    m.parts.demoEl.textContent = d.demo ? 'DEMO SITE' : '';
-    m.parts.demoEl.style.display = d.demo ? 'block' : 'none';
-
-    // Beacon colors & pulse
-    m.parts.core.style.backgroundColor = c;
-    m.parts.core.style.color = c;
-    m.parts.ring.style.color = c;
-
-    var isEmergency = d.state === 'EMERGENCY' || !!d.flame || !!d.smoke;
-    m.el.classList.toggle('pulse', isEmergency);
+    m.parts.t.textContent = 'STSMN-' + d.id.replace(/^STSMN-/, '');
+    m.parts.s.textContent = d.state; m.parts.s.style.color = c;
+    m.parts.n.textContent = d.demo ? 'DEMO LOCATION' : '';
+    m.parts.dot.style.background = c;
+    m.el.classList.toggle('pulse', d.state === 'EMERGENCY');
     m.el.classList.toggle('sel', d.id === selectedId);
   }
-
   function pick(id, notify) {
     selectedId = id;
-    Object.keys(markers).forEach(function (k) {
-      markers[k].el.classList.toggle('sel', k === id);
-    });
-    if (notify && window.AndroidBridge && window.AndroidBridge.onSelect) {
-      window.AndroidBridge.onSelect(id);
-    }
+    Object.keys(markers).forEach(function (k) { markers[k].el.classList.toggle('sel', k === id); });
+    if (notify && bridge.onSelect) { try { bridge.onSelect(id); } catch (e) {} }
   }
 
   function valid(d) {
-    return d && typeof d.id === 'string' && ID_RE.test(d.id) &&
-      typeof d.lat === 'number' && typeof d.lng === 'number' &&
-      isFinite(d.lat) && isFinite(d.lng) &&
-      Math.abs(d.lat) <= 90 && Math.abs(d.lng) <= 180 &&
-      COLORS[d.state];
+    return d && typeof d.id === 'string' && ID_RE.test(d.id) && typeof d.lat === 'number' && typeof d.lng === 'number' &&
+      isFinite(d.lat) && isFinite(d.lng) && Math.abs(d.lat) <= 90 && Math.abs(d.lng) <= 180 && COLORS[d.state];
   }
 
-  // ---- Public API for Android WebView ----------------------------------------------------
+  // Bounds that also work across the 180° meridian: cut the circle at the biggest gap between longitudes.
+  function boundsOf(points) {
+    var lngs = points.map(function (p) { return p[0]; }).sort(function (a, b) { return a - b; });
+    var best = 0, at = 0;
+    for (var i = 0; i < lngs.length; i++) {
+      var next = i === lngs.length - 1 ? lngs[0] + 360 : lngs[i + 1];
+      if (next - lngs[i] > best) { best = next - lngs[i]; at = i; }
+    }
+    var west = lngs[(at + 1) % lngs.length], east = lngs[at];
+    if (east < west) east += 360;
+    var lats = points.map(function (p) { return p[1]; });
+    return { west: west, east: east, south: Math.min.apply(null, lats), north: Math.max.apply(null, lats) };
+  }
+
   var api = {
+    /** devices: [{id, lat, lng, state, demo}] - only transformers with a valid position are drawn. */
     setDevices: function (list) {
       if (!Array.isArray(list)) return;
       var seen = {};
-      list.slice(0, 500).forEach(function (d) {
+      list.slice(0, MAX_MARKERS).forEach(function (d) {
         if (!valid(d)) return;
         seen[d.id] = true;
         var m = markers[d.id];
         if (!m) {
-          var parts = buildMarker(d);
-          m = markers[d.id] = {
-            parts: parts,
-            el: parts.el,
-            marker: new maplibregl.Marker({ element: parts.el, anchor: 'bottom' })
-              .setLngLat([d.lng, d.lat])
-              .addTo(map),
-            sig: ''
-          };
+          var parts = build(d);
+          m = markers[d.id] = { parts: parts, el: parts.el, marker: new maplibregl.Marker({ element: parts.el, anchor: 'bottom' }).setLngLat([d.lng, d.lat]).addTo(map), sig: '' };
         }
-        var sig = [d.lat, d.lng, d.state, !!d.demo, d.risk, d.volt, d.amp, d.temp, d.flame, d.smoke, d.relay].join('|');
-        if (m.sig !== sig) {
-          m.marker.setLngLat([d.lng, d.lat]);
-          paintMarker(m, d);
-          m.sig = sig;
-        }
+        var sig = [d.lat, d.lng, d.state, !!d.demo].join('|');
+        if (m.sig !== sig) { m.marker.setLngLat([d.lng, d.lat]); paint(m, d); m.sig = sig; }
       });
-      Object.keys(markers).forEach(function (id) {
-        if (!seen[id]) {
-          markers[id].marker.remove();
-          delete markers[id];
-        }
-      });
+      Object.keys(markers).forEach(function (id) { if (!seen[id]) { markers[id].marker.remove(); delete markers[id]; if (selectedId === id) selectedId = null; } });
+      if (!fitted && Object.keys(markers).length) { fitted = true; api.fitAll(); }
     },
-
-    select: function (id) {
-      if (id === null || ID_RE.test(String(id))) pick(id, false);
-    },
-
+    select: function (id) { if (id === null || (typeof id === 'string' && ID_RE.test(id))) pick(id, false); },
     focus: function (id) {
-      var m = markers[id];
-      if (!m) return;
-      stopSpin();
-      pick(id, false);
-      map.flyTo({
-        center: m.marker.getLngLat(),
-        zoom: 11,
-        pitch: 45,
-        bearing: 0,
-        speed: 0.9,
-        curve: 1.5,
-        essential: true
-      });
+      var m = markers[id]; if (!m) return;
+      stopSpin(); pick(id, false);
+      map.flyTo({ center: m.marker.getLngLat(), zoom: 13, pitch: 40, bearing: 0, speed: 0.8, curve: 1.5, essential: true });
     },
-
     fitAll: function () {
       stopSpin();
       var ids = Object.keys(markers);
-      if (!ids.length) {
-        map.flyTo({ center: HOME.center, zoom: HOME.zoom, pitch: 0, bearing: 0, essential: true });
-        return;
-      }
-      if (ids.length === 1) {
-        api.focus(ids[0]);
-        return;
-      }
-      var b = new maplibregl.LngLatBounds();
-      ids.forEach(function (id) { b.extend(markers[id].marker.getLngLat()); });
-      map.fitBounds(b, { padding: 90, maxZoom: 12, pitch: 35, duration: 1800 });
+      if (!ids.length) { map.flyTo({ center: HOME.center, zoom: HOME.zoom, pitch: 0, bearing: 0, essential: true }); return; }
+      if (ids.length === 1) { api.focus(ids[0]); return; }
+      var pts = ids.map(function (id) { var p = markers[id].marker.getLngLat(); return [p.lng, p.lat]; });
+      var b = boundsOf(pts);
+      if (b.east - b.west < 1e-4 && b.north - b.south < 1e-4) { api.focus(ids[0]); return; } // identical positions
+      map.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: 90, maxZoom: 12, pitch: 35, duration: 1800 });
     },
-
     setStyle: function (k) {
-      if (k !== 'dark' && k !== 'sat' && k !== 'street') return;
-      currentMode = k;
-      try {
-        if (map.getLayer('sat-layer')) {
-          map.setLayoutProperty('sat-layer', 'visibility', k === 'sat' ? 'visible' : 'none');
-        }
-        if (map.getLayer('street-layer')) {
-          map.setLayoutProperty('street-layer', 'visibility', k === 'street' ? 'visible' : 'none');
-        }
-        syncTerrain();
-      } catch (e) {}
+      if (k !== 'sat' && k !== 'street') return;
+      kind = k; tileOk = 0; tileFail = 0; sent['NTILES_FAILED'] = false;
+      map.setStyle(style(k));
     },
-
-    tilt: function (on) {
-      terrainOn = !!on;
-      map.easeTo({ pitch: on ? 60 : 0, duration: 750 });
-      setTimeout(syncTerrain, 850);
-    },
-
-    spin: function (on) {
-      spinning = !!on;
-      if (on) spinStep();
-    },
-
-    ready: function () {
-      return map.loaded();
-    }
+    tilt: function (on) { terrainOn = !!on; map.easeTo({ pitch: on ? 60 : 0, duration: 700 }); setTimeout(syncTerrain, 800); },
+    spin: function (on) { spinning = !!on; if (on) spinStep(); },
+    debug: function (on) { dbgOn = !!on; dbgText(); },
+    setNet: function (s) { netInfo = String(s || '').slice(0, 60); },
+    // test hooks (read-only)
+    markerCount: function () { return Object.keys(markers).length; },
+    selected: function () { return selectedId; },
+    styleKind: function () { return kind; }
   };
-
   window.stsmn = api;
   map.on('click', function () { pick(null, true); });
 })();

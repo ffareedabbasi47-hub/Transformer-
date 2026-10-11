@@ -58,4 +58,11 @@ One transformer on an Uttar Pradesh map. Setup, internet/tile note and test stat
 See `docs/SECURITY_AUDIT.md` (checklist, what was fixed, what is still open).
 
 ## Map tab: 3 views
-`3D Earth` (Option A: standalone offline-capable dark 3D Earth with transformer markers and live telemetry; remote satellite/street imagery as optional enhancement), `Flat` (OpenStreetMap with local tile cache), and `All` (list of every transformer). Tap a transformer and use **Open Street View** to see the real street in the Google Maps app (no API key). MapLibre GL JS 5.7.1 (BSD-3) is bundled in `Android/app/src/main/assets/globe/`.
+`Map` (flat OpenStreetMap), `3D Globe` (spinning satellite Earth with terrain relief, tilt, live markers) and `All` (list of every transformer). Tap a transformer and use **Open Street View** to see the real street in the Google Maps app (no API key). MapLibre GL JS 5.7.1 (BSD-3) is bundled in `Android/app/src/main/assets/globe/`.
+
+### Manual phone checklist for the 3D Map
+1. Map tab opens on **3D Map** and shows the spinning globe within ~20 s (otherwise a card with Retry / Flat map appears).
+2. Show all, Streets/Satellite (switch 5 times), Tilt 3D, tap a marker, Open Street View.
+3. Switch to another tab and back; send the app to background and back.
+4. Turn mobile data off: a "No internet" notice appears; Home/History/Health keep working.
+5. Tap the credit line at the bottom-right to see the developer line; Logcat tag `StsmnGlobe`.

@@ -24,7 +24,7 @@ IDLE/CONNECTING/LIVE/STALE/ERROR, no cloud/Firebase/Bluetooth/USB, deterministic
 | History/settings storage | one JSON file + SharedPreferences (zero extra dependencies) | – |
 | Out-of-range sensor value | shown as "unavailable" instead of clamped | `StatusParser` |
 | Power from 3.7 V battery | not designed; use USB/power bank | – |
-| Live Map tab (v1.1) | Option A: standalone offline-capable dark 3D Earth with transformer markers and live telemetry; remote satellite/street imagery as optional enhancement; flat OSM map as backup – see MAP_SETUP.md | `GlobeScreen.kt`, `MapScreen.kt` |
+| Live Map tab (v1.1) | 6 tabs; osmdroid map; map tiles need internet (conflicts with PDF "no internet"; core data does not) – see MAP_SETUP.md | `MapScreen.kt` |
 | Polling (v1.1) | 3 s default, only while app visible | `AppConfig.kt` |
 
 ## Edge cases handled

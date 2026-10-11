@@ -55,6 +55,19 @@ jobs:
           name: STSMN-debug-apk
           path: ${{ env.ANDROID_DIR }}/app/build/outputs/apk/debug/*.apk
 
+      - name: Check release signing secrets are complete (never prints them)
+        if: ${{ env.STSMN_KEYSTORE_B64 != '' }}
+        env:
+          P1: ${{ secrets.STSMN_KEYSTORE_PASSWORD }}
+          P2: ${{ secrets.STSMN_KEY_ALIAS }}
+          P3: ${{ secrets.STSMN_KEY_PASSWORD }}
+        run: |
+          missing=""
+          [ -z "$P1" ] && missing="$missing STSMN_KEYSTORE_PASSWORD"
+          [ -z "$P2" ] && missing="$missing STSMN_KEY_ALIAS"
+          [ -z "$P3" ] && missing="$missing STSMN_KEY_PASSWORD"
+          if [ -n "$missing" ]; then echo "::error::Release signing is partly configured. Missing secrets:$missing"; exit 1; fi
+
       - name: Build signed release APK (only if keystore secrets exist)
         if: ${{ env.STSMN_KEYSTORE_B64 != '' }}
         working-directory: ${{ env.ANDROID_DIR }}
@@ -75,7 +88,7 @@ jobs:
           path: ${{ env.ANDROID_DIR }}/app/build/outputs/apk/release/*.apk
 
   unit-tests:
-    name: Unit tests (separate job, never blocks the APK)
+    name: Android unit tests
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -133,3 +146,32 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware risk_engine_test.cpp -o risk_test
           ./risk_test
+
+  # One honest verdict. The APK job can be green while a test job is red; this job makes that visible
+  # and fails, so a green APK build is never mistaken for a fully verified release.
+  verify:
+    name: Verdict (all required checks)
+    if: ${{ always() }}
+    needs: [build-apk, unit-tests, server-tests, firmware-host-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize and fail if anything is not green
+        env:
+          R_APK: ${{ needs.build-apk.result }}
+          R_UNIT: ${{ needs.unit-tests.result }}
+          R_SERVER: ${{ needs.server-tests.result }}
+          R_FW: ${{ needs.firmware-host-tests.result }}
+        run: |
+          {
+            echo "### STSMN verification"
+            echo "| Check | Result |"; echo "|---|---|"
+            echo "| Debug APK build | $R_APK |"
+            echo "| Android unit tests | $R_UNIT |"
+            echo "| Realtime server tests + npm audit | $R_SERVER |"
+            echo "| ESP32 risk-engine host tests | $R_FW |"
+            echo
+            echo "Not covered by CI: physical-phone WebView/3D globe, ESP32 hardware, release minification run, globe browser smoke test (tests/globe)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          for r in "$R_APK" "$R_UNIT" "$R_SERVER" "$R_FW"; do
+            if [ "$r" != "success" ]; then echo "::error::At least one required check is $r - do not treat this build as verified"; exit 1; fi
+          done

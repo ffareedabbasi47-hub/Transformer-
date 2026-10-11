@@ -1,9 +1,5 @@
 package com.stsmn.monitor.ui
 
-import android.content.Context
-import android.content.Intent
-import android.net.Uri
-import android.widget.Toast
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -74,31 +70,6 @@ import kotlin.random.Random
 enum class MapViewMode {
     GLOBE_3D,    // 3D Space Orbit View
     STREET_2D,   // 5-Feet Street & Road Level Map (OpenStreetMap down to building level)
-}
-
-/**
- * Opens 360° Google Street View panorama for the given GPS coordinates.
- * Tries the official Google Street View intent first; falls back to Google Maps web 360° panorama in browser.
- */
-fun openStreetView(context: Context, lat: Double, lng: Double) {
-    try {
-        val uri = Uri.parse("google.streetview:cbll=$lat,$lng")
-        val intent = Intent(Intent.ACTION_VIEW, uri).apply {
-            setPackage("com.google.android.apps.maps")
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
-    } catch (e: Exception) {
-        try {
-            val webUri = Uri.parse("https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=$lat,$lng")
-            val webIntent = Intent(Intent.ACTION_VIEW, webUri).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            }
-            context.startActivity(webIntent)
-        } catch (e2: Exception) {
-            Toast.makeText(context, "Location: $lat, $lng", Toast.LENGTH_SHORT).show()
-        }
-    }
 }
 
 /**

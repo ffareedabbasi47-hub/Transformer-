@@ -45,21 +45,17 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Rounded surface card used everywhere for a consistent look. */
+/** Glass card used everywhere for a consistent look. Pass [container] (a status colour) to tint it. */
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
-    container: Color = MaterialTheme.colorScheme.surface,
+    container: Color = Color.Unspecified,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = container),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-    ) {
-        Column(Modifier.padding(16.dp), content = content)
-    }
+    val shape = RoundedCornerShape(20.dp)
+    val glassModifier = if (container == Color.Unspecified) modifier.fillMaxWidth().glass(shape)
+    else modifier.fillMaxWidth().glass(shape, tint = container, strength = 0.14f)
+    Column(glassModifier.padding(16.dp), content = content)
 }
 
 @Composable

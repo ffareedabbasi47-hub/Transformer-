@@ -1,6 +1,7 @@
 package com.stsmn.monitor.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -146,7 +147,8 @@ private fun HeroCard(live: LiveSnapshot, onConnect: () -> Unit) {
     }
     Box(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
-            .background(Brush.linearGradient(listOf(color.copy(alpha = 0.95f), color.copy(alpha = 0.45f), MaterialTheme.colorScheme.surface))),
+            .background(Brush.linearGradient(listOf(color.copy(alpha = 0.95f), color.copy(alpha = 0.45f), MaterialTheme.colorScheme.surface)))
+            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.06f))), RoundedCornerShape(22.dp)),
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {

@@ -66,6 +66,7 @@ dependencies {
     implementation("androidx.compose.material:material-icons-core")         // tab icons
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1") // polling loop / Flow
     implementation("com.squareup.okhttp3:okhttp:4.12.0")                      // realtime WebSocket to the STSMN server (wss://)
+    implementation("androidx.webkit:webkit:1.11.0")                          // WebViewAssetLoader: serves the bundled 3D globe over https (no file:// access)
     implementation("org.osmdroid:osmdroid-android:6.1.18")                  // Live Map (OpenStreetMap, no API key)
 
     testImplementation("junit:junit:4.13.2")

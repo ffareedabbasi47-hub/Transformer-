@@ -20,7 +20,12 @@ import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,9 +48,9 @@ import com.stsmn.monitor.domain.MapDevices
 
 /** Bottom bar shows 5 tabs (Material guidance). SENSORS / DIAGNOSTICS / USER are sub-screens opened from Home / Settings. */
 private enum class Tab(val label: String, val icon: ImageVector?, val parent: Tab?) {
-    DASHBOARD("Dashboard", Icons.Filled.Home, null),
+    DASHBOARD("Home", Icons.Filled.Home, null),
     HISTORY("History", Icons.Filled.DateRange, null),
-    DIAGNOSTICS("Diagnostics", Icons.Filled.Build, null),
+    DIAGNOSTICS("Health", Icons.Filled.Build, null),
     MAP("Map", Icons.Filled.Place, null),   // contains a Map | Fleet list switch
     SETTINGS("Settings", Icons.Filled.Settings, null),
     SENSORS("Sensor Data", null, DASHBOARD),
@@ -60,7 +65,7 @@ fun StsmnApp(vm: MainViewModel) {
     val events by vm.events.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
-    var showFleetList by rememberSaveable { mutableStateOf(false) }
+    var mapMode by rememberSaveable { mutableIntStateOf(0) } // 0 = flat map, 1 = 3D globe, 2 = all transformers
     val nowElapsed by rememberElapsedNow()
     var showSplash by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(Unit) { delay(1300); showSplash = false }
@@ -80,15 +85,29 @@ fun StsmnApp(vm: MainViewModel) {
         // Back from a sub-screen returns to its parent tab instead of closing the app.
         BackHandler(enabled = current.parent != null) { tab = current.parent!!.ordinal }
 
+        GlassBackground {
         Scaffold(
+            containerColor = Color.Transparent,
             bottomBar = {
-                NavigationBar {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                    tonalElevation = 0.dp,
+                ) {
                     Tab.values().filter { it.icon != null }.forEach { t ->
                         NavigationBarItem(
                             selected = current == t || current.parent == t,
                             onClick = { tab = t.ordinal },
                             icon = { Icon(t.icon!!, contentDescription = t.label) },
-                            label = { Text(t.label) },
+                            // Short one-line labels: never wrapped or cut off on small phones.
+                            label = { Text(t.label, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Clip, softWrap = false) },
+                            alwaysShowLabel = true,
+                            colors = NavigationBarItemDefaults.colors(
+                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                selectedTextColor = MaterialTheme.colorScheme.primary,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
                         )
                     }
                 }
@@ -110,16 +129,23 @@ fun StsmnApp(vm: MainViewModel) {
                             onOpenSensors = { tab = Tab.SENSORS.ordinal }, onOpenDiagnostics = { tab = Tab.DIAGNOSTICS.ordinal },
                         )
                     Tab.MAP -> Column(Modifier.fillMaxSize()) {
-                        MapListSwitch(showFleetList, onChange = { showFleetList = it })
+                        MapModeSwitch(mapMode, onChange = { mapMode = it })
                         Box(Modifier.weight(1f)) {
-                            if (showFleetList) FleetScreen(
-                                devices, fleet, settings.cloudEnabled,
-                                onOpenOnMap = { id -> selectedId = id; showFleetList = false },
-                                onOpenSettings = { tab = Tab.SETTINGS.ordinal },
-                            ) else MapScreen(
-                                devices, fleet, settings.cloudEnabled, selectedId,
-                                onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
-                            )
+                            when (mapMode) {
+                                2 -> FleetScreen(
+                                    devices, fleet, settings.cloudEnabled,
+                                    onOpenOnMap = { id -> selectedId = id; mapMode = 1 },
+                                    onOpenSettings = { tab = Tab.SETTINGS.ordinal },
+                                )
+                                1 -> GlobeScreen(
+                                    devices, fleet, settings.cloudEnabled, selectedId,
+                                    onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
+                                )
+                                else -> MapScreen(
+                                    devices, fleet, settings.cloudEnabled, selectedId,
+                                    onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
+                                )
+                            }
                         }
                     }
                     Tab.HISTORY -> HistoryScreen(live, events, onClear = vm::clearHistory)
@@ -142,16 +168,18 @@ fun StsmnApp(vm: MainViewModel) {
               }
             }
         }
+        } // GlassBackground
     }
 }
 
-/** Two big buttons: live map or the list of every transformer (same data, two views). */
+/** Three views of the same live data: flat map, 3D globe, list of every transformer. */
 @Composable
-private fun MapListSwitch(showList: Boolean, onChange: (Boolean) -> Unit) {
+private fun MapModeSwitch(mode: Int, onChange: (Int) -> Unit) {
+    val names = listOf("Map", "3D Globe", "All")
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (!showList) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("Map") }
-        else OutlinedButton(onClick = { onChange(false) }, modifier = Modifier.weight(1f)) { Text("Map") }
-        if (showList) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text("All transformers") }
-        else OutlinedButton(onClick = { onChange(true) }, modifier = Modifier.weight(1f)) { Text("All transformers") }
+        names.forEachIndexed { i, n ->
+            if (i == mode) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(n, maxLines = 1, softWrap = false) }
+            else OutlinedButton(onClick = { onChange(i) }, modifier = Modifier.weight(1f)) { Text(n, maxLines = 1, softWrap = false) }
+        }
     }
 }

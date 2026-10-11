@@ -50,3 +50,16 @@ Verified by `server/test/server.test.js` (8 tests, all pass in this sandbox):
 4. Decide on #3 (restrict cleartext to the ESP32 address).
 5. Per-user viewer accounts, token expiry, audit log.
 6. Independent hardware protection; this is a demo, not a certified transformer protection system.
+
+## Addendum: 3D globe and Street View (WebView)
+
+| Item | Decision |
+|---|---|
+| WebView loads only the bundled page via `WebViewAssetLoader` (`https://appassets.androidplatform.net/assets/globe/`) | `file://` and content access disabled; every navigation away from the page is blocked |
+| Page CSP | `script-src 'self'` (no inline script, no eval), tiles over https only |
+| Data into the page | Built with `org.json` from validated numbers and IDs matching `^[A-Z0-9][A-Z0-9-]{1,23}$`; markers are created with `textContent`, never `innerHTML` |
+| JS to app bridge | Two methods only (`onSelect`, `onReady`); the ID is re-validated in Kotlin |
+| Street View | Intent to the Google Maps app / https link with validated coordinates; no API key stored |
+| Third-party tiles | Esri World Imagery, OpenStreetMap, AWS terrain: device positions are NOT sent to them, only tile requests |
+
+Verified: the page was run in headless Chromium (markers drawn, hostile ID rejected, no JS errors). Not verified: the Kotlin side (compiled only by CI) and a real phone WebView with real tiles. Check Esri's and OSM's tile usage terms before heavy or public use.

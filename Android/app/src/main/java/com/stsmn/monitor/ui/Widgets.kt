@@ -1,12 +1,13 @@
 package com.stsmn.monitor.ui
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -27,7 +28,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -44,6 +48,52 @@ fun rememberElapsedNow(periodMs: Long = 1000L): State<Long> = produceState(initi
     while (true) { value = SystemClock.elapsedRealtime(); delay(periodMs) }
 }
 
+/**
+ * Glassmorphism without a blur API (works on every Android version): a translucent tinted gradient, a bright
+ * top-left edge and a thin light border over the soft glow background from [GlassBackground].
+ */
+@Composable
+fun Modifier.glass(
+    shape: Shape = RoundedCornerShape(20.dp),
+    tint: Color = MaterialTheme.colorScheme.onSurface,
+    strength: Float = 0.07f,
+): Modifier {
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val s = if (dark) strength else strength * 0.7f
+    return this
+        .clip(shape)
+        .background(Brush.linearGradient(listOf(tint.copy(alpha = s + 0.05f), tint.copy(alpha = s * 0.55f))), shape)
+        .border(
+            1.dp,
+            Brush.linearGradient(listOf(Color.White.copy(alpha = if (dark) 0.30f else 0.9f), Color.White.copy(alpha = if (dark) 0.05f else 0.25f))),
+            shape,
+        )
+}
+
+/** App-wide backdrop: deep navy with two soft colour glows, so the glass cards have something to refract. */
+@Composable
+fun GlassBackground(content: @Composable () -> Unit) {
+    val bg = MaterialTheme.colorScheme.background
+    val dark = bg.luminance() < 0.5f
+    Box(Modifier.fillMaxSize().background(bg)) {
+        Canvas(Modifier.fillMaxSize()) {
+            drawRect(
+                Brush.radialGradient(
+                    listOf(Color(0xFF1B63C9).copy(alpha = if (dark) 0.38f else 0.20f), Color.Transparent),
+                    center = Offset(size.width * 0.12f, size.height * 0.04f), radius = size.width * 0.95f,
+                ),
+            )
+            drawRect(
+                Brush.radialGradient(
+                    listOf(Color(0xFF00B8D9).copy(alpha = if (dark) 0.22f else 0.12f), Color.Transparent),
+                    center = Offset(size.width * 0.98f, size.height * 0.55f), radius = size.width * 0.85f,
+                ),
+            )
+        }
+        content()
+    }
+}
+
 /** Round icon badge used on tiles. [glyph] is an emoji so no icon library is needed. */
 @Composable
 fun GlyphBadge(glyph: String, color: Color, size: Int = 38) {
@@ -53,15 +103,10 @@ fun GlyphBadge(glyph: String, color: Color, size: Int = 38) {
     ) { Text(glyph, fontSize = (size * 0.5f).sp) }
 }
 
-/** Mockup-style tile: badge on the left, label + value on the right. */
+/** Mockup-style glass tile: badge on the left, label + value on the right. */
 @Composable
 fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimmed: Boolean, modifier: Modifier = Modifier, sub: String? = null) {
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
-    ) {
+    Box(modifier.glass(RoundedCornerShape(18.dp))) {
         Row(
             Modifier.padding(12.dp).alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,
@@ -69,8 +114,8 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
         ) {
             GlyphBadge(glyph, accent)
             Column {
-                Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(value, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = accent)
+                Text(label, fontSize = 11.sp, letterSpacing = 0.3.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                Text(value, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = accent, maxLines = 1)
                 if (sub != null) Text(sub, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -81,24 +126,19 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
 @Composable
 fun StateToggle(label: String, on: Boolean?, onColor: Color, offColor: Color, modifier: Modifier = Modifier, dimmed: Boolean = false) {
     val color = when (on) { true -> onColor; false -> offColor; null -> StsmnColors.Stale }
-    Card(
-        modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f)),
-    ) {
+    Box(modifier.glass(RoundedCornerShape(18.dp))) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp).alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Column {
-                Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(when (on) { true -> "ON"; false -> "OFF"; null -> "—" }, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = color)
+                Text(label, fontSize = 11.sp, letterSpacing = 0.3.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(when (on) { true -> "ON"; false -> "OFF"; null -> "—" }, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = color)
             }
-            Box(Modifier.size(width = 44.dp, height = 24.dp).clip(RoundedCornerShape(50)).background(color.copy(alpha = 0.25f)).padding(3.dp)) {
+            Box(Modifier.size(width = 48.dp, height = 26.dp).clip(RoundedCornerShape(50)).background(color.copy(alpha = 0.28f)).padding(3.dp)) {
                 Box(
-                    Modifier.size(18.dp).clip(CircleShape).background(color)
+                    Modifier.size(20.dp).clip(CircleShape).background(color)
                         .align(if (on == true) Alignment.CenterEnd else Alignment.CenterStart),
                 )
             }

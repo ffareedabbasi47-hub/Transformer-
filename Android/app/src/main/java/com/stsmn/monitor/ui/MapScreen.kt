@@ -288,7 +288,7 @@ private fun DisposableEffectKey(key1: Any?, key2: Any?, key3: Any? = null, block
 }
 
 @Composable
-private fun SummaryBar(devices: List<MapDevice>, fleet: FleetState, cloudEnabled: Boolean) {
+internal fun SummaryBar(devices: List<MapDevice>, fleet: FleetState, cloudEnabled: Boolean, title: String = "LIVE MAP") {
     val emergencies = devices.count { it.state == MarkerState.EMERGENCY }
     val warnings = devices.count { it.state == MarkerState.WARNING }
     val safe = devices.count { it.state == MarkerState.SAFE }
@@ -297,7 +297,7 @@ private fun SummaryBar(devices: List<MapDevice>, fleet: FleetState, cloudEnabled
         Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Text("LIVE MAP", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.primary)
+        Text(title, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.primary)
         Count(emergencies, MarkerState.EMERGENCY); Count(warnings, MarkerState.WARNING)
         Count(safe, MarkerState.SAFE); Count(off, MarkerState.OFFLINE)
         if (cloudEnabled) CloudChip(fleet.cloud, fleet.publishing)
@@ -305,7 +305,7 @@ private fun SummaryBar(devices: List<MapDevice>, fleet: FleetState, cloudEnabled
 }
 
 @Composable
-private fun Count(n: Int, state: MarkerState) {
+internal fun Count(n: Int, state: MarkerState) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.alpha(if (n == 0) 0.45f else 1f)) {
         Box(Modifier.size(9.dp).clip(CircleShape).background(markerColor(state)))
         Text("$n", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
@@ -313,7 +313,7 @@ private fun Count(n: Int, state: MarkerState) {
 }
 
 @Composable
-private fun Banner(text: String, color: Color) {
+internal fun Banner(text: String, color: Color) {
     Box(Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)).padding(horizontal = 10.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(color))
@@ -323,7 +323,7 @@ private fun Banner(text: String, color: Color) {
 }
 
 @Composable
-private fun Legend() {
+internal fun Legend() {
     Column(
         Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -355,6 +355,12 @@ fun DeviceCard(d: MapDevice, onClose: (() -> Unit)?, modifier: Modifier = Modifi
             }
             Pill(d.state.label, color)
             if (onClose != null) TextButton(onClick = onClose) { Text("Close") }
+        }
+        if (d.hasLocation) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            OutlinedButton(onClick = { openStreetView(ctx, d.lat!!, d.lng!!) }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                Text("Open Street View")
+            }
         }
         Column(Modifier.verticalScroll(rememberScrollState())) {
             InfoRow("Source", if (d.isLocal) "This phone (direct ESP32)" else "Realtime server")

@@ -21,14 +21,16 @@ ONE transformer, ONE marker, Uttar Pradesh. No multi-transformer list.
 | Real installation coordinates | DEMO marker until you enter them in Settings -> Site location |
 | ESP32 address | Firmware now fixes the access-point address with `WiFi.softAPConfig` to `192.168.4.1` (`WIFI_AP_IP` in `config.h`); the Serial Monitor prints the real one at boot. Change both if you want another address |
 | GPS module | PDF lists NEO-6M as optional phase 2; the firmware has no GPS code and the JSON contract is unchanged, so GPS is not used |
-| Internet for map tiles | **Conflicts with the PDF line "Internet dependency: none for exhibition core".** See below |
+| Internet for map tiles | **Resolved with Option A:** standalone offline-capable dark 3D Earth base. Remote satellite/street tiles are optional enhancements. |
 
-## Internet and the map (important)
-Map *tiles* are downloaded from OpenStreetMap, so the map background needs internet. Everything else (marker, data, alerts, protection)
-does not. Your phone can use **mobile data** for tiles while its Wi-Fi is connected to the ESP32 (the app sends the ESP32 requests over
-Wi-Fi explicitly). For a no-internet exhibition: open the Map tab once at home on internet and zoom/pan over Uttar Pradesh and the
-site; tiles are cached in app storage (up to 200 MB) and reused offline. Without tiles the map area is blank, but the marker, label and
-detail card still work and a banner says so. OSM's tile policy allows light use like a school demo, not bulk downloading.
+## 3D Earth (Option A) and Internet
+The default **3D Earth** is 100% standalone and offline-capable:
+- Bundled offline vector continents, latitude/longitude graticules, Uttar Pradesh monitoring sector, and regional power transmission lines.
+- Transformer markers display live telemetry (voltage, current, temperature, risk, alerts) directly on the 3D globe.
+- **Zero internet dependency:** operates perfectly when connected directly to the ESP32 Wi-Fi SoftAP (`STSMN-TR001`).
+- **Remote imagery enhancement (Satellite / Streets):** when mobile data or internet is available, remote high-resolution imagery can be toggled on demand. If offline or if tiles fail, the dark Earth base continues to render seamlessly without disruption or error states.
+
+For the secondary flat map (osmdroid), tiles can be cached in app storage for offline use.
 
 ## Build
 ```

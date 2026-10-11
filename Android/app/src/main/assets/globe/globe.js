@@ -1,5 +1,12 @@
 (function () {
   'use strict';
+  function report(m) { try { if (window.AndroidBridge && window.AndroidBridge.onError) window.AndroidBridge.onError(String(m)); } catch (e) {} }
+  window.addEventListener('error', function (e) { report('JS: ' + (e && e.message)); });
+  window.addEventListener('unhandledrejection', function (e) { report('JS: ' + (e && e.reason)); });
+  try {
+    var c = document.createElement('canvas');
+    if (!(c.getContext('webgl2') || c.getContext('webgl'))) { report('WebGL not supported on this phone'); return; }
+  } catch (e) { report('WebGL check failed'); return; }
   // ---- constants -------------------------------------------------------------------------
   var COLORS = { SAFE: '#2ECC71', WARNING: '#FFD21F', EMERGENCY: '#E5484D', STALE: '#8A94A6', OFFLINE: '#8A94A6' };
   var ID_RE = /^[A-Z0-9][A-Z0-9-]{1,23}$/;

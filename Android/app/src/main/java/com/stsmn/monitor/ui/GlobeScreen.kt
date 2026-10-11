@@ -11,6 +11,7 @@ import android.webkit.WebViewClient
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,10 +56,15 @@ internal fun globeJson(devices: List<MapDevice>): String {
     return arr.toString()
 }
 
-private class GlobeBridge(val onSelect: (String?) -> Unit, val onReady: () -> Unit) {
-    @JavascriptInterface fun onSelect(id: String?) { if (id == null || ID_RE.matches(id)) post { onSelect(id) } }
-    @JavascriptInterface fun onReady() { post { onReady() } }
-    private fun post(block: () -> Unit) { android.os.Handler(android.os.Looper.getMainLooper()).post(block) }
+private class GlobeBridge(
+    private val selectCb: (String?) -> Unit,
+    private val readyCb: () -> Unit,
+    private val errorCb: (String) -> Unit,
+) {
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    @JavascriptInterface fun onSelect(id: String?) { if (id == null || ID_RE.matches(id)) handler.post { selectCb(id) } }
+    @JavascriptInterface fun onReady() { handler.post { readyCb() } }
+    @JavascriptInterface fun onError(msg: String?) { handler.post { errorCb((msg ?: "error").take(200)) } }
 }
 
 /** 3D globe: satellite imagery on a spinning Earth, terrain relief when zoomed in, live transformer markers. */
@@ -95,7 +101,7 @@ fun GlobeScreen(
                     setSupportZoom(false)
                     setGeolocationEnabled(false)
                 }
-                addJavascriptInterface(GlobeBridge({ onSelectState.value(it) }, { ready = true }), "AndroidBridge")
+                addJavascriptInterface(GlobeBridge({ onSelectState.value(it) }, { ready = true }, { failed = it }), "AndroidBridge")
                 webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                         loader.shouldInterceptRequest(request.url)
@@ -129,6 +135,10 @@ fun GlobeScreen(
         return
     }
 
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(15_000)
+        if (!ready && failed == null) failed = "Globe did not start (WebView or WebGL not available on this phone)"
+    }
     val json = remember(devices) { globeJson(devices) }
     LaunchedEffect(ready, json) { if (ready) view.evaluateJavascript("stsmn.setDevices($json)", null) }
     LaunchedEffect(ready, selectedId) {
@@ -168,11 +178,11 @@ fun GlobeScreen(
 
         Column(Modifier.align(Alignment.BottomCenter).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { view.evaluateJavascript("stsmn.fitAll()", null) }, enabled = devices.any { it.hasLocation }) { Text("Show all") }
-                OutlinedButton(onClick = { satellite = !satellite; view.evaluateJavascript("stsmn.setStyle('${if (satellite) "sat" else "street"}')", null) }) {
-                    Text(if (satellite) "Street map" else "Satellite")
+                Button(onClick = { view.evaluateJavascript("stsmn.fitAll()", null) }, enabled = devices.any { it.hasLocation }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Show all", fontSize = 13.sp, maxLines = 1, softWrap = false) }
+                OutlinedButton(onClick = { satellite = !satellite; view.evaluateJavascript("stsmn.setStyle('${if (satellite) "sat" else "street"}')", null) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text(if (satellite) "Street map" else "Satellite", fontSize = 13.sp, maxLines = 1, softWrap = false)
                 }
-                OutlinedButton(onClick = { tilted = !tilted; view.evaluateJavascript("stsmn.tilt($tilted)", null) }) { Text(if (tilted) "Flat" else "Tilt 3D") }
+                OutlinedButton(onClick = { tilted = !tilted; view.evaluateJavascript("stsmn.tilt($tilted)", null) }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (tilted) "Flat" else "Tilt 3D", fontSize = 13.sp, maxLines = 1, softWrap = false) }
             }
             if (selected != null) DeviceCard(selected, onClose = { onSelect(null) }, modifier = Modifier.heightIn(max = 300.dp))
             Text(

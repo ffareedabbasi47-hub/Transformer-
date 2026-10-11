@@ -66,10 +66,38 @@ import com.stsmn.monitor.domain.MapDevice
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+import org.json.JSONArray
+import org.json.JSONObject
 
 enum class MapViewMode {
     GLOBE_3D,    // 3D Space Orbit View
     STREET_2D,   // 5-Feet Street & Road Level Map (OpenStreetMap down to building level)
+}
+
+fun globeJson(devices: List<MapDevice>): String {
+    val array = JSONArray()
+    devices.filter { it.hasLocation }.forEach { device ->
+        val obj = JSONObject()
+        obj.put("id", device.id)
+        obj.put("name", device.name)
+        obj.put("lat", device.lat)
+        obj.put("lng", device.lng)
+        obj.put("state", device.state.name)
+        obj.put("demo", device.demoLocation)
+        obj.put("isLive", device.isLive)
+        obj.put("risk", device.risk ?: 0)
+        obj.put("temp", device.temperature ?: 0.0)
+        obj.put("volt", device.voltage ?: 0.0)
+        obj.put("amp", device.current ?: 0.0)
+        obj.put("smoke", device.smoke ?: false)
+        obj.put("flame", device.flame ?: false)
+        obj.put("oil", device.oilLevel ?: 0)
+        obj.put("relay", device.relay ?: false)
+        obj.put("alarm", device.alarm ?: false)
+        obj.put("ageMs", device.ageMs ?: 0L)
+        array.put(obj)
+    }
+    return array.toString()
 }
 
 /**

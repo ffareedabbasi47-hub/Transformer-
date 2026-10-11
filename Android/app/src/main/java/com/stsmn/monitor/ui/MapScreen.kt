@@ -423,8 +423,22 @@ fun DeviceCard(d: MapDevice, onClose: (() -> Unit)?, modifier: Modifier = Modifi
         }
         if (d.hasLocation) {
             val ctx = androidx.compose.ui.platform.LocalContext.current
-            OutlinedButton(onClick = { openStreetView(ctx, d.lat!!, d.lng!!) }, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) {
-                Text("Open Street View")
+            Row(
+                Modifier.fillMaxWidth().padding(top = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Button(
+                    onClick = { openGoogleEarth(ctx, d.lat!!, d.lng!!) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("🌍 Google Earth")
+                }
+                OutlinedButton(
+                    onClick = { openStreetView(ctx, d.lat!!, d.lng!!) },
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text("📸 Street View")
+                }
             }
         }
         Column(Modifier.verticalScroll(rememberScrollState())) {

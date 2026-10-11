@@ -1,6 +1,7 @@
 package com.stsmn.monitor.ui
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -76,49 +77,20 @@ import com.stsmn.monitor.domain.MapDevice
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
-import org.json.JSONArray
-import org.json.JSONObject
 
-enum class MapViewMode {
-    GLOBE_3D,    // 3D Space & Earth Orbit Engine
-    STREET_2D,   // 2D Street Map (OpenStreetMap)
-}
-
-fun globeJson(devices: List<MapDevice>): String {
-    val array = JSONArray()
-    devices.filter { it.hasLocation }.forEach { device ->
-        val obj = JSONObject()
-        obj.put("id", device.id)
-        obj.put("name", device.name)
-        obj.put("lat", device.lat)
-        obj.put("lng", device.lng)
-        obj.put("state", device.state.name)
-        obj.put("demo", device.demoLocation)
-        obj.put("isLive", device.isLive)
-        obj.put("risk", device.risk ?: 0)
-        obj.put("temp", device.temperature ?: 0.0)
-        obj.put("volt", device.voltage ?: 0.0)
-        obj.put("amp", device.current ?: 0.0)
-        obj.put("smoke", device.smoke ?: false)
-        obj.put("flame", device.flame ?: false)
-        obj.put("oil", device.oilLevel ?: 0)
-        obj.put("relay", device.relay ?: false)
-        obj.put("alarm", device.alarm ?: false)
-        obj.put("ageMs", device.ageMs ?: 0L)
-        array.put(obj)
-    }
-    return array.toString()
+enum class GlobeScale {
+    SPACE,        // 3D Space Orbit View
+    STREET_MAP,   // Real 2D Street & Road Map (OpenStreetMap with real roads down to 5-feet)
 }
 
 /**
- * Authentic 3D Earth Engine with Progressive Multi-Level Detail (Google Earth Style):
- * - Smooth continuous zoom from Space (1x) down to Substation & Transformer level (25x) - Zero sudden popping!
- * - Interactive Transformer ID Search bar with instant camera fly-to animation!
- * - Level 1 (Space Orbit): Atmospheric Rayleigh halo, ocean specular reflection, continents, night city lights.
- * - Level 2 (Subcontinent): Country boundaries, Indian subcontinent, Ganga & Yamuna rivers, major metros.
- * - Level 3 (UP Regional Power Grid): Uttar Pradesh state border, 400kV & 220kV transmission corridors, district nodes.
- * - Level 4 (Substation & Transformers): Substation yard layout, live voltage/temp badges, pulsing radar beacons!
- * - Direct Google Earth 3D launcher intent button (opens official com.google.earth app at exact transformer coordinates).
+ * Unified 3D Earth Engine with Real 2D Street Map Embedded Inside:
+ * - One seamless experience: Zoom from space orbit directly into real roads, streets, and buildings down to 5-feet.
+ * - Real 2D Map is embedded directly into the 3D globe system (zero fake feeling!).
+ * - Interactive Transformer ID Search bar with instant fly-to camera.
+ * - Floating 3D Mini-Globe (Orbit Inset) keeps the live rotating 3D Earth visible while browsing real streets.
+ * - Official Google Earth 3D app launcher intent.
+ * - 100% Offline capable with cached tiles.
  */
 @Composable
 fun GlobeScreen(
@@ -131,81 +103,23 @@ fun GlobeScreen(
     onUseFlatMap: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
-    var viewMode by remember { mutableStateOf(MapViewMode.GLOBE_3D) }
+    var viewScale by remember { mutableStateOf(GlobeScale.SPACE) }
+    var deepZoomRequested by remember { mutableStateOf(false) }
 
-    // If user explicitly switched to 2D Street Map (OpenStreetMap)
-    if (viewMode == MapViewMode.STREET_2D) {
-        Box(Modifier.fillMaxSize()) {
-            MapScreen(
-                devices = devices,
-                fleet = fleet,
-                cloudEnabled = cloudEnabled,
-                selectedId = selectedId,
-                onSelect = onSelect,
-                onOpenSettings = onOpenSettings,
-                initialDeepZoom = false, // Natural zoom level without sudden forced jump
-            )
-
-            // Floating Button to return to 3D Space Orbit
-            Box(
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 12.dp, end = 12.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Color(0xFF0F172A).copy(alpha = 0.94f))
-                    .clickable { viewMode = MapViewMode.GLOBE_3D }
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("🌍", fontSize = 14.sp)
-                    Text(
-                        "3D Globe",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                    )
-                }
-            }
-        }
-        return
-    }
-
-    // ----------------- 3D Spherical Earth Mode -----------------
+    // Camera State for 3D Space Orbit
     var yaw by remember { mutableFloatStateOf(80.95f) }
     var pitch by remember { mutableFloatStateOf(24.0f) }
     var zoom by remember { mutableFloatStateOf(1.0f) }
     var isSpinning by remember { mutableStateOf(true) }
 
-    // Smooth Camera Flight Interpolation
-    var targetYaw by remember { mutableFloatStateOf(80.95f) }
-    var targetPitch by remember { mutableFloatStateOf(24.0f) }
-    var targetZoom by remember { mutableFloatStateOf(1.0f) }
-    var isFlying by remember { mutableStateOf(false) }
-
-    fun flyTo(toYaw: Float, toPitch: Float, toZoom: Float) {
-        targetYaw = toYaw
-        targetPitch = toPitch.coerceIn(-75f, 75f)
-        targetZoom = toZoom.coerceIn(0.65f, 25.0f)
-        isSpinning = false
-        isFlying = true
-    }
-
-    LaunchedEffect(isFlying) {
-        if (!isFlying) return@LaunchedEffect
-        while (isFlying) {
+    // Mini-globe continuous rotation
+    var miniYaw by remember { mutableFloatStateOf(80.95f) }
+    LaunchedEffect(Unit) {
+        while (true) {
             withFrameMillis {
-                val dYaw = targetYaw - yaw
-                val dPitch = targetPitch - pitch
-                val dZoom = targetZoom - zoom
-                if (kotlin.math.abs(dYaw) < 0.15f && kotlin.math.abs(dPitch) < 0.15f && kotlin.math.abs(dZoom) < 0.05f) {
-                    yaw = targetYaw
-                    pitch = targetPitch
-                    zoom = targetZoom
-                    isFlying = false
-                } else {
-                    yaw += dYaw * 0.16f
-                    pitch += dPitch * 0.16f
-                    zoom += dZoom * 0.16f
+                miniYaw = (miniYaw + 0.35f) % 360f
+                if (isSpinning && viewScale == GlobeScale.SPACE) {
+                    yaw = (yaw + 0.20f) % 360f
                 }
             }
         }
@@ -213,20 +127,9 @@ fun GlobeScreen(
 
     // Search state
     var searchQuery by remember { mutableStateOf("") }
-
     val selected = devices.firstOrNull { it.id == selectedId }
 
-    // Auto-Spin Loop when idle in space view
-    LaunchedEffect(isSpinning) {
-        if (!isSpinning) return@LaunchedEffect
-        while (true) {
-            withFrameMillis {
-                yaw = (yaw + 0.20f) % 360f
-            }
-        }
-    }
-
-    // Animated telemetry radar wave at site
+    // Animated radar ping
     val transition = rememberInfiniteTransition(label = "beacon")
     val radarPing by transition.animateFloat(
         initialValue = 0f,
@@ -243,186 +146,195 @@ fun GlobeScreen(
         }
     }
 
-    BoxWithConstraints(
-        Modifier
-            .fillMaxSize()
-            .background(Color(0xFF030712))
-            .pointerInput(Unit) {
-                detectTransformGestures { _, pan, gestureZoom, _ ->
-                    isSpinning = false
-                    isFlying = false
-                    yaw = (yaw - pan.x * (0.35f / zoom)) % 360f
-                    pitch = (pitch + pan.y * (0.35f / zoom)).coerceIn(-75f, 75f)
-                    // Smooth, continuous zoom from 0.65x up to 25.0x without sudden forced jumps!
-                    zoom = (zoom * gestureZoom).coerceIn(0.65f, 25.0f)
-                }
-            }
-            .pointerInput(Unit) {
-                detectTapGestures {
-                    searchQuery = ""
-                    onSelect(null)
-                }
-            },
-    ) {
-        val widthPx = constraints.maxWidth.toFloat()
-        val heightPx = constraints.maxHeight.toFloat()
-        val cx = widthPx / 2f
-        val cy = heightPx / 2f
-        val baseR = minOf(widthPx, heightPx) * 0.36f
-        val R = baseR * zoom
-
-        val density = LocalDensity.current
-
-        // 1. Native Photorealistic 3D Earth Canvas (Google Earth Visuals)
-        Canvas(Modifier.fillMaxSize()) {
-            drawSpaceBackground(widthPx, heightPx, stars)
-            drawGlobeSphere(cx, cy, R, yaw, pitch, zoom, radarPing)
-        }
-
-        // 2. Landmarks & City Nodes (Progressive Level of Detail)
-        MAP_LANDMARKS.forEach { lm ->
-            if (zoom in lm.minZoom..lm.maxZoom) {
-                val proj = project3D(lm.lat, lm.lng, yaw, pitch)
-                if (proj.third > 0.08f) {
-                    val lx = cx + proj.first * R
-                    val ly = cy - proj.second * R
-                    Box(
+    Box(Modifier.fillMaxSize()) {
+        // Crossfade between 3D Space Orbit and Real Street Map
+        Crossfade(targetState = viewScale, animationSpec = tween(380), label = "viewScaleCrossfade") { currentScale ->
+            when (currentScale) {
+                GlobeScale.SPACE -> {
+                    // ---------------- 3D Space Orbit View ----------------
+                    BoxWithConstraints(
                         Modifier
-                            .offset {
-                                IntOffset(
-                                    (lx - with(density) { 35.dp.toPx() }).toInt(),
-                                    (ly - with(density) { 10.dp.toPx() }).toInt(),
-                                )
-                            }
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(
-                                if (lm.isCapital) Color(0xFF1E3A8A).copy(alpha = 0.88f)
-                                else if (lm.isGridHub) Color(0xFF78350F).copy(alpha = 0.88f)
-                                else Color(0xFF0F172A).copy(alpha = 0.80f),
-                            )
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
-                    ) {
-                        Text(
-                            lm.name,
-                            fontSize = if (lm.isCapital) 10.sp else 9.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = if (lm.isCapital) Color(0xFF93C5FD) else if (lm.isGridHub) Color(0xFFFDE68A) else Color(0xFFCBD5E1),
-                        )
-                    }
-                }
-            }
-        }
-
-        // 3. Transformer Live Pins on 3D Earth
-        devices.forEach { d ->
-            val lat = d.lat?.toFloat() ?: 26.85f
-            val lng = d.lng?.toFloat() ?: 80.95f
-            val proj = project3D(lat, lng, yaw, pitch)
-
-            if (proj.third > 0.08f) {
-                val screenX = cx + proj.first * R
-                val screenY = cy - proj.second * R
-
-                val isSelected = (d.id == selectedId)
-                val statusColor = markerColor(d.state)
-
-                Box(
-                    modifier = Modifier
-                        .offset {
-                            IntOffset(
-                                (screenX - with(density) { (if (zoom >= 7f) 52.dp else 40.dp).toPx() }).toInt(),
-                                (screenY - with(density) { (if (zoom >= 7f) 62.dp else 46.dp).toPx() }).toInt(),
-                            )
-                        }
-                        .clickable { onSelect(d.id) },
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (zoom >= 7.0f) {
-                            // Rich Engineering Badge with live readings directly on 3D map!
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.95f)
-                                        else Color(0xFF0A1224).copy(alpha = 0.92f),
-                                    )
-                                    .border(
-                                        1.dp,
-                                        if (isSelected) Color.White else statusColor,
-                                        RoundedCornerShape(10.dp),
-                                    )
-                                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                            ) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                    ) {
-                                        Box(Modifier.size(6.dp).clip(CircleShape).background(statusColor))
-                                        Text(
-                                            d.label,
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            color = Color.White,
-                                        )
-                                    }
-                                    if (d.voltage != null || d.temperature != null) {
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                            modifier = Modifier.padding(top = 1.dp),
-                                        ) {
-                                            Text(
-                                                fmtVolt(d.voltage),
-                                                fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFF38BDF8),
-                                            )
-                                            Text("•", fontSize = 8.sp, color = Color(0xFF64748B))
-                                            Text(
-                                                fmtTemp(d.temperature),
-                                                fontSize = 8.5.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = StsmnColors.Safe,
-                                            )
-                                        }
+                            .fillMaxSize()
+                            .background(Color(0xFF030712))
+                            .pointerInput(Unit) {
+                                detectTransformGestures { _, pan, gestureZoom, _ ->
+                                    isSpinning = false
+                                    yaw = (yaw - pan.x * (0.35f / zoom)) % 360f
+                                    pitch = (pitch + pan.y * (0.35f / zoom)).coerceIn(-75f, 75f)
+                                    val nextZoom = zoom * gestureZoom
+                                    if (nextZoom > 2.6f) {
+                                        // Seamlessly dive through clouds into the Real Street Map!
+                                        deepZoomRequested = false
+                                        viewScale = GlobeScale.STREET_MAP
+                                    } else {
+                                        zoom = nextZoom.coerceIn(0.65f, 2.6f)
                                     }
                                 }
                             }
-                        } else {
-                            // Compact badge for space / continental scale
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.95f)
-                                        else Color(0xFF0A1224).copy(alpha = 0.88f),
-                                    )
-                                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                            ) {
-                                Text(
-                                    d.label,
-                                    fontSize = 9.sp,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (isSelected) Color.White else Color(0xFFE2E8F0),
-                                )
+                            .pointerInput(Unit) {
+                                detectTapGestures {
+                                    searchQuery = ""
+                                    onSelect(null)
+                                }
+                            },
+                    ) {
+                        val widthPx = constraints.maxWidth.toFloat()
+                        val heightPx = constraints.maxHeight.toFloat()
+                        val cx = widthPx / 2f
+                        val cy = heightPx / 2f
+                        val baseR = minOf(widthPx, heightPx) * 0.36f
+                        val R = baseR * zoom
+                        val density = LocalDensity.current
+
+                        // 3D Canvas
+                        Canvas(Modifier.fillMaxSize()) {
+                            drawSpaceBackground(widthPx, heightPx, stars)
+                            drawGlobeSphere(cx, cy, R, yaw, pitch, zoom, radarPing)
+                        }
+
+                        // Landmarks on Globe
+                        MAP_LANDMARKS.forEach { lm ->
+                            if (zoom in lm.minZoom..lm.maxZoom) {
+                                val proj = project3D(lm.lat, lm.lng, yaw, pitch)
+                                if (proj.third > 0.08f) {
+                                    val lx = cx + proj.first * R
+                                    val ly = cy - proj.second * R
+                                    Box(
+                                        Modifier
+                                            .offset {
+                                                IntOffset(
+                                                    (lx - with(density) { 35.dp.toPx() }).toInt(),
+                                                    (ly - with(density) { 10.dp.toPx() }).toInt(),
+                                                )
+                                            }
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(
+                                                if (lm.isCapital) Color(0xFF1E3A8A).copy(alpha = 0.88f)
+                                                else if (lm.isGridHub) Color(0xFF78350F).copy(alpha = 0.88f)
+                                                else Color(0xFF0F172A).copy(alpha = 0.80f),
+                                            )
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    ) {
+                                        Text(
+                                            lm.name,
+                                            fontSize = if (lm.isCapital) 10.sp else 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (lm.isCapital) Color(0xFF93C5FD) else if (lm.isGridHub) Color(0xFFFDE68A) else Color(0xFFCBD5E1),
+                                        )
+                                    }
+                                }
                             }
                         }
 
-                        // Marker Pin Core
-                        Box(
-                            modifier = Modifier
-                                .padding(top = 2.dp)
-                                .size(if (isSelected) 14.dp else 11.dp)
-                                .clip(CircleShape)
-                                .background(statusColor),
+                        // Transformer Pins on 3D Earth
+                        devices.forEach { d ->
+                            val lat = d.lat?.toFloat() ?: 26.85f
+                            val lng = d.lng?.toFloat() ?: 80.95f
+                            val proj = project3D(lat, lng, yaw, pitch)
+
+                            if (proj.third > 0.08f) {
+                                val screenX = cx + proj.first * R
+                                val screenY = cy - proj.second * R
+                                val isSelected = (d.id == selectedId)
+                                val statusColor = markerColor(d.state)
+
+                                Box(
+                                    modifier = Modifier
+                                        .offset {
+                                            IntOffset(
+                                                (screenX - with(density) { 45.dp.toPx() }).toInt(),
+                                                (screenY - with(density) { 50.dp.toPx() }).toInt(),
+                                            )
+                                        }
+                                        .clickable {
+                                            onSelect(d.id)
+                                            // Tap transformer in space -> dive directly to it on the real map!
+                                            viewScale = GlobeScale.STREET_MAP
+                                        },
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .background(
+                                                    if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.95f)
+                                                    else Color(0xFF0A1224).copy(alpha = 0.90f),
+                                                )
+                                                .padding(horizontal = 7.dp, vertical = 3.dp),
+                                        ) {
+                                            Text(
+                                                d.label,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold,
+                                                color = if (isSelected) Color.White else Color(0xFFE2E8F0),
+                                            )
+                                        }
+                                        Box(
+                                            modifier = Modifier
+                                                .padding(top = 2.dp)
+                                                .size(if (isSelected) 14.dp else 11.dp)
+                                                .clip(CircleShape)
+                                                .background(statusColor),
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                GlobeScale.STREET_MAP -> {
+                    // ---------------- Embedded Real Street Map ----------------
+                    Box(Modifier.fillMaxSize()) {
+                        MapScreen(
+                            devices = devices,
+                            fleet = fleet,
+                            cloudEnabled = cloudEnabled,
+                            selectedId = selectedId,
+                            onSelect = onSelect,
+                            onOpenSettings = onOpenSettings,
+                            initialDeepZoom = deepZoomRequested,
                         )
+
+                        // Floating 3D Mini-Globe (Orbit Inset) in the corner!
+                        Box(
+                            Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 68.dp, end = 12.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0xFF0F172A).copy(alpha = 0.95f))
+                                .border(1.2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.65f), RoundedCornerShape(16.dp))
+                                .clickable {
+                                    viewScale = GlobeScale.SPACE
+                                    isSpinning = true
+                                    zoom = 1.0f
+                                }
+                                .padding(6.dp),
+                        ) {
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Canvas(Modifier.size(54.dp)) {
+                                    val mcx = size.width / 2f
+                                    val mcy = size.height / 2f
+                                    val mr = size.minDimension * 0.40f
+                                    drawGlobeSphere(mcx, mcy, mr, miniYaw, 24.0f, 1.0f, radarPing)
+                                }
+                                Text(
+                                    "🌍 Orbit",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // 4. Top Floating Search Bar & Quick Controls
+        // ---------------- Top Persistent Search Bar ----------------
         Column(
             Modifier
                 .align(Alignment.TopCenter)
@@ -430,7 +342,6 @@ fun GlobeScreen(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            // Interactive Search Bar
             Box(
                 Modifier
                     .fillMaxWidth()
@@ -473,11 +384,21 @@ fun GlobeScreen(
                     Box(
                         Modifier
                             .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
-                            .clickable { viewMode = MapViewMode.STREET_2D }
+                            .background(
+                                if (viewScale == GlobeScale.STREET_MAP) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
+                            )
+                            .clickable {
+                                viewScale = if (viewScale == GlobeScale.SPACE) GlobeScale.STREET_MAP else GlobeScale.SPACE
+                            }
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     ) {
-                        Text("🛣️ 2D Map", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Text(
+                            if (viewScale == GlobeScale.SPACE) "🛣️ Street Map" else "🌍 3D Orbit",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                        )
                     }
                 }
             }
@@ -509,9 +430,11 @@ fun GlobeScreen(
                                 .fillMaxWidth()
                                 .clip(RoundedCornerShape(10.dp))
                                 .clickable {
-                                    flyTo(d.lng?.toFloat() ?: 80.95f, d.lat?.toFloat() ?: 26.85f, 12.0f)
                                     onSelect(d.id)
                                     searchQuery = ""
+                                    // Direct dive into the real street map at this transformer!
+                                    deepZoomRequested = false
+                                    viewScale = GlobeScale.STREET_MAP
                                 }
                                 .padding(horizontal = 10.dp, vertical = 7.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -528,34 +451,14 @@ fun GlobeScreen(
                                     )
                                 }
                             }
-                            Text("Fly ✈️", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("Inspect 🔍", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
             }
-
-            // Scale & Zoom Level Indicator Chips
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(5.dp),
-            ) {
-                ScaleChip("🌌 Space", isActive = zoom < 2.0f) {
-                    flyTo(80.95f, 24.0f, 1.0f)
-                    isSpinning = true
-                }
-                ScaleChip("🇮🇳 India", isActive = zoom in 2.0f..4.8f) {
-                    flyTo(80.95f, 24.0f, 3.2f)
-                }
-                ScaleChip("⚡ UP Grid", isActive = zoom in 4.8f..10.0f) {
-                    flyTo(80.95f, 26.85f, 7.5f)
-                }
-                ScaleChip("📍 Substation", isActive = zoom >= 10.0f) {
-                    flyTo(80.95f, 26.85f, 15.0f)
-                }
-            }
         }
 
-        // 5. Bottom Controls & Telemetry Overlay
+        // ---------------- Bottom Navigation Bar & Telemetry Card ----------------
         Column(
             Modifier
                 .align(Alignment.BottomCenter)
@@ -563,7 +466,7 @@ fun GlobeScreen(
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            // Selected Transformer Card with Google Earth 3D, 2D Street Map & 360° Street View
+            // Selected Transformer Telemetry Card
             if (selected != null) {
                 UnifiedGlobeDeviceCard(
                     d = selected,
@@ -579,12 +482,13 @@ fun GlobeScreen(
                         openGoogleEarth(ctx, lat, lng)
                     },
                     onZoomToRoads = {
-                        viewMode = MapViewMode.STREET_2D
+                        deepZoomRequested = true
+                        viewScale = GlobeScale.STREET_MAP
                     },
                 )
             }
 
-            // Floating Navigation & Action Bar
+            // Bottom Navigation Buttons
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -595,22 +499,43 @@ fun GlobeScreen(
             ) {
                 Button(
                     onClick = {
-                        flyTo(80.95f, 24.0f, 1.0f)
+                        viewScale = GlobeScale.SPACE
                         isSpinning = true
+                        zoom = 1.0f
                     },
                     modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (viewScale == GlobeScale.SPACE) MaterialTheme.colorScheme.primary else Color(0xFF1E293B),
+                    ),
                     contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
                 ) {
-                    Text("🌍 Orbit", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    Text("🌍 Space", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
 
                 Button(
-                    onClick = { viewMode = MapViewMode.STREET_2D },
+                    onClick = {
+                        deepZoomRequested = false
+                        viewScale = GlobeScale.STREET_MAP
+                    },
                     modifier = Modifier.weight(1.05f),
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (viewScale == GlobeScale.STREET_MAP) MaterialTheme.colorScheme.primary else Color(0xFF1E293B),
+                    ),
                     contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
                 ) {
-                    Text("🛣️ 2D Map", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    Text("🛣️ Roads", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                }
+
+                Button(
+                    onClick = {
+                        deepZoomRequested = true
+                        viewScale = GlobeScale.STREET_MAP
+                    },
+                    modifier = Modifier.weight(1.05f),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D9488)),
+                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
+                ) {
+                    Text("🔍 5ft Zoom", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
 
                 Button(
@@ -619,7 +544,7 @@ fun GlobeScreen(
                         val lng = selected?.lng ?: 80.9462
                         openGoogleEarth(ctx, lat, lng)
                     },
-                    modifier = Modifier.weight(1.2f),
+                    modifier = Modifier.weight(1.15f),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D4ED8)),
                     contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
                 ) {
@@ -637,49 +562,8 @@ fun GlobeScreen(
                 ) {
                     Text("📸 Pano", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
-
-                OutlinedButton(
-                    onClick = { isSpinning = !isSpinning },
-                    modifier = Modifier.weight(0.7f),
-                    contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
-                ) {
-                    Text(if (isSpinning) "⏹️" else "▶️", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
-                }
             }
-
-            Text(
-                "Pinch to zoom smoothly from orbit to substation • Search transformer above",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFF64748B),
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-            )
         }
-    }
-}
-
-@Composable
-private fun ScaleChip(
-    text: String,
-    isActive: Boolean,
-    onClick: () -> Unit,
-) {
-    Box(
-        Modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(
-                if (isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.90f)
-                else Color(0xFF0F172A).copy(alpha = 0.85f),
-            )
-            .clickable(onClick = onClick)
-            .padding(horizontal = 8.dp, vertical = 4.dp),
-    ) {
-        Text(
-            text,
-            fontSize = 10.sp,
-            fontWeight = FontWeight.Bold,
-            color = if (isActive) Color.White else Color(0xFF94A3B8),
-        )
     }
 }
 
@@ -875,51 +759,7 @@ private fun DrawScope.drawGlobeSphere(
             }
         }
 
-        // 2n. Substation Yard Layout Blueprint (at zoom >= 10.0f)
-        if (zoom >= 10.0f) {
-            val pSub = project3D(AppConfig.UP_CENTER_LAT.toFloat(), AppConfig.UP_CENTER_LNG.toFloat(), yaw, pitch)
-            if (pSub.third > 0.05f) {
-                val sx = cx + pSub.first * R
-                val sy = cy - pSub.second * R
-                val yardSize = 42f * (zoom / 10f)
-
-                // Substation Yard Fence
-                drawRect(
-                    color = Color(0x44FBBF24),
-                    topLeft = Offset(sx - yardSize, sy - yardSize),
-                    size = Size(yardSize * 2, yardSize * 2),
-                    style = Stroke(width = 1.8f),
-                )
-                // 33kV Main Busbar
-                drawLine(
-                    color = Color(0xFFFBBF24),
-                    start = Offset(sx - yardSize * 0.85f, sy - yardSize * 0.35f),
-                    end = Offset(sx + yardSize * 0.85f, sy - yardSize * 0.35f),
-                    strokeWidth = 2.6f,
-                )
-                // 11kV Feeder Bays
-                drawLine(
-                    color = Color(0xFF38BDF8),
-                    start = Offset(sx - yardSize * 0.5f, sy - yardSize * 0.35f),
-                    end = Offset(sx - yardSize * 0.5f, sy + yardSize * 0.7f),
-                    strokeWidth = 1.8f,
-                )
-                drawLine(
-                    color = Color(0xFF38BDF8),
-                    start = Offset(sx, sy - yardSize * 0.35f),
-                    end = Offset(sx, sy + yardSize * 0.7f),
-                    strokeWidth = 1.8f,
-                )
-                drawLine(
-                    color = Color(0xFF38BDF8),
-                    start = Offset(sx + yardSize * 0.5f, sy - yardSize * 0.35f),
-                    end = Offset(sx + yardSize * 0.5f, sy + yardSize * 0.7f),
-                    strokeWidth = 1.8f,
-                )
-            }
-        }
-
-        // 2o. Pulsing Telemetry Beacon at Ajrara Site (26.85°N, 80.95°E)
+        // 2n. Pulsing Telemetry Beacon at Ajrara Site (26.85°N, 80.95°E)
         val pBeacon = project3D(26.85f, 80.95f, yaw, pitch)
         if (pBeacon.third > 0.05f) {
             val bx = cx + pBeacon.first * R
@@ -936,12 +776,12 @@ private fun DrawScope.drawGlobeSphere(
             drawCircle(color = Color.White, radius = 2.2f, center = Offset(bx, by))
         }
 
-        // 2p. Night-Side City Lights (World Power Grids on Dark Hemisphere)
+        // 2o. Night-Side City Lights (World Power Grids on Dark Hemisphere)
         if (zoom < 6.0f) {
             drawNightCityLights(cx, cy, R, yaw, pitch)
         }
 
-        // 2q. Inner Atmospheric Rim Glow (Fresnel Rayleigh Effect along Sphere Limb)
+        // 2p. Inner Atmospheric Rim Glow (Fresnel Rayleigh Effect along Sphere Limb)
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
@@ -957,7 +797,7 @@ private fun DrawScope.drawGlobeSphere(
             center = Offset(cx, cy),
         )
 
-        // 2r. Spherical Shadow / Terminator (Night-Side Shading for True 3D Depth)
+        // 2q. Spherical Shadow / Terminator (Night-Side Shading for True 3D Depth)
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
@@ -1051,7 +891,6 @@ private fun DrawScope.drawGraticule(
 ) {
     val gridColor = Color(0x2838BDF8)
 
-    // Latitude Parallels
     for (lat in -60..60 step 30) {
         val path = Path()
         var started = false
@@ -1069,7 +908,6 @@ private fun DrawScope.drawGraticule(
         drawPath(path, color = gridColor, style = Stroke(width = 0.9f))
     }
 
-    // Equator (0° Latitude) in Golden Accent
     val eqPath = Path()
     var eqStarted = false
     for (lng in -180..180 step 5) {
@@ -1085,7 +923,6 @@ private fun DrawScope.drawGraticule(
     }
     drawPath(eqPath, color = Color(0x55FBBF24), style = Stroke(width = 1.4f))
 
-    // Tropic of Cancer (23.5° N - passes through India)
     val cancerPath = Path()
     var cancerStarted = false
     for (lng in -180..180 step 6) {
@@ -1101,7 +938,6 @@ private fun DrawScope.drawGraticule(
     }
     drawPath(cancerPath, color = Color(0x3838BDF8), style = Stroke(width = 1.0f))
 
-    // Longitude Meridians
     for (lng in -180..150 step 30) {
         val mPath = Path()
         var mStarted = false
@@ -1204,7 +1040,7 @@ private fun UnifiedGlobeDeviceCard(
             GlobeMetricTile("RISK", d.risk?.let { "$it/100" } ?: "--", color = color, Modifier.weight(1f))
         }
 
-        // Action Buttons: Google Earth 3D, 2D Street Map, 360° Street View
+        // Action Buttons: Google Earth 3D, 5ft Road Zoom, 360° Street View
         Row(
             Modifier
                 .fillMaxWidth()
@@ -1224,7 +1060,7 @@ private fun UnifiedGlobeDeviceCard(
                 modifier = Modifier.weight(1f),
                 contentPadding = PaddingValues(vertical = 4.dp, horizontal = 4.dp),
             ) {
-                Text("🛣️ 2D Map", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                Text("🔍 5ft Roads", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
             }
             OutlinedButton(
                 onClick = onOpenStreetView,
@@ -1272,15 +1108,12 @@ private data class MapLandmark(
 )
 
 private val MAP_LANDMARKS = listOf(
-    // Country & World Metros
     MapLandmark("New Delhi", 28.61f, 77.20f, 1.8f, 10.0f, isCapital = true),
     MapLandmark("Mumbai", 19.07f, 72.87f, 1.8f, 5.5f),
     MapLandmark("Kolkata", 22.57f, 88.36f, 1.8f, 5.5f),
     MapLandmark("Bengaluru", 12.97f, 77.59f, 1.8f, 5.5f),
     MapLandmark("NEPAL", 28.39f, 84.12f, 2.0f, 5.0f),
     MapLandmark("BANGLADESH", 23.68f, 90.35f, 2.0f, 5.0f),
-
-    // UP State & Regional Grid Nodes
     MapLandmark("⚡ Lucknow (UP Grid HQ)", 26.85f, 80.95f, 4.0f, 16.0f, isCapital = true, isGridHub = true),
     MapLandmark("⚡ Meerut (400kV Hub)", 28.98f, 77.70f, 4.5f, 16.0f, isGridHub = true),
     MapLandmark("Hapur (220kV Substation)", 28.73f, 77.78f, 6.0f, 18.0f, isGridHub = true),
@@ -1298,26 +1131,23 @@ private val MAP_LANDMARKS = listOf(
 // Power Grid Transmission Corridors (400kV & 220kV UPPTCL)
 // -----------------------------------------------------------------------------
 private val POWER_GRID_LINES_400KV = listOf(
-    listOf(Pair(77.20f, 28.61f), Pair(77.70f, 28.98f)), // Delhi <-> Meerut
-    listOf(Pair(77.70f, 28.98f), Pair(77.78f, 28.73f)), // Meerut <-> Hapur/Ajrara
-    listOf(Pair(77.20f, 28.61f), Pair(78.01f, 27.18f)), // Delhi <-> Agra
-    listOf(Pair(78.01f, 27.18f), Pair(80.33f, 26.45f)), // Agra <-> Kanpur
-    listOf(Pair(80.33f, 26.45f), Pair(80.95f, 26.85f)), // Kanpur <-> Lucknow
-    listOf(Pair(80.33f, 26.45f), Pair(81.84f, 25.43f)), // Kanpur <-> Prayagraj
-    listOf(Pair(81.84f, 25.43f), Pair(82.97f, 25.32f)), // Prayagraj <-> Varanasi
+    listOf(Pair(77.20f, 28.61f), Pair(77.70f, 28.98f)),
+    listOf(Pair(77.70f, 28.98f), Pair(77.78f, 28.73f)),
+    listOf(Pair(77.20f, 28.61f), Pair(78.01f, 27.18f)),
+    listOf(Pair(78.01f, 27.18f), Pair(80.33f, 26.45f)),
+    listOf(Pair(80.33f, 26.45f), Pair(80.95f, 26.85f)),
+    listOf(Pair(80.33f, 26.45f), Pair(81.84f, 25.43f)),
+    listOf(Pair(81.84f, 25.43f), Pair(82.97f, 25.32f)),
 )
 
 private val POWER_GRID_LINES_220KV = listOf(
-    listOf(Pair(77.78f, 28.73f), Pair(78.78f, 28.84f)), // Hapur <-> Moradabad
-    listOf(Pair(78.78f, 28.84f), Pair(79.43f, 28.37f)), // Moradabad <-> Bareilly
-    listOf(Pair(79.43f, 28.37f), Pair(80.95f, 26.85f)), // Bareilly <-> Lucknow
-    listOf(Pair(77.20f, 28.61f), Pair(77.45f, 28.67f), Pair(77.78f, 28.73f)), // Delhi <-> Ghaziabad <-> Hapur
-    listOf(Pair(78.01f, 27.18f), Pair(78.08f, 27.89f)), // Agra <-> Aligarh
+    listOf(Pair(77.78f, 28.73f), Pair(78.78f, 28.84f)),
+    listOf(Pair(78.78f, 28.84f), Pair(79.43f, 28.37f)),
+    listOf(Pair(79.43f, 28.37f), Pair(80.95f, 26.85f)),
+    listOf(Pair(77.20f, 28.61f), Pair(77.45f, 28.67f), Pair(77.78f, 28.73f)),
+    listOf(Pair(78.01f, 27.18f), Pair(78.08f, 27.89f)),
 )
 
-// -----------------------------------------------------------------------------
-// Rivers & Neighboring Country Borders
-// -----------------------------------------------------------------------------
 private val RIVER_GANGA = listOf(
     Pair(78.60f, 30.15f), Pair(78.16f, 29.95f), Pair(78.78f, 28.84f), Pair(79.50f, 27.80f),
     Pair(80.33f, 26.45f), Pair(81.84f, 25.43f), Pair(82.97f, 25.32f), Pair(85.14f, 25.60f), Pair(88.36f, 22.57f),
@@ -1340,9 +1170,6 @@ private val BORDER_BANGLADESH = listOf(
     Pair(88.5f, 26.3f), Pair(89.0f, 25.2f), Pair(89.0f, 22.0f), Pair(92.3f, 21.0f), Pair(92.5f, 23.7f), Pair(88.5f, 26.3f),
 )
 
-// -----------------------------------------------------------------------------
-// Topographical Vector Geometries (Longitude, Latitude)
-// -----------------------------------------------------------------------------
 private val NATIVE_INDIA = listOf(
     Pair(68f, 24f), Pair(70f, 21f), Pair(72f, 19f), Pair(73f, 15f), Pair(76f, 9f),
     Pair(77.5f, 8f), Pair(79.8f, 11f), Pair(80f, 13f), Pair(81f, 16f), Pair(83f, 18f),

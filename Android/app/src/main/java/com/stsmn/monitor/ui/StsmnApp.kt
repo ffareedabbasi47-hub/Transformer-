@@ -132,19 +132,15 @@ fun StsmnApp(vm: MainViewModel) {
                         MapModeSwitch(mapMode, onChange = { mapMode = it })
                         Box(Modifier.weight(1f)) {
                             when (mapMode) {
-                                2 -> FleetScreen(
+                                1 -> FleetScreen(
                                     devices, fleet, settings.cloudEnabled,
                                     onOpenOnMap = { id -> selectedId = id; mapMode = 0 },
                                     onOpenSettings = { tab = Tab.SETTINGS.ordinal },
                                 )
-                                1 -> MapScreen(
-                                    devices, fleet, settings.cloudEnabled, selectedId,
-                                    onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
-                                )
                                 else -> GlobeScreen(
                                     devices, fleet, settings.cloudEnabled, selectedId,
                                     onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
-                                    onUseFlatMap = { mapMode = 1 },
+                                    onUseFlatMap = {},
                                 )
                             }
                         }
@@ -173,10 +169,10 @@ fun StsmnApp(vm: MainViewModel) {
     }
 }
 
-/** Three views of the same live data: 3D globe map (default), flat map (backup), list of every transformer. */
+/** Two views: Unified 3D Earth Map (space orbit + real street map) and list of every transformer. */
 @Composable
 private fun MapModeSwitch(mode: Int, onChange: (Int) -> Unit) {
-    val names = listOf("3D Map", "Flat", "All")
+    val names = listOf("🌍 3D Earth Map", "📋 All Transformers")
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         names.forEachIndexed { i, n ->
             if (i == mode) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(n, maxLines = 1, softWrap = false) }

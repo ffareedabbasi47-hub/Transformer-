@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -163,6 +164,7 @@ fun MapScreen(
     selectedId: String?,
     onSelect: (String?) -> Unit,
     onOpenSettings: () -> Unit,
+    initialDeepZoom: Boolean = false,
 ) {
     val ctx = LocalContext.current
     val hasInternet by rememberHasInternet()
@@ -210,15 +212,26 @@ fun MapScreen(
     }
 
     // Focus the camera when a device is picked (from a marker or from the Fleet tab).
-    DisposableEffectKey(selected?.id, mapReady) {
+    DisposableEffectKey(selected?.id, mapReady, initialDeepZoom) {
         if (mapReady && selected != null && selected.hasLocation) {
-            mapView.controller.animateTo(GeoPoint(selected.lat!!, selected.lng!!), maxOf(mapView.zoomLevelDouble, AppConfig.MAP_CENTER_ZOOM), 600L)
+            val targetZoom = if (initialDeepZoom) AppConfig.MAP_MAX_ZOOM else maxOf(mapView.zoomLevelDouble, AppConfig.MAP_CENTER_ZOOM)
+            mapView.controller.animateTo(GeoPoint(selected.lat!!, selected.lng!!), targetZoom, 600L)
         }
     }
-    // Zoom to the whole fleet once, when the first positions are known.
+    // If deep zoom is requested without a selection, center onto first transformer or demo site at 5-feet level
+    var initialDeepDone by remember { mutableStateOf(false) }
+    DisposableEffectKey(mapReady, initialDeepZoom) {
+        if (mapReady && initialDeepZoom && !initialDeepDone) {
+            val target = devices.firstOrNull { it.hasLocation }?.let { GeoPoint(it.lat!!, it.lng!!) }
+                ?: GeoPoint(AppConfig.DEMO_LAT, AppConfig.DEMO_LNG)
+            mapView.controller.animateTo(target, AppConfig.MAP_MAX_ZOOM, 600L)
+            initialDeepDone = true
+        }
+    }
+    // Zoom to the whole fleet once, when the first positions are known (only if not deep zooming).
     var fitted by remember { mutableStateOf(false) }
     DisposableEffectKey(mapReady, devices.count { it.hasLocation }, fitted) {
-        if (mapReady && !fitted && selectedId == null && devices.any { it.hasLocation }) {
+        if (mapReady && !fitted && selectedId == null && !initialDeepZoom && devices.any { it.hasLocation }) {
             fitAll(mapView, devices); fitted = true
         }
     }
@@ -262,6 +275,52 @@ fun MapScreen(
             }
         }
 
+        // ---------------- Floating 5ft & Road Zoom Controls ----------------
+        Column(
+            Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 12.dp)
+                .clip(RoundedCornerShape(18.dp))
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
+                .padding(4.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable { mapView.controller.zoomIn() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("➕", fontSize = 16.sp)
+            }
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .clickable { mapView.controller.zoomOut() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("➖", fontSize = 16.sp)
+            }
+            Box(
+                Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
+                    .clickable {
+                        val pt = selected?.let { GeoPoint(it.lat ?: AppConfig.DEMO_LAT, it.lng ?: AppConfig.DEMO_LNG) }
+                            ?: devices.firstOrNull { it.hasLocation }?.let { GeoPoint(it.lat!!, it.lng!!) }
+                            ?: GeoPoint(AppConfig.DEMO_LAT, AppConfig.DEMO_LNG)
+                        mapView.controller.animateTo(pt, AppConfig.MAP_MAX_ZOOM, 600L)
+                    },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("🛣️", fontSize = 16.sp)
+            }
+        }
+
         // ---------------- Bottom: buttons, selected-device card ----------------
         Column(Modifier.align(Alignment.BottomCenter).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
@@ -269,7 +328,7 @@ fun MapScreen(
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = { fitAll(mapView, devices) }, enabled = devices.any { it.hasLocation }) { Text("Show all") }
                     OutlinedButton(
-                        onClick = { selected?.let { s -> if (s.hasLocation) mapView.controller.animateTo(GeoPoint(s.lat!!, s.lng!!), AppConfig.MAP_CENTER_ZOOM, 600L) } },
+                        onClick = { selected?.let { s -> if (s.hasLocation) mapView.controller.animateTo(GeoPoint(s.lat!!, s.lng!!), AppConfig.MAP_MAX_ZOOM, 600L) } },
                         enabled = selected?.hasLocation == true,
                         colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
                     ) { Text("Center") }

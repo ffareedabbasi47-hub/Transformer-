@@ -60,10 +60,12 @@ private class GlobeBridge(
     private val selectCb: (String?) -> Unit,
     private val readyCb: () -> Unit,
     private val errorCb: (String) -> Unit,
+    private val warnCb: (String) -> Unit = {},
 ) {
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     @JavascriptInterface fun onSelect(id: String?) { if (id == null || ID_RE.matches(id)) handler.post { selectCb(id) } }
     @JavascriptInterface fun onReady() { handler.post { readyCb() } }
+    @JavascriptInterface fun onWarn(msg: String?) { handler.post { warnCb((msg ?: "").take(40)) } }
     @JavascriptInterface fun onError(msg: String?) { handler.post { errorCb((msg ?: "error").take(200)) } }
 }
 
@@ -84,6 +86,8 @@ fun GlobeScreen(
     var failed by remember { mutableStateOf<String?>(null) }
     var satellite by remember { mutableStateOf(true) }
     var tilted by remember { mutableStateOf(false) }
+    var tilesFailed by remember { mutableStateOf(false) }
+    val hasInternet by rememberHasInternet()
     val onSelectState = rememberUpdatedState(onSelect)
     val selected = devices.firstOrNull { it.id == selectedId }
 
@@ -102,7 +106,7 @@ fun GlobeScreen(
                     setSupportZoom(false)
                     setGeolocationEnabled(false)
                 }
-                addJavascriptInterface(GlobeBridge({ onSelectState.value(it) }, { ready = true }, { failed = it }), "AndroidBridge")
+                addJavascriptInterface(GlobeBridge({ onSelectState.value(it) }, { ready = true }, { failed = it }, { tilesFailed = true }), "AndroidBridge")
                 webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                         val r = loader.shouldInterceptRequest(request.url) ?: return null
@@ -187,6 +191,11 @@ fun GlobeScreen(
                         else -> "Reconnecting… markers show last known state (STALE)"
                     }, StsmnColors.Warning,
                 )
+            }
+        }
+        if (!hasInternet || tilesFailed) {
+            Box(Modifier.align(Alignment.TopStart).padding(start = 12.dp, top = 76.dp, end = 12.dp)) {
+                Banner("No internet: the 3D map needs internet for satellite pictures. Live data still works; use Flat for cached tiles.", StsmnColors.Info)
             }
         }
         if (!ready) Text("Loading globe…", Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)

@@ -48,6 +48,22 @@
     try { map.setProjection({ type: 'globe' }); } catch (e) { report('Globe projection unavailable: ' + e.message); }
   });
 
+  // GPU context can be taken away when the app is in the background: keep the map alive and redraw on return.
+  var cv = map.getCanvas();
+  cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); }, false);
+  cv.addEventListener('webglcontextrestored', function () { try { map.resize(); map.triggerRepaint(); } catch (e) {} }, false);
+  // Imagery needs internet (the ESP32 Wi-Fi has none): tell the app so it can say so.
+  var tileErrors = 0, tileOk = 0, lastErr = '';
+  map.on('data', function (ev) { if (ev && ev.dataType === 'source' && ev.tile) tileOk++; });
+  setInterval(function () {
+    var d = document.getElementById('dbg');
+    if (d) d.textContent = 'tiles ok ' + tileOk + ' / failed ' + tileErrors + ' · z ' + map.getZoom().toFixed(1) + (lastErr ? ' · ' + lastErr : '');
+  }, 1000);
+  map.on('error', function (ev) {
+    try { lastErr = String((ev && ev.error && ev.error.message) || 'error').slice(0, 60); } catch (e) {}
+    if (ev && ev.sourceId && ++tileErrors === 8 && window.AndroidBridge && window.AndroidBridge.onWarn) window.AndroidBridge.onWarn('tiles');
+  });
+
   var spinning = true, userTouched = false, fitted = false;
   function stopSpin() { spinning = false; }
   ['mousedown', 'touchstart', 'wheel'].forEach(function (e) { map.on(e, stopSpin); });

@@ -126,7 +126,7 @@ private class MarkerSet {
 }
 
 @Composable
-private fun rememberHasInternet(): State<Boolean> {
+internal fun rememberHasInternet(): State<Boolean> {
     val ctx = LocalContext.current
     return produceState(initialValue = true) {
         val cm = ctx.getSystemService(ConnectivityManager::class.java)
@@ -145,7 +145,13 @@ private fun fitAll(map: MapView, devices: List<MapDevice>) {
     when {
         pts.isEmpty() -> map.controller.animateTo(GeoPoint(AppConfig.UP_CENTER_LAT, AppConfig.UP_CENTER_LNG), AppConfig.MAP_INITIAL_ZOOM, 600L)
         pts.size == 1 -> map.controller.animateTo(pts[0], AppConfig.MAP_CENTER_ZOOM, 600L)
-        else -> map.zoomToBoundingBox(BoundingBox.fromGeoPoints(pts), true, 120)
+        else -> {
+            // Transformers at (almost) the same spot give a zero-size box: centre on them instead of zooming into nothing.
+            val latSpan = pts.maxOf { it.latitude } - pts.minOf { it.latitude }
+            val lngSpan = pts.maxOf { it.longitude } - pts.minOf { it.longitude }
+            if (latSpan < 0.0005 && lngSpan < 0.0005) map.controller.animateTo(pts[0], AppConfig.MAP_CENTER_ZOOM, 600L)
+            else map.zoomToBoundingBox(BoundingBox.fromGeoPoints(pts), true, 120)
+        }
     }
 }
 

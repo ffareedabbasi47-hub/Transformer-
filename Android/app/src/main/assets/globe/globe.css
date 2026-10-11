@@ -16,3 +16,5 @@ body { font-family: system-ui, -apple-system, Roboto, sans-serif; }
 .mk.sel .pill { border-color: #fff; box-shadow: 0 0 0 2px rgba(90,169,255,.9), 0 8px 22px rgba(0,0,0,.55); }
 .mk.pulse .dot { animation: pulse 1.1s ease-in-out infinite; }
 @keyframes pulse { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.45); } }
+
+#dbg { position: fixed; left: 8px; bottom: 56px; max-width: 70%; padding: 3px 7px; border-radius: 8px; background: rgba(8,14,28,.7); color: #9fb3d1; font: 10px/1.3 monospace; pointer-events: none; z-index: 5; }

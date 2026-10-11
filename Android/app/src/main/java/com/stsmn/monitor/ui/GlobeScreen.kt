@@ -104,8 +104,17 @@ fun GlobeScreen(
                 }
                 addJavascriptInterface(GlobeBridge({ onSelectState.value(it) }, { ready = true }, { failed = it }), "AndroidBridge")
                 webViewClient = object : WebViewClient() {
-                    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-                        loader.shouldInterceptRequest(request.url)
+                    override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                        val r = loader.shouldInterceptRequest(request.url) ?: return null
+                        // Some Android versions label .css/.js as text/plain, and the browser then ignores the stylesheet.
+                        val mime = when (request.url.lastPathSegment?.substringAfterLast('.', "")?.lowercase()) {
+                            "css" -> "text/css"
+                            "js" -> "text/javascript"
+                            "html" -> "text/html"
+                            else -> return r
+                        }
+                        return WebResourceResponse(mime, "utf-8", r.statusCode, r.reasonPhrase ?: "OK", r.responseHeaders ?: emptyMap(), r.data)
+                    }
                     // Never navigate away from the bundled page (links, redirects, injected frames).
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
                     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {

@@ -5,6 +5,7 @@ import com.stsmn.monitor.domain.MarkerState
 import com.stsmn.monitor.domain.SystemStatus
 import com.stsmn.monitor.ui.globeJson
 import org.json.JSONArray
+import org.json.JSONTokener
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -35,7 +36,7 @@ class GlobeJsonTest {
         )
 
         val jsonStr = globeJson(listOf(device))
-        val arr = JSONArray(jsonStr)
+        val arr = JSONArray(JSONTokener(jsonStr))
         assertEquals(1, arr.length())
 
         val obj = arr.getJSONObject(0)
@@ -81,7 +82,7 @@ class GlobeJsonTest {
             isLocal = false,
         )
         val jsonStr = globeJson(listOf(noLocation))
-        val arr = JSONArray(jsonStr)
+        val arr = JSONArray(JSONTokener(jsonStr))
         assertEquals(0, arr.length())
     }
 }

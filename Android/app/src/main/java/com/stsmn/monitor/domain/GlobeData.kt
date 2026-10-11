@@ -17,10 +17,29 @@ object GlobeData {
         val arr = JSONArray()
         for (d in devices) {
             if (!d.hasLocation || !validId(d.id)) continue
-            arr.put(
-                JSONObject().put("id", d.id).put("lat", d.lat).put("lng", d.lng)
-                    .put("state", d.state.name).put("demo", d.demoLocation),
-            )
+
+            val obj = JSONObject()
+                .put("id", d.id)
+                .put("name", d.name)
+                .put("lat", d.lat)
+                .put("lng", d.lng)
+                .put("state", d.state.name)
+                .put("demo", d.demoLocation)
+                .put("isLive", d.isLive)
+
+            d.status?.let { obj.put("status", it.name) }
+            d.risk?.let { obj.put("risk", it) }
+            d.temperature?.let { obj.put("temp", it) }
+            d.voltage?.let { obj.put("volt", it) }
+            d.current?.let { obj.put("amp", it) }
+            d.oilLevel?.let { obj.put("oil", it) }
+            d.smoke?.let { obj.put("smoke", it) }
+            d.flame?.let { obj.put("flame", it) }
+            d.relay?.let { obj.put("relay", it) }
+            d.alarm?.let { obj.put("alarm", it) }
+            d.ageMs?.let { obj.put("ageMs", it) }
+
+            arr.put(obj)
         }
         return arr.toString()
     }

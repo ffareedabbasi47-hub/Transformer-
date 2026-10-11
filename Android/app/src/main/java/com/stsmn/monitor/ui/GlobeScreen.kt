@@ -107,13 +107,23 @@ fun GlobeScreen(
                     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                         val r = loader.shouldInterceptRequest(request.url) ?: return null
                         // Some Android versions label .css/.js as text/plain, and the browser then ignores the stylesheet.
-                        val mime = when (request.url.lastPathSegment?.substringAfterLast('.', "")?.lowercase()) {
-                            "css" -> "text/css"
-                            "js" -> "text/javascript"
-                            "html" -> "text/html"
-                            else -> return r
+                        // Runs on a WebView background thread: nothing here may throw, or the whole app would crash.
+                        return try {
+                            val mime = when (request.url.lastPathSegment?.substringAfterLast('.', "")?.lowercase()) {
+                                "css" -> "text/css"
+                                "js" -> "text/javascript"
+                                "html" -> "text/html"
+                                else -> null
+                            }
+                            if (mime == null) r else WebResourceResponse(mime, "utf-8", r.data)
+                        } catch (_: Throwable) {
+                            r
                         }
-                        return WebResourceResponse(mime, "utf-8", r.statusCode, r.reasonPhrase ?: "OK", r.responseHeaders ?: emptyMap(), r.data)
+                    }
+                    // If the WebView's renderer dies (low memory / GPU), show the fallback card instead of killing the app.
+                    override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
+                        failed = "The 3D engine stopped on this phone (low memory or GPU)"
+                        return true
                     }
                     // Never navigate away from the bundled page (links, redirects, injected frames).
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
@@ -128,7 +138,12 @@ fun GlobeScreen(
     val view = web.getOrNull()
 
     DisposableEffect(view) {
-        onDispose { view?.apply { removeJavascriptInterface("AndroidBridge"); stopLoading(); destroy() } }
+        onDispose {
+            view?.apply {
+                runCatching { (parent as? android.view.ViewGroup)?.removeView(this) } // never destroy while still attached
+                runCatching { removeJavascriptInterface("AndroidBridge"); stopLoading(); destroy() }
+            }
+        }
     }
 
     if (view == null || failed != null) {

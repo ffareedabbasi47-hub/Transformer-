@@ -40,7 +40,7 @@
   var kind = 'sat';
   var map = new maplibregl.Map({
     container: 'map', style: style(kind), center: [70, 22], zoom: 0.9, minZoom: -1, pitch: 0, bearing: 0,
-    maxPitch: 75, attributionControl: { compact: true }, canvasContextAttributes: { antialias: true }
+    maxPitch: 75, attributionControl: { compact: true }, pixelRatio: Math.min(window.devicePixelRatio || 1, 2), canvasContextAttributes: { antialias: false }
   });
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-right');
 
@@ -59,10 +59,11 @@
   map.on('moveend', spinStep);
 
   // Real 3D relief only when zoomed in (globe projection switches to flat map there). Errors never break the map.
+  var terrainOn = false; // relief is heavy on weak phones: only after the user taps "Tilt 3D"
   function syncTerrain() {
     try {
       if (!map.getSource('relief')) return;
-      if (map.getZoom() >= 9) { if (!map.getTerrain()) map.setTerrain({ source: 'relief', exaggeration: 1.35 }); }
+      if (terrainOn && map.getZoom() >= 9) { if (!map.getTerrain()) map.setTerrain({ source: 'relief', exaggeration: 1.35 }); }
       else if (map.getTerrain()) map.setTerrain(null);
     } catch (e) { /* terrain unsupported: stay flat */ }
   }
@@ -133,7 +134,7 @@
     focus: function (id) {
       var m = markers[id]; if (!m) return;
       stopSpin(); pick(id, false);
-      map.flyTo({ center: m.marker.getLngLat(), zoom: 14.5, pitch: 60, bearing: 25, speed: 0.8, curve: 1.5, essential: true });
+      map.flyTo({ center: m.marker.getLngLat(), zoom: 13, pitch: 40, bearing: 0, speed: 0.8, curve: 1.5, essential: true });
     },
     fitAll: function () {
       stopSpin();
@@ -148,7 +149,7 @@
       if (k !== 'sat' && k !== 'street') return;
       kind = k; map.setStyle(style(k));
     },
-    tilt: function (on) { map.easeTo({ pitch: on ? 60 : 0, duration: 700 }); },
+    tilt: function (on) { terrainOn = !!on; map.easeTo({ pitch: on ? 60 : 0, duration: 700 }); setTimeout(syncTerrain, 800); },
     spin: function (on) { spinning = !!on; if (on) spinStep(); },
     ready: function () { return map.loaded(); }
   };

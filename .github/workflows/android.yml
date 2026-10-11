@@ -107,7 +107,29 @@ jobs:
           gradle-version: "8.9"
       - name: Run unit tests
         working-directory: ${{ env.ANDROID_DIR }}
-        run: gradle --no-daemon testDebugUnitTest
+        run: |
+          set -o pipefail
+          gradle --no-daemon testDebugUnitTest 2>&1 | tee "$RUNNER_TEMP/unit.log"
+
+      # On failure, copy the important lines into annotations + the job summary, so the reason is visible
+      # at the top of the run page (and readable by tools) without opening the long raw log.
+      - name: Explain unit-test failure
+        if: ${{ failure() }}
+        working-directory: ${{ env.ANDROID_DIR }}
+        run: |
+          {
+            echo "### Unit test failure details"
+            echo '```'
+            grep -E "^e: |FAILED|AssertionError|Exception|error:|What went wrong|Execution failed" "$RUNNER_TEMP/unit.log" | head -40
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E "^e: |FAILED|AssertionError|Exception|error:|What went wrong|Execution failed" "$RUNNER_TEMP/unit.log" | head -25 | while IFS= read -r line; do
+            echo "::error title=unit-test::${line:0:400}"
+          done
+          for f in app/build/test-results/testDebugUnitTest/*.xml; do
+            [ -f "$f" ] && grep -B1 -A3 "<failure" "$f" | head -20 | while IFS= read -r line; do echo "::error title=test-report::${line:0:400}"; done
+          done
+          true
 
   server-tests:
     name: Realtime server tests (Node)

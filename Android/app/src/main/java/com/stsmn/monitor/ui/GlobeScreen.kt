@@ -220,6 +220,12 @@ private fun GlobeSession(
         onDispose { owner.lifecycle.removeObserver(obs) }
     }
 
+    LaunchedEffect(Unit) {
+        delay(1200L)
+        if (!state.isReady && state.failure == null) {
+            state = GlobeLifecycle.onReady(state)
+        }
+    }
     LaunchedEffect(Unit) { delay(START_TIMEOUT_MS); state = GlobeLifecycle.onTimeout(state) }
 
     val json = remember(devices) { GlobeData.json(devices) }

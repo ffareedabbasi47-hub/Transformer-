@@ -1,8 +1,6 @@
 (function () {
   'use strict';
   // ---- reporting to the app --------------------------------------------------------------
-  // Fatal = the globe cannot work at all (WebGL missing, map could not be created, style failed to load).
-  // Notice = something degraded but the globe stays usable (tiles, terrain, a stray script error).
   var bridge = window.AndroidBridge || {};
   var sent = {};
   function once(key) { if (sent[key]) return false; sent[key] = true; return true; }
@@ -11,7 +9,6 @@
 
   var scriptErrors = 0;
   window.addEventListener('error', function (e) {
-    // A stray script error must never kill a usable globe: count it, tell the app once, keep running.
     scriptErrors++; notice('SCRIPT_ERROR', e && e.message);
   });
   window.addEventListener('unhandledrejection', function (e) { scriptErrors++; notice('SCRIPT_ERROR', e && e.reason); });
@@ -25,18 +22,25 @@
   // ---- constants -------------------------------------------------------------------------
   var COLORS = { SAFE: '#2ECC71', WARNING: '#FFD21F', EMERGENCY: '#E5484D', STALE: '#8A94A6', OFFLINE: '#8A94A6' };
   var ID_RE = /^[A-Z0-9][A-Z0-9-]{1,23}$/;
-  var HOME = { center: [80.9, 26.85], zoom: 3.2 }; // Uttar Pradesh, India
+  var HOME = { center: [80.9, 26.85], zoom: 1.8, pitch: 20 }; // Uttar Pradesh, India - global space perspective
   var MAX_MARKERS = 2000;
+  var DEG2RAD = Math.PI / 180;
 
   var SKY = {
-    'sky-color': '#0a1a3a', 'horizon-color': '#2a6fd6', 'fog-color': '#0b1b3a',
-    'sky-horizon-blend': 0.5, 'horizon-fog-blend': 0.5, 'fog-ground-blend': 0.2,
-    'atmosphere-blend': ['interpolate', ['linear'], ['zoom'], 0, 1, 5, 1, 7, 0]
+    'sky-color': '#061024',
+    'horizon-color': '#1f65c9',
+    'fog-color': '#061024',
+    'sky-horizon-blend': 0.6,
+    'horizon-fog-blend': 0.6,
+    'fog-ground-blend': 0.3,
+    'atmosphere-blend': 0.8
   };
+
   function style(kind) {
     var sat = kind !== 'street';
     return {
       version: 8,
+      projection: { type: 'globe' },
       sky: SKY,
       sources: {
         base: sat
@@ -56,9 +60,18 @@
   var map;
   try {
     map = new maplibregl.Map({
-      container: 'map', style: style(kind), center: [70, 22], zoom: 0.9, minZoom: -1, pitch: 0, bearing: 0,
-      maxPitch: 75, attributionControl: { compact: true },
-      pixelRatio: Math.min(window.devicePixelRatio || 1, 2), canvasContextAttributes: { antialias: false }
+      container: 'map',
+      style: style(kind),
+      center: HOME.center,
+      zoom: HOME.zoom,
+      minZoom: 1.0,
+      maxZoom: 18,
+      pitch: HOME.pitch,
+      bearing: 0,
+      maxPitch: 70,
+      attributionControl: { compact: true },
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2),
+      canvasContextAttributes: { antialias: true, alpha: true }
     });
   } catch (e) { fatal('INIT_ERROR', 'map could not start: ' + (e && e.message)); return; }
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-right');
@@ -73,7 +86,7 @@
   cv.addEventListener('webglcontextlost', function (e) { e.preventDefault(); }, false);
   cv.addEventListener('webglcontextrestored', function () { try { map.resize(); map.triggerRepaint(); } catch (e) {} }, false);
 
-  // ---- diagnostics (hidden unless the app turns debug on, or something goes wrong) ---------
+  // ---- diagnostics -----------------------------------------------------------------------
   var tileOk = 0, tileFail = 0, lastErr = '', netInfo = '', dbgOn = false;
   function dbgText() {
     var d = document.getElementById('dbg'); if (!d) return;
@@ -87,50 +100,90 @@
     var msg = String((ev && ev.error && ev.error.message) || 'error').slice(0, 80);
     lastErr = msg;
     var src = ev && ev.sourceId;
-    if (src === 'relief') {              // terrain only: drop it, the globe itself keeps working
+    if (src === 'relief') {
       terrainOn = false; try { map.setTerrain(null); } catch (e) {}
       notice('TERRAIN_FAILED', msg); return;
     }
-    if (src) {                           // individual satellite/street tile
+    if (src) {
       tileFail++;
       if (tileFail >= 8 && tileOk === 0) notice('TILES_FAILED', msg);
       return;
     }
-    if (!loaded) fatal('LOAD_ERROR', msg);   // style itself failed before the first load
+    if (!loaded) fatal('LOAD_ERROR', msg);
     else notice('SCRIPT_ERROR', msg);
   });
 
-  // ---- camera ---------------------------------------------------------------------------
-  var spinning = true, fitted = false;
-  function stopSpin() { spinning = false; }
-  ['mousedown', 'touchstart', 'wheel'].forEach(function (e) { map.on(e, stopSpin); });
-  function spinStep() {
-    if (!spinning || map.getZoom() > 3.5) return;
-    var c = map.getCenter();
-    map.easeTo({ center: [c.lng + 25, Math.max(-40, Math.min(40, c.lat))], duration: 2000, easing: function (t) { return t; } });
-  }
-  map.on('moveend', spinStep);
+  // ---- smooth 60fps auto-rotation --------------------------------------------------------
+  var spinning = true;
+  var spinReq = null;
+  var lastSpinTime = 0;
 
-  var terrainOn = false; // relief is heavy on weak phones: only after the user taps "Tilt 3D"
+  function notifySpin(active) {
+    try { if (bridge.onSpinState) bridge.onSpinState(active); } catch (e) {}
+  }
+
+  function stopSpin() {
+    if (spinning) {
+      spinning = false;
+      if (spinReq) { cancelAnimationFrame(spinReq); spinReq = null; }
+      try { map.stop(); } catch (e) {}
+      notifySpin(false);
+    }
+  }
+
+  function startSpin() {
+    if (!spinning) {
+      spinning = true;
+      lastSpinTime = 0;
+      notifySpin(true);
+      spinReq = requestAnimationFrame(spinLoop);
+    }
+  }
+
+  function spinLoop(ts) {
+    if (!spinning) return;
+    if (!lastSpinTime) lastSpinTime = ts;
+    var dt = (ts - lastSpinTime) / 1000;
+    lastSpinTime = ts;
+
+    // Only spin when zoomed out and not in a programmatic camera flight
+    if (map.getZoom() <= 4.2 && !map.isMoving()) {
+      var c = map.getCenter();
+      var nextLng = c.lng + (3.2 * dt);
+      if (nextLng > 180) nextLng -= 360;
+      map.setCenter([nextLng, Math.max(-45, Math.min(45, c.lat))]);
+    }
+
+    spinReq = requestAnimationFrame(spinLoop);
+  }
+
+  ['mousedown', 'touchstart', 'wheel', 'pointerdown'].forEach(function (e) {
+    map.on(e, stopSpin);
+  });
+
+  // ---- terrain ---------------------------------------------------------------------------
+  var terrainOn = false;
   function syncTerrain() {
     try {
       if (!map.getSource('relief')) return;
-      if (terrainOn && map.getZoom() >= 9) { if (!map.getTerrain()) map.setTerrain({ source: 'relief', exaggeration: 1.35 }); }
-      else if (map.getTerrain()) map.setTerrain(null);
-    } catch (e) { /* terrain unsupported: stay flat */ }
+      if (terrainOn) {
+        if (!map.getTerrain()) map.setTerrain({ source: 'relief', exaggeration: 1.4 });
+      } else {
+        if (map.getTerrain()) map.setTerrain(null);
+      }
+    } catch (e) {}
   }
-  map.on('zoomend', syncTerrain);
   map.on('styledata', syncTerrain);
 
   map.on('load', function () {
     if (loaded) return;
     loaded = true;
-    setTimeout(spinStep, 300);
+    spinReq = requestAnimationFrame(spinLoop);
     try { bridge.onReady && bridge.onReady(); } catch (e) {}
   });
 
-  // ---- markers (DOM built with textContent only: server text can never become HTML) ----------
-  var markers = {}; // id -> {marker, el, parts, sig}
+  // ---- markers & spherical horizon occlusion ---------------------------------------------
+  var markers = {}; // id -> { marker, el, parts, sig, coords }
   var selectedId = null;
 
   function build(d) {
@@ -145,15 +198,18 @@
     el.addEventListener('click', function (ev) { ev.stopPropagation(); pick(d.id, true); });
     return { el: el, t: t, s: s, n: n, dot: dot };
   }
+
   function paint(m, d) {
     var c = COLORS[d.state] || COLORS.OFFLINE;
     m.parts.t.textContent = 'STSMN-' + d.id.replace(/^STSMN-/, '');
     m.parts.s.textContent = d.state; m.parts.s.style.color = c;
     m.parts.n.textContent = d.demo ? 'DEMO LOCATION' : '';
     m.parts.dot.style.background = c;
+    m.parts.dot.style.color = c;
     m.el.classList.toggle('pulse', d.state === 'EMERGENCY');
     m.el.classList.toggle('sel', d.id === selectedId);
   }
+
   function pick(id, notify) {
     selectedId = id;
     Object.keys(markers).forEach(function (k) { markers[k].el.classList.toggle('sel', k === id); });
@@ -165,7 +221,37 @@
       isFinite(d.lat) && isFinite(d.lng) && Math.abs(d.lat) <= 90 && Math.abs(d.lng) <= 180 && COLORS[d.state];
   }
 
-  // Bounds that also work across the 180° meridian: cut the circle at the biggest gap between longitudes.
+  function updateOcclusion() {
+    var c = map.getCenter();
+    var clat = c.lat * DEG2RAD;
+    var clng = c.lng * DEG2RAD;
+    var sinClat = Math.sin(clat);
+    var cosClat = Math.cos(clat);
+    var z = map.getZoom();
+    var isGlobe = z < 5.5;
+
+    Object.keys(markers).forEach(function (id) {
+      var m = markers[id];
+      if (!m || !m.coords) return;
+      if (isGlobe) {
+        var mlat = m.coords[1] * DEG2RAD;
+        var mlng = m.coords[0] * DEG2RAD;
+        // Dot product between camera center unit vector and marker unit vector on unit sphere
+        var cosDist = sinClat * Math.sin(mlat) + cosClat * Math.cos(mlat) * Math.cos(mlng - clng);
+        var visible = cosDist > 0.05;
+        m.el.classList.toggle('occluded', !visible);
+        m.el.classList.toggle('compact', z < 3.5);
+      } else {
+        m.el.classList.remove('occluded');
+        m.el.classList.remove('compact');
+      }
+    });
+  }
+
+  map.on('move', updateOcclusion);
+  map.on('render', updateOcclusion);
+
+  // Bounds that also work across the 180° meridian
   function boundsOf(points) {
     var lngs = points.map(function (p) { return p[0]; }).sort(function (a, b) { return a - b; });
     var best = 0, at = 0;
@@ -180,7 +266,6 @@
   }
 
   var api = {
-    /** devices: [{id, lat, lng, state, demo}] - only transformers with a valid position are drawn. */
     setDevices: function (list) {
       if (!Array.isArray(list)) return;
       var seen = {};
@@ -190,40 +275,62 @@
         var m = markers[d.id];
         if (!m) {
           var parts = build(d);
-          m = markers[d.id] = { parts: parts, el: parts.el, marker: new maplibregl.Marker({ element: parts.el, anchor: 'bottom' }).setLngLat([d.lng, d.lat]).addTo(map), sig: '' };
+          m = markers[d.id] = {
+            parts: parts,
+            el: parts.el,
+            coords: [d.lng, d.lat],
+            marker: new maplibregl.Marker({ element: parts.el, anchor: 'bottom' }).setLngLat([d.lng, d.lat]).addTo(map),
+            sig: ''
+          };
         }
+        m.coords = [d.lng, d.lat];
         var sig = [d.lat, d.lng, d.state, !!d.demo].join('|');
         if (m.sig !== sig) { m.marker.setLngLat([d.lng, d.lat]); paint(m, d); m.sig = sig; }
       });
-      Object.keys(markers).forEach(function (id) { if (!seen[id]) { markers[id].marker.remove(); delete markers[id]; if (selectedId === id) selectedId = null; } });
-      if (!fitted && Object.keys(markers).length) { fitted = true; api.fitAll(); }
+      Object.keys(markers).forEach(function (id) {
+        if (!seen[id]) { markers[id].marker.remove(); delete markers[id]; if (selectedId === id) selectedId = null; }
+      });
+      updateOcclusion();
     },
     select: function (id) { if (id === null || (typeof id === 'string' && ID_RE.test(id))) pick(id, false); },
     focus: function (id) {
       var m = markers[id]; if (!m) return;
       stopSpin(); pick(id, false);
-      map.flyTo({ center: m.marker.getLngLat(), zoom: 13, pitch: 40, bearing: 0, speed: 0.8, curve: 1.5, essential: true });
+      map.flyTo({ center: m.marker.getLngLat(), zoom: 12.5, pitch: 45, bearing: 0, speed: 0.8, curve: 1.4, essential: true });
     },
+    globe: function () {
+      map.flyTo({ center: HOME.center, zoom: HOME.zoom, pitch: HOME.pitch, bearing: 0, speed: 0.8, curve: 1.4, essential: true });
+      setTimeout(function () { startSpin(); }, 1200);
+    },
+    resetGlobe: function () { api.globe(); },
     fitAll: function () {
       stopSpin();
       var ids = Object.keys(markers);
-      if (!ids.length) { map.flyTo({ center: HOME.center, zoom: HOME.zoom, pitch: 0, bearing: 0, essential: true }); return; }
-      if (ids.length === 1) { api.focus(ids[0]); return; }
+      if (!ids.length) { api.globe(); return; }
+      if (ids.length === 1) {
+        var p = markers[ids[0]].marker.getLngLat();
+        map.flyTo({ center: p, zoom: 5.5, pitch: 35, bearing: 0, speed: 0.8, curve: 1.4, essential: true });
+        return;
+      }
       var pts = ids.map(function (id) { var p = markers[id].marker.getLngLat(); return [p.lng, p.lat]; });
       var b = boundsOf(pts);
-      if (b.east - b.west < 1e-4 && b.north - b.south < 1e-4) { api.focus(ids[0]); return; } // identical positions
-      map.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: 90, maxZoom: 12, pitch: 35, duration: 1800 });
+      if (b.east - b.west < 1e-4 && b.north - b.south < 1e-4) {
+        var p0 = markers[ids[0]].marker.getLngLat();
+        map.flyTo({ center: p0, zoom: 5.5, pitch: 35, bearing: 0, speed: 0.8, curve: 1.4, essential: true });
+        return;
+      }
+      map.fitBounds([[b.west, b.south], [b.east, b.north]], { padding: 90, maxZoom: 8, pitch: 35, duration: 1800 });
     },
     setStyle: function (k) {
       if (k !== 'sat' && k !== 'street') return;
       kind = k; tileOk = 0; tileFail = 0; sent['NTILES_FAILED'] = false;
       map.setStyle(style(k));
     },
-    tilt: function (on) { terrainOn = !!on; map.easeTo({ pitch: on ? 60 : 0, duration: 700 }); setTimeout(syncTerrain, 800); },
-    spin: function (on) { spinning = !!on; if (on) spinStep(); },
+    tilt: function (on) { terrainOn = !!on; map.easeTo({ pitch: on ? 55 : 0, duration: 700 }); setTimeout(syncTerrain, 800); },
+    spin: function (on) { if (on) startSpin(); else stopSpin(); },
+    isSpinning: function () { return spinning; },
     debug: function (on) { dbgOn = !!on; dbgText(); },
     setNet: function (s) { netInfo = String(s || '').slice(0, 60); },
-    // test hooks (read-only)
     markerCount: function () { return Object.keys(markers).length; },
     selected: function () { return selectedId; },
     styleKind: function () { return kind; }

@@ -69,6 +69,7 @@ private class GlobeBridge(
     private val readyCb: () -> Unit,
     private val fatalCb: (String, String) -> Unit,
     private val noticeCb: (String, String) -> Unit,
+    private val spinCb: (Boolean) -> Unit,
 ) {
     @Volatile var alive = true
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -78,6 +79,7 @@ private class GlobeBridge(
     @JavascriptInterface fun onReady() { post { readyCb() } }
     @JavascriptInterface fun onFatal(kind: String?, detail: String?) { post { fatalCb((kind ?: "").take(40), (detail ?: "").take(160)) } }
     @JavascriptInterface fun onNotice(kind: String?, detail: String?) { post { noticeCb((kind ?: "").take(40), (detail ?: "").take(160)) } }
+    @JavascriptInterface fun onSpinState(active: Boolean) { post { spinCb(active) } }
 }
 
 /**
@@ -117,6 +119,7 @@ private fun GlobeSession(
     var state by remember { mutableStateOf(GlobeLifecycle.initial(attempt)) }
     var satellite by remember { mutableStateOf(true) }
     var tilted by remember { mutableStateOf(false) }
+    var isSpinning by remember { mutableStateOf(true) }
     var debug by remember { mutableStateOf(false) }
     val hasInternet by rememberHasInternet()
     val onSelectState = rememberUpdatedState(onSelect)
@@ -134,6 +137,7 @@ private fun GlobeSession(
                 Log.w(TAG, "notice kind=$kind detail=$detail")
                 state = GlobeLifecycle.onNotice(state, GlobeLifecycle.parseNotice(kind))
             },
+            spinCb = { isSpinning = it },
         )
     }
 
@@ -142,6 +146,7 @@ private fun GlobeSession(
             val loader = WebViewAssetLoader.Builder()
                 .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(ctx)).build()
             WebView(ctx).apply {
+                setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 setBackgroundColor(AColor.parseColor("#04070F"))
                 settings.apply {
                     javaScriptEnabled = true            // needed by the bundled MapLibre; only our own page is ever loaded
@@ -296,14 +301,73 @@ private fun GlobeSession(
         }
 
         Column(Modifier.align(Alignment.BottomCenter).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { view.evaluateJavascript("stsmn.fitAll()", null) }, enabled = state.isReady && devices.any { it.hasLocation }, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Show all", fontSize = 13.sp, maxLines = 1, softWrap = false) }
-                OutlinedButton(onClick = { satellite = !satellite; view.evaluateJavascript("stsmn.setStyle('${if (satellite) "sat" else "street"}')", null) }, enabled = state.isReady, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) {
-                    Text(if (satellite) "Streets" else "Satellite", fontSize = 13.sp, maxLines = 1, softWrap = false)
-                }
-                OutlinedButton(onClick = { tilted = !tilted; view.evaluateJavascript("stsmn.tilt($tilted)", null) }, enabled = state.isReady, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 8.dp)) { Text(if (tilted) "Flat" else "Tilt 3D", fontSize = 13.sp, maxLines = 1, softWrap = false) }
+            if (selected != null) {
+                DeviceCard(selected, onClose = { onSelect(null) }, modifier = Modifier.heightIn(max = 280.dp))
             }
-            if (selected != null) DeviceCard(selected, onClose = { onSelect(null) }, modifier = Modifier.heightIn(max = 300.dp))
+            // Row 1: Camera Actions (Globe, Region / Show all, Focus)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { view.evaluateJavascript("stsmn.globe()", null) },
+                    enabled = state.isReady,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) {
+                    Text("Globe", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                }
+                Button(
+                    onClick = { view.evaluateJavascript("stsmn.fitAll()", null) },
+                    enabled = state.isReady && devices.any { it.hasLocation },
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) {
+                    Text("Region", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                }
+                Button(
+                    onClick = { selected?.let { s -> if (s.hasLocation) view.evaluateJavascript("stsmn.focus('${s.id}')", null) } },
+                    enabled = state.isReady && selected?.hasLocation == true,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) {
+                    Text("Focus", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                }
+            }
+            // Row 2: View Toggles (Spin / Stop, Tilt 3D / Flat, Satellite / Streets)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = {
+                        val next = !isSpinning
+                        isSpinning = next
+                        view.evaluateJavascript("stsmn.spin($next)", null)
+                    },
+                    enabled = state.isReady,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) {
+                    Text(if (isSpinning) "Stop" else "Spin", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                }
+                OutlinedButton(
+                    onClick = {
+                        tilted = !tilted
+                        view.evaluateJavascript("stsmn.tilt($tilted)", null)
+                    },
+                    enabled = state.isReady,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) {
+                    Text(if (tilted) "Flat" else "Tilt 3D", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                }
+                OutlinedButton(
+                    onClick = {
+                        satellite = !satellite
+                        view.evaluateJavascript("stsmn.setStyle('${if (satellite) "sat" else "street"}')", null)
+                    },
+                    enabled = state.isReady,
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(horizontal = 6.dp),
+                ) {
+                    Text(if (satellite) "Streets" else "Satellite", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                }
+            }
             // Tap the credit line to show/hide the developer diagnostics line (tile counters, JS errors, network).
             Text(
                 if (satellite) "Imagery © Esri, Maxar, Earthstar · Terrain © Mapzen/AWS · MapLibre" else "© OpenStreetMap contributors · MapLibre",

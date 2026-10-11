@@ -86,6 +86,9 @@ srv.listen(8765, async () => {
     check('last style applied', (await p.evaluate(() => stsmn.styleKind())) === 'sat');
     await p.evaluate(() => stsmn.setStyle('evil')); check('unknown style ignored', (await p.evaluate(() => stsmn.styleKind())) === 'sat');
     await p.evaluate(() => { stsmn.tilt(true); stsmn.tilt(false); });
+    await p.evaluate(() => { stsmn.spin(false); }); check('spin can be paused', (await p.evaluate(() => stsmn.isSpinning())) === false);
+    await p.evaluate(() => { stsmn.spin(true); }); check('spin can be resumed', (await p.evaluate(() => stsmn.isSpinning())) === true);
+    await p.evaluate(() => { stsmn.globe(); });
     check('no page errors during all of the above', log.errors.length === 0, log.errors);
 
     // 6. a stray script error is only a notice, never fatal

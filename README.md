@@ -58,11 +58,21 @@ One transformer on an Uttar Pradesh map. Setup, internet/tile note and test stat
 See `docs/SECURITY_AUDIT.md` (checklist, what was fixed, what is still open).
 
 ## Map tab: 3 views
-`Map` (flat OpenStreetMap), `3D Globe` (spinning satellite Earth with terrain relief, tilt, live markers) and `All` (list of every transformer). Tap a transformer and use **Open Street View** to see the real street in the Google Maps app (no API key). MapLibre GL JS 5.7.1 (BSD-3) is bundled in `Android/app/src/main/assets/globe/`.
+`3D Map` (default: spinning satellite Earth in deep space with spherical horizon occlusion, terrain relief, 3D tilt, live telemetry markers), `Flat` (backup OpenStreetMap), and `All` (list of every transformer). Tap a transformer to view live telemetry and use **Open Street View** to see the real street in Google Maps (no API key). MapLibre GL JS 5.7.1 (BSD-3) is bundled in `Android/app/src/main/assets/globe/`.
+
+### 3D Globe Controls & Features
+- **Globe**: Smoothly returns to full 3D Earth space view and resumes gentle auto-rotation.
+- **Region**: Frames the Uttar Pradesh / fleet context in 3D perspective.
+- **Focus**: Smoothly swoops down to inspect the selected transformer site with 3D terrain relief (zoom 12.5, pitch 45°).
+- **Spin / Stop**: Toggles the 60fps smooth auto-rotation on and off at will (also pauses on user drag).
+- **Tilt 3D / Flat**: Toggles 3D terrain elevation and pitch angle.
+- **Satellite / Streets**: Toggles Esri satellite imagery or OpenStreetMap vector tiles.
+- **Horizon Occlusion**: Markers smoothly hide when rotated behind the curvature of the Earth and reappear on the front side.
 
 ### Manual phone checklist for the 3D Map
-1. Map tab opens on **3D Map** and shows the spinning globe within ~20 s (otherwise a card with Retry / Flat map appears).
-2. Show all, Streets/Satellite (switch 5 times), Tilt 3D, tap a marker, Open Street View.
-3. Switch to another tab and back; send the app to background and back.
-4. Turn mobile data off: a "No internet" notice appears; Home/History/Health keep working.
-5. Tap the credit line at the bottom-right to see the developer line; Logcat tag `StsmnGlobe`.
+1. Map tab opens on **3D Map** and displays the spinning globe in deep space.
+2. Tap Globe, Region, Focus, Spin/Stop, Streets/Satellite, Tilt 3D.
+3. Tap a transformer marker to view live telemetry; tap Open Street View.
+4. Switch to another tab and back; send the app to background and back.
+5. Turn mobile data off: a "No internet" notice appears; Home/History/Health keep working.
+6. Tap the credit line at the bottom-right to toggle developer diagnostics; Logcat tag `StsmnGlobe`.

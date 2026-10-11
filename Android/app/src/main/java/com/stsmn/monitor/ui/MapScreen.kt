@@ -214,7 +214,9 @@ fun MapScreen(
     // Focus the camera when a device is picked (from a marker or from the Fleet tab).
     DisposableEffectKey(selected?.id, mapReady, initialDeepZoom) {
         if (mapReady && selected != null && selected.hasLocation) {
-            val targetZoom = if (initialDeepZoom) AppConfig.MAP_MAX_ZOOM else maxOf(mapView.zoomLevelDouble, AppConfig.MAP_CENTER_ZOOM)
+            val targetZoom = if (initialDeepZoom) AppConfig.MAP_MAX_ZOOM 
+                             else if (mapView.zoomLevelDouble < AppConfig.MAP_INITIAL_ZOOM) AppConfig.MAP_CENTER_ZOOM 
+                             else mapView.zoomLevelDouble
             mapView.controller.animateTo(GeoPoint(selected.lat!!, selected.lng!!), targetZoom, 600L)
         }
     }
@@ -328,7 +330,7 @@ fun MapScreen(
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(onClick = { fitAll(mapView, devices) }, enabled = devices.any { it.hasLocation }) { Text("Show all") }
                     OutlinedButton(
-                        onClick = { selected?.let { s -> if (s.hasLocation) mapView.controller.animateTo(GeoPoint(s.lat!!, s.lng!!), AppConfig.MAP_MAX_ZOOM, 600L) } },
+                        onClick = { selected?.let { s -> if (s.hasLocation) mapView.controller.animateTo(GeoPoint(s.lat!!, s.lng!!), maxOf(mapView.zoomLevelDouble, AppConfig.MAP_CENTER_ZOOM), 600L) } },
                         enabled = selected?.hasLocation == true,
                         colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
                     ) { Text("Center") }

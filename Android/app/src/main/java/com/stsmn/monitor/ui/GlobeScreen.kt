@@ -71,7 +71,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.stsmn.monitor.config.AppConfig
 import com.stsmn.monitor.domain.FleetState
 import com.stsmn.monitor.domain.MapDevice
 import kotlin.math.cos
@@ -79,18 +78,20 @@ import kotlin.math.sin
 import kotlin.random.Random
 
 enum class GlobeScale {
-    SPACE,        // 3D Space Orbit View
-    STREET_MAP,   // Real 2D Street & Road Map (OpenStreetMap with real roads down to 5-feet)
+    SPACE,        // Photorealistic 3D Space Orbit View
+    STREET_MAP,   // Real 2D Street & Road Map (Continuous zoom down to 5-feet max limit)
 }
 
 /**
- * Unified 3D Earth Engine with Real 2D Street Map Embedded Inside:
- * - One seamless experience: Zoom from space orbit directly into real roads, streets, and buildings down to 5-feet.
- * - Real 2D Map is embedded directly into the 3D globe system (zero fake feeling!).
- * - Interactive Transformer ID Search bar with instant fly-to camera.
- * - Floating 3D Mini-Globe (Orbit Inset) keeps the live rotating 3D Earth visible while browsing real streets.
+ * Photorealistic 3D Earth Engine with Progressive Continuous Zoom (Space to 5-Feet Limit):
+ * - Earth looks authentic from space: Real atmospheric clouds, Rayleigh scattering halo, specular sun glare,
+ *   coastal shelves, desert sands, mountain snowcaps, and night-side city lights.
+ * - Progressive Continuous Zoom: Space (1x) -> Country (5x) -> Regional (8x) -> City (11x) -> Substation (14x) -> Street -> 5-Feet (20.5x).
+ * - Zero sudden jumping: 5-feet is only the final maximum limit when the user pinches all the way in!
+ * - Real 2D OpenStreetMap is directly embedded inside the system.
+ * - Floating 3D Mini-Globe keeps the rotating 3D Earth visible in the corner while browsing real streets.
+ * - Transformer ID Search Bar with camera fly-to animation.
  * - Official Google Earth 3D app launcher intent.
- * - 100% Offline capable with cached tiles.
  */
 @Composable
 fun GlobeScreen(
@@ -112,14 +113,16 @@ fun GlobeScreen(
     var zoom by remember { mutableFloatStateOf(1.0f) }
     var isSpinning by remember { mutableStateOf(true) }
 
-    // Mini-globe continuous rotation
+    // Cloud drift & Mini-globe continuous rotation
     var miniYaw by remember { mutableFloatStateOf(80.95f) }
+    var cloudDrift by remember { mutableFloatStateOf(0.0f) }
     LaunchedEffect(Unit) {
         while (true) {
             withFrameMillis {
-                miniYaw = (miniYaw + 0.35f) % 360f
+                miniYaw = (miniYaw + 0.30f) % 360f
+                cloudDrift = (cloudDrift + 0.0008f) % 1.0f
                 if (isSpinning && viewScale == GlobeScale.SPACE) {
-                    yaw = (yaw + 0.20f) % 360f
+                    yaw = (yaw + 0.18f) % 360f
                 }
             }
         }
@@ -148,10 +151,10 @@ fun GlobeScreen(
 
     Box(Modifier.fillMaxSize()) {
         // Crossfade between 3D Space Orbit and Real Street Map
-        Crossfade(targetState = viewScale, animationSpec = tween(380), label = "viewScaleCrossfade") { currentScale ->
+        Crossfade(targetState = viewScale, animationSpec = tween(420), label = "viewScaleCrossfade") { currentScale ->
             when (currentScale) {
                 GlobeScale.SPACE -> {
-                    // ---------------- 3D Space Orbit View ----------------
+                    // ---------------- 3D Photorealistic Space Orbit View ----------------
                     BoxWithConstraints(
                         Modifier
                             .fillMaxSize()
@@ -162,12 +165,12 @@ fun GlobeScreen(
                                     yaw = (yaw - pan.x * (0.35f / zoom)) % 360f
                                     pitch = (pitch + pan.y * (0.35f / zoom)).coerceIn(-75f, 75f)
                                     val nextZoom = zoom * gestureZoom
-                                    if (nextZoom > 2.6f) {
-                                        // Seamlessly dive through clouds into the Real Street Map!
+                                    if (nextZoom > 2.7f) {
+                                        // Seamlessly enters the Real Street Map at natural regional altitude (NOT 5-feet!)
                                         deepZoomRequested = false
                                         viewScale = GlobeScale.STREET_MAP
                                     } else {
-                                        zoom = nextZoom.coerceIn(0.65f, 2.6f)
+                                        zoom = nextZoom.coerceIn(0.65f, 2.7f)
                                     }
                                 }
                             }
@@ -189,7 +192,7 @@ fun GlobeScreen(
                         // 3D Canvas
                         Canvas(Modifier.fillMaxSize()) {
                             drawSpaceBackground(widthPx, heightPx, stars)
-                            drawGlobeSphere(cx, cy, R, yaw, pitch, zoom, radarPing)
+                            drawGlobeSphere(cx, cy, R, yaw, pitch, zoom, cloudDrift, radarPing)
                         }
 
                         // Landmarks on Globe
@@ -248,7 +251,8 @@ fun GlobeScreen(
                                         }
                                         .clickable {
                                             onSelect(d.id)
-                                            // Tap transformer in space -> dive directly to it on the real map!
+                                            // Tapping transformer in space dives to it at natural regional altitude
+                                            deepZoomRequested = false
                                             viewScale = GlobeScale.STREET_MAP
                                         },
                                 ) {
@@ -284,7 +288,7 @@ fun GlobeScreen(
                 }
 
                 GlobeScale.STREET_MAP -> {
-                    // ---------------- Embedded Real Street Map ----------------
+                    // ---------------- Embedded Real 2D Street Map ----------------
                     Box(Modifier.fillMaxSize()) {
                         MapScreen(
                             devices = devices,
@@ -293,7 +297,7 @@ fun GlobeScreen(
                             selectedId = selectedId,
                             onSelect = onSelect,
                             onOpenSettings = onOpenSettings,
-                            initialDeepZoom = deepZoomRequested,
+                            initialDeepZoom = deepZoomRequested, // False by default = NO forced 5-feet jump!
                         )
 
                         // Floating 3D Mini-Globe (Orbit Inset) in the corner!
@@ -319,7 +323,7 @@ fun GlobeScreen(
                                     val mcx = size.width / 2f
                                     val mcy = size.height / 2f
                                     val mr = size.minDimension * 0.40f
-                                    drawGlobeSphere(mcx, mcy, mr, miniYaw, 24.0f, 1.0f, radarPing)
+                                    drawGlobeSphere(mcx, mcy, mr, miniYaw, 24.0f, 1.0f, cloudDrift, radarPing)
                                 }
                                 Text(
                                     "🌍 Orbit",
@@ -389,12 +393,13 @@ fun GlobeScreen(
                                 else MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
                             )
                             .clickable {
+                                deepZoomRequested = false
                                 viewScale = if (viewScale == GlobeScale.SPACE) GlobeScale.STREET_MAP else GlobeScale.SPACE
                             }
                             .padding(horizontal = 8.dp, vertical = 4.dp),
                     ) {
                         Text(
-                            if (viewScale == GlobeScale.SPACE) "🛣️ Street Map" else "🌍 3D Orbit",
+                            if (viewScale == GlobeScale.SPACE) "🛣️ Streets" else "🌍 Orbit",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
@@ -432,7 +437,6 @@ fun GlobeScreen(
                                 .clickable {
                                     onSelect(d.id)
                                     searchQuery = ""
-                                    // Direct dive into the real street map at this transformer!
                                     deepZoomRequested = false
                                     viewScale = GlobeScale.STREET_MAP
                                 }
@@ -451,7 +455,7 @@ fun GlobeScreen(
                                     )
                                 }
                             }
-                            Text("Inspect 🔍", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                            Text("Fly ✈️", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
@@ -482,13 +486,13 @@ fun GlobeScreen(
                         openGoogleEarth(ctx, lat, lng)
                     },
                     onZoomToRoads = {
-                        deepZoomRequested = true
+                        deepZoomRequested = true // Only zooms to 5-feet when explicitly clicked!
                         viewScale = GlobeScale.STREET_MAP
                     },
                 )
             }
 
-            // Bottom Navigation Buttons
+            // Bottom Navigation Buttons (Progressive Altitude Controls)
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -514,7 +518,7 @@ fun GlobeScreen(
 
                 Button(
                     onClick = {
-                        deepZoomRequested = false
+                        deepZoomRequested = false // Normal regional/city zoom, NOT forced 5-feet!
                         viewScale = GlobeScale.STREET_MAP
                     },
                     modifier = Modifier.weight(1.05f),
@@ -528,14 +532,14 @@ fun GlobeScreen(
 
                 Button(
                     onClick = {
-                        deepZoomRequested = true
+                        deepZoomRequested = true // Dedicated 5-feet limit button
                         viewScale = GlobeScale.STREET_MAP
                     },
                     modifier = Modifier.weight(1.05f),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0D9488)),
                     contentPadding = PaddingValues(horizontal = 2.dp, vertical = 6.dp),
                 ) {
-                    Text("🔍 5ft Zoom", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+                    Text("🔍 5ft Limit", fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
 
                 Button(
@@ -591,7 +595,7 @@ private fun project3D(latDeg: Float, lngDeg: Float, yawDeg: Float, pitchDeg: Flo
 }
 
 // -----------------------------------------------------------------------------
-// Canvas Drawing Routines (Google Earth / Blue Marble Photorealism)
+// Photorealistic 3D Earth Drawing Routines (NASA Blue Marble / Space Engine)
 // -----------------------------------------------------------------------------
 private fun DrawScope.drawSpaceBackground(w: Float, h: Float, stars: List<Triple<Float, Float, Float>>) {
     drawRect(
@@ -618,21 +622,22 @@ private fun DrawScope.drawGlobeSphere(
     yaw: Float,
     pitch: Float,
     zoom: Float,
+    cloudDrift: Float,
     radarPing: Float,
 ) {
-    // 1. Atmospheric Outer Rayleigh Scattering Glow
+    // 1. Outer Rayleigh Atmospheric Scattering Halo
     drawCircle(
         brush = Brush.radialGradient(
             colors = listOf(
-                Color(0x5538BDF8),
+                Color(0x6038BDF8),
                 Color(0x350EA5E9),
-                Color(0x150284C7),
+                Color(0x120284C7),
                 Color(0x000284C7),
             ),
             center = Offset(cx, cy),
-            radius = R * 1.32f,
+            radius = R * 1.34f,
         ),
-        radius = R * 1.32f,
+        radius = R * 1.34f,
         center = Offset(cx, cy),
     )
 
@@ -642,41 +647,41 @@ private fun DrawScope.drawGlobeSphere(
     }
 
     clipPath(sphereClip) {
-        // 2a. Photorealistic Ocean Hydrosphere (Deep Oceanic Abyss to Sunlit Azure)
+        // 2a. Deep Photorealistic Ocean Hydrosphere Gradient
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0xFF16487E), // Sunlit mid-ocean blue
-                    Color(0xFF0C2B52), // Deep royal ocean
-                    Color(0xFF061833), // Abyssal deep ocean
-                    Color(0xFF020A16), // Dark edge
+                    Color(0xFF164E87), // Sunlit mid-ocean azure
+                    Color(0xFF0C2B54), // Deep royal ocean
+                    Color(0xFF061833), // Abyssal ocean
+                    Color(0xFF030D1D), // Dark ocean edge
                 ),
-                center = Offset(cx - R * 0.30f, cy - R * 0.30f),
+                center = Offset(cx - R * 0.32f, cy - R * 0.32f),
                 radius = R * 1.25f,
             ),
             topLeft = Offset(cx - R, cy - R),
             size = Size(R * 2, R * 2),
         )
 
-        // 2b. Specular Sun Glint on Ocean Surface (Natural 3D Curvature Highlight)
+        // 2b. Specular Sun Glint Reflection on Ocean
         drawCircle(
             brush = Brush.radialGradient(
                 colors = listOf(
-                    Color(0x45E0F2FE),
-                    Color(0x2038BDF8),
+                    Color(0x50E0F2FE),
+                    Color(0x2238BDF8),
                     Color(0x000284C7),
                 ),
-                center = Offset(cx - R * 0.32f, cy - R * 0.32f),
+                center = Offset(cx - R * 0.35f, cy - R * 0.35f),
                 radius = R * 0.65f,
             ),
             radius = R * 0.65f,
-            center = Offset(cx - R * 0.32f, cy - R * 0.32f),
+            center = Offset(cx - R * 0.35f, cy - R * 0.35f),
         )
 
-        // 2c. Graticule (Latitude & Longitude Grid - Google Earth Style)
+        // 2c. Graticule (Google Earth Coordinate Grid)
         drawGraticule(cx, cy, R, yaw, pitch)
 
-        // 2d. Polar Ice Continents (Antarctica & Greenland - Brilliant Ice White)
+        // 2d. Polar Ice Continents (Antarctica & Greenland - Glacial White)
         drawGlobePolygon(
             pts = NATIVE_ANTARCTICA, cx = cx, cy = cy, R = R, yaw = yaw, pitch = pitch,
             fillColor = Color(0xFFF1F5F9), strokeColor = Color(0xFFE2E8F0), strokeWidth = 1.2f,
@@ -686,30 +691,32 @@ private fun DrawScope.drawGlobeSphere(
             fillColor = Color(0xFFF8FAFC), strokeColor = Color(0xFFE2E8F0), strokeWidth = 1.2f,
         )
 
-        // 2e. Major Continents & Landmasses (Natural Vegetation Green + Coastal Shelf Cyan)
-        val contVegColor = Color(0xFF1F6D3E)
-        val contCoastColor = Color(0xFF38A169)
+        // 2e. Continents with Shallow Coastal Shelf Turquoise Glow
         NATIVE_CONTINENTS.forEach { pts ->
+            // Turquoise coastal shelf
             drawGlobePolygon(
                 pts = pts, cx = cx, cy = cy, R = R, yaw = yaw, pitch = pitch,
-                fillColor = contVegColor, strokeColor = contCoastColor, strokeWidth = 1.2f,
+                fillColor = Color(0xFF0284C7).copy(alpha = 0.45f), strokeColor = Color(0xFF38BDF8).copy(alpha = 0.6f), strokeWidth = 3.2f,
+            )
+            // Lush vegetation biome landmass
+            drawGlobePolygon(
+                pts = pts, cx = cx, cy = cy, R = R, yaw = yaw, pitch = pitch,
+                fillColor = Color(0xFF1B5330), strokeColor = Color(0xFF22C55E).copy(alpha = 0.5f), strokeWidth = 1.0f,
             )
         }
 
-        // 2f. Major Deserts (Sahara, Arabia, Thar, Australian Outback - Warm Golden Sand)
-        val desertColor = Color(0xFFC09848)
-        val desertStroke = Color(0xFFD4AF37)
+        // 2f. Realistic Desert Biomes (Sahara, Arabia, Thar, Australian Outback - Sand Gold)
         NATIVE_DESERTS.forEach { pts ->
             drawGlobePolygon(
                 pts = pts, cx = cx, cy = cy, R = R, yaw = yaw, pitch = pitch,
-                fillColor = desertColor, strokeColor = desertStroke, strokeWidth = 1.0f,
+                fillColor = Color(0xFFC89D4C), strokeColor = Color(0xFFB4832D), strokeWidth = 1.0f,
             )
         }
 
-        // 2g. Mountain Ridges (Himalayas - High Elevation & Snow)
+        // 2g. Mountain Ridges & Snowcaps (Himalayas)
         drawGlobePolygon(
             pts = NATIVE_HIMALAYAS, cx = cx, cy = cy, R = R, yaw = yaw, pitch = pitch,
-            fillColor = Color(0xFF8B8579), strokeColor = Color(0xFFCBD5E1), strokeWidth = 1.4f,
+            fillColor = Color(0xFF78716C), strokeColor = Color(0xFFE2E8F0), strokeWidth = 1.5f,
         )
 
         // 2h. Major World Islands (UK, Japan, Madagascar, Indonesia, Sri Lanka, New Zealand)
@@ -720,7 +727,7 @@ private fun DrawScope.drawGlobeSphere(
             )
         }
 
-        // 2i. Indian Subcontinent (High Precision Border & Emerald Fill)
+        // 2i. Indian Subcontinent (High-Precision Emerald)
         drawGlobePolygon(
             pts = NATIVE_INDIA, cx = cx, cy = cy, R = R, yaw = yaw, pitch = pitch,
             fillColor = Color(0xFF15803D),
@@ -728,7 +735,7 @@ private fun DrawScope.drawGlobeSphere(
             strokeWidth = 2.2f,
         )
 
-        // 2j. Neighboring Country Borders (Pakistan, Nepal, Bangladesh)
+        // 2j. Neighboring Country Borders
         if (zoom >= 1.8f) {
             drawGlobePolyline(BORDER_PAKISTAN, cx, cy, R, yaw, pitch, color = Color(0x88CBD5E1), strokeWidth = 1.2f)
             drawGlobePolyline(BORDER_NEPAL, cx, cy, R, yaw, pitch, color = Color(0x88CBD5E1), strokeWidth = 1.2f)
@@ -741,7 +748,7 @@ private fun DrawScope.drawGlobeSphere(
             drawGlobePolyline(RIVER_YAMUNA, cx, cy, R, yaw, pitch, color = Color(0xFF38BDF8).copy(alpha = 0.80f), strokeWidth = 1.8f)
         }
 
-        // 2l. Uttar Pradesh State (Ajrara Demo Site - Glowing Amber)
+        // 2l. Uttar Pradesh State (Glowing Amber)
         drawGlobePolygon(
             pts = NATIVE_UP, cx = cx, cy = cy, R = R, yaw = yaw, pitch = pitch,
             fillColor = Color(0x77F59E0B),
@@ -749,17 +756,7 @@ private fun DrawScope.drawGlobeSphere(
             strokeWidth = if (zoom >= 4.5f) 3.2f else 2.4f,
         )
 
-        // 2m. High-Voltage Electrical Power Grid Corridors (400kV & 220kV UPPTCL Lines)
-        if (zoom >= 4.5f) {
-            POWER_GRID_LINES_400KV.forEach { line ->
-                drawGlobePolyline(line, cx, cy, R, yaw, pitch, color = Color(0xFFFBBF24).copy(alpha = 0.85f), strokeWidth = 2.4f)
-            }
-            POWER_GRID_LINES_220KV.forEach { line ->
-                drawGlobePolyline(line, cx, cy, R, yaw, pitch, color = Color(0xFF38BDF8).copy(alpha = 0.75f), strokeWidth = 1.6f)
-            }
-        }
-
-        // 2n. Pulsing Telemetry Beacon at Ajrara Site (26.85°N, 80.95°E)
+        // 2m. Pulsing Telemetry Beacon at Ajrara Site (26.85°N, 80.95°E)
         val pBeacon = project3D(26.85f, 80.95f, yaw, pitch)
         if (pBeacon.third > 0.05f) {
             val bx = cx + pBeacon.first * R
@@ -776,8 +773,11 @@ private fun DrawScope.drawGlobeSphere(
             drawCircle(color = Color.White, radius = 2.2f, center = Offset(bx, by))
         }
 
+        // 2n. Photorealistic Atmospheric Clouds (Swirling dynamic cloud systems)
+        drawAtmosphericClouds(cx, cy, R, yaw, pitch, cloudDrift)
+
         // 2o. Night-Side City Lights (World Power Grids on Dark Hemisphere)
-        if (zoom < 6.0f) {
+        if (zoom < 5.0f) {
             drawNightCityLights(cx, cy, R, yaw, pitch)
         }
 
@@ -797,7 +797,7 @@ private fun DrawScope.drawGlobeSphere(
             center = Offset(cx, cy),
         )
 
-        // 2q. Spherical Shadow / Terminator (Night-Side Shading for True 3D Depth)
+        // 2q. Spherical Terminator / Day-Night Planetary Shadow
         drawRect(
             brush = Brush.radialGradient(
                 colors = listOf(
@@ -821,6 +821,79 @@ private fun DrawScope.drawGlobeSphere(
         center = Offset(cx, cy),
         style = Stroke(width = 2.0f),
     )
+}
+
+// -----------------------------------------------------------------------------
+// Atmospheric Cloud Clusters (NASA Earth Imagery)
+// -----------------------------------------------------------------------------
+private val REALISTIC_CLOUD_CLUSTERS = listOf(
+    // Tropical Convergence Zone (ITCZ)
+    Triple(5f, 65f, 0.22f),
+    Triple(8f, 78f, 0.25f),
+    Triple(14f, 88f, 0.26f),
+    Triple(10f, 95f, 0.24f),
+    Triple(3f, 110f, 0.25f),
+    Triple(6f, 130f, 0.28f),
+    Triple(-2f, 150f, 0.24f),
+    Triple(4f, -140f, 0.28f),
+    Triple(2f, -110f, 0.25f),
+    Triple(8f, -70f, 0.30f),
+    Triple(4f, -40f, 0.26f),
+    Triple(6f, -10f, 0.24f),
+    Triple(2f, 20f, 0.26f),
+
+    // Mid-Latitude Cyclonic Systems & Swirls
+    Triple(38f, 68f, 0.20f),
+    Triple(45f, 90f, 0.24f),
+    Triple(52f, 120f, 0.26f),
+    Triple(42f, 145f, 0.22f),
+    Triple(48f, -135f, 0.28f),
+    Triple(35f, -90f, 0.24f),
+    Triple(42f, -55f, 0.28f),
+    Triple(55f, -25f, 0.26f),
+    Triple(50f, 10f, 0.22f),
+    Triple(56f, 35f, 0.25f),
+
+    // Southern Ocean Polar Front Vortexes
+    Triple(-52f, 20f, 0.28f),
+    Triple(-48f, 65f, 0.30f),
+    Triple(-55f, 110f, 0.28f),
+    Triple(-50f, 155f, 0.30f),
+    Triple(-54f, -140f, 0.28f),
+    Triple(-48f, -90f, 0.30f),
+    Triple(-52f, -35f, 0.28f),
+)
+
+private fun DrawScope.drawAtmosphericClouds(
+    cx: Float,
+    cy: Float,
+    R: Float,
+    yaw: Float,
+    pitch: Float,
+    drift: Float,
+) {
+    REALISTIC_CLOUD_CLUSTERS.forEach { (clat, clng, sz) ->
+        val movedLng = clng + drift * 22f
+        val p = project3D(clat, movedLng, yaw, pitch)
+        if (p.third > 0.10f) {
+            val sx = cx + p.first * R
+            val sy = cy - p.second * R
+            val cr = R * sz
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.50f),
+                        Color.White.copy(alpha = 0.22f),
+                        Color.White.copy(alpha = 0.0f),
+                    ),
+                    center = Offset(sx, sy),
+                    radius = cr,
+                ),
+                radius = cr,
+                center = Offset(sx, sy),
+            )
+        }
+    }
 }
 
 private fun DrawScope.drawGlobePolyline(
@@ -1128,26 +1201,8 @@ private val MAP_LANDMARKS = listOf(
 )
 
 // -----------------------------------------------------------------------------
-// Power Grid Transmission Corridors (400kV & 220kV UPPTCL)
+// Rivers & Neighboring Country Borders
 // -----------------------------------------------------------------------------
-private val POWER_GRID_LINES_400KV = listOf(
-    listOf(Pair(77.20f, 28.61f), Pair(77.70f, 28.98f)),
-    listOf(Pair(77.70f, 28.98f), Pair(77.78f, 28.73f)),
-    listOf(Pair(77.20f, 28.61f), Pair(78.01f, 27.18f)),
-    listOf(Pair(78.01f, 27.18f), Pair(80.33f, 26.45f)),
-    listOf(Pair(80.33f, 26.45f), Pair(80.95f, 26.85f)),
-    listOf(Pair(80.33f, 26.45f), Pair(81.84f, 25.43f)),
-    listOf(Pair(81.84f, 25.43f), Pair(82.97f, 25.32f)),
-)
-
-private val POWER_GRID_LINES_220KV = listOf(
-    listOf(Pair(77.78f, 28.73f), Pair(78.78f, 28.84f)),
-    listOf(Pair(78.78f, 28.84f), Pair(79.43f, 28.37f)),
-    listOf(Pair(79.43f, 28.37f), Pair(80.95f, 26.85f)),
-    listOf(Pair(77.20f, 28.61f), Pair(77.45f, 28.67f), Pair(77.78f, 28.73f)),
-    listOf(Pair(78.01f, 27.18f), Pair(78.08f, 27.89f)),
-)
-
 private val RIVER_GANGA = listOf(
     Pair(78.60f, 30.15f), Pair(78.16f, 29.95f), Pair(78.78f, 28.84f), Pair(79.50f, 27.80f),
     Pair(80.33f, 26.45f), Pair(81.84f, 25.43f), Pair(82.97f, 25.32f), Pair(85.14f, 25.60f), Pair(88.36f, 22.57f),
@@ -1170,6 +1225,9 @@ private val BORDER_BANGLADESH = listOf(
     Pair(88.5f, 26.3f), Pair(89.0f, 25.2f), Pair(89.0f, 22.0f), Pair(92.3f, 21.0f), Pair(92.5f, 23.7f), Pair(88.5f, 26.3f),
 )
 
+// -----------------------------------------------------------------------------
+// Topographical Vector Geometries (Longitude, Latitude)
+// -----------------------------------------------------------------------------
 private val NATIVE_INDIA = listOf(
     Pair(68f, 24f), Pair(70f, 21f), Pair(72f, 19f), Pair(73f, 15f), Pair(76f, 9f),
     Pair(77.5f, 8f), Pair(79.8f, 11f), Pair(80f, 13f), Pair(81f, 16f), Pair(83f, 18f),

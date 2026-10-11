@@ -63,7 +63,7 @@ object AppConfig {
     const val UP_CENTER_LAT = 26.85
     const val UP_CENTER_LNG = 80.90
     const val MAP_INITIAL_ZOOM = 6.5
-    const val MAP_CENTER_ZOOM = 19.0
+    const val MAP_CENTER_ZOOM = 11.0
     const val MAP_MIN_ZOOM = 3.0
     const val MAP_MAX_ZOOM = 20.5
     const val MAP_TILE_CACHE_BYTES = 200L * 1024 * 1024

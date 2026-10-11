@@ -11,6 +11,7 @@ import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,9 +20,15 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -37,6 +44,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,8 +69,7 @@ private const val TAG = "StsmnGlobe"
 private const val START_TIMEOUT_MS = 20_000L
 
 /**
- * The only two things the bundled page may call. Every input is validated here; nothing is executed.
- * [alive] is switched off when the screen is disposed so a late callback can never touch a dead screen.
+ * JavaScript interface for the offline 3D Earth Globe.
  */
 private class GlobeBridge(
     private val selectCb: (String?) -> Unit,
@@ -82,10 +89,6 @@ private class GlobeBridge(
     @JavascriptInterface fun onSpinState(active: Boolean) { post { spinCb(active) } }
 }
 
-/**
- * 3D globe. Retry creates a completely new WebView (key = attempt); callbacks of older pages are ignored.
- * Fallbacks: Retry, flat map. The sensor monitoring itself never depends on this screen.
- */
 @Composable
 fun GlobeScreen(
     devices: List<MapDevice>,
@@ -118,10 +121,8 @@ private fun GlobeSession(
     val ctx = LocalContext.current
     var state by remember { mutableStateOf(GlobeLifecycle.initial(attempt)) }
     var satellite by remember { mutableStateOf(true) }
-    var tilted by remember { mutableStateOf(false) }
     var isSpinning by remember { mutableStateOf(true) }
     var debug by remember { mutableStateOf(false) }
-    val hasInternet by rememberHasInternet()
     val onSelectState = rememberUpdatedState(onSelect)
     val selected = devices.firstOrNull { it.id == selectedId }
 
@@ -149,7 +150,7 @@ private fun GlobeSession(
                 setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                 setBackgroundColor(AColor.parseColor("#04070F"))
                 settings.apply {
-                    javaScriptEnabled = true            // needed by the bundled MapLibre; only our own page is ever loaded
+                    javaScriptEnabled = true
                     domStorageEnabled = true
                     allowFileAccess = false
                     allowContentAccess = false
@@ -159,17 +160,14 @@ private fun GlobeSession(
                 }
                 addJavascriptInterface(bridge, "AndroidBridge")
                 webChromeClient = object : WebChromeClient() {
-                    // Structured diagnostics: level + short text, no secrets exist in this page.
                     override fun onConsoleMessage(m: ConsoleMessage): Boolean {
-                        Log.d(TAG, "console ${m.messageLevel()} ${m.message().take(200)} (${m.sourceId().substringAfterLast('/')}:${m.lineNumber()})")
+                        Log.d(TAG, "console ${m.messageLevel()} ${m.message().take(200)}")
                         return true
                     }
                 }
                 webViewClient = object : WebViewClient() {
                     override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                         val r = loader.shouldInterceptRequest(request.url) ?: return null
-                        // Some Android versions label .css/.js as text/plain, and the browser then ignores the stylesheet.
-                        // Runs on a WebView background thread: nothing here may throw, or the whole app would crash.
                         return try {
                             val mime = when (request.url.lastPathSegment?.substringAfterLast('.', "")?.lowercase()) {
                                 "css" -> "text/css"
@@ -182,17 +180,13 @@ private fun GlobeSession(
                             r
                         }
                     }
-                    // Never navigate away from the bundled page (links, redirects, injected frames).
                     override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean = true
                     override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
                         if (request.isForMainFrame) {
-                            Log.w(TAG, "main frame error ${error.errorCode}")
                             state = GlobeLifecycle.onFatal(state, GlobeFailure.LOAD_ERROR, error.description?.toString())
                         }
                     }
-                    // Renderer died (low memory / GPU): fall back instead of letting Android kill the whole app.
                     override fun onRenderProcessGone(view: WebView, detail: android.webkit.RenderProcessGoneDetail): Boolean {
-                        Log.w(TAG, "renderer gone, crashed=${detail.didCrash()}")
                         state = GlobeLifecycle.onRendererGone(state)
                         return true
                     }
@@ -205,15 +199,14 @@ private fun GlobeSession(
 
     DisposableEffect(view) {
         onDispose {
-            bridge.alive = false   // late callbacks from this page are ignored from now on
+            bridge.alive = false
             view?.apply {
-                runCatching { (parent as? android.view.ViewGroup)?.removeView(this) } // never destroy while still attached
+                runCatching { (parent as? android.view.ViewGroup)?.removeView(this) }
                 runCatching { removeJavascriptInterface("AndroidBridge"); stopLoading(); destroy() }
             }
         }
     }
 
-    // Pause rendering when the app is in the background (saves GPU/battery), resume on return.
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, view) {
         val obs = LifecycleEventObserver { _, e ->
@@ -227,10 +220,8 @@ private fun GlobeSession(
         onDispose { owner.lifecycle.removeObserver(obs) }
     }
 
-    // The timeout only matters while still initializing; GlobeLifecycle.onTimeout ignores a started globe.
     LaunchedEffect(Unit) { delay(START_TIMEOUT_MS); state = GlobeLifecycle.onTimeout(state) }
 
-    // Commands are sent only after the page reported READY.
     val json = remember(devices) { GlobeData.json(devices) }
     val ready = state.isReady && view != null
     LaunchedEffect(ready, json) { if (ready) view!!.evaluateJavascript("stsmn.setDevices($json)", null) }
@@ -240,28 +231,19 @@ private fun GlobeSession(
             else view!!.evaluateJavascript("stsmn.select(null)", null)
         }
     }
-    LaunchedEffect(ready, hasInternet) { if (ready) view!!.evaluateJavascript("stsmn.setNet(${JSONObject.quote("internet=$hasInternet")})", null) }
     LaunchedEffect(ready, debug) { if (ready) view!!.evaluateJavascript("stsmn.debug($debug)", null) }
 
-    // ---------------- fatal: useful fallback with working Retry and Flat-map buttons ----------------
+    // Fallback screen only if WebGL / WebView completely crashed
     if (view == null || state.failure != null) {
         val why = state.failure?.message ?: GlobeFailure.INIT_ERROR.message
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ScreenTitle("3D Map", "${devices.size} transformer(s)")
+            ScreenTitle("3D Globe", "${devices.size} transformer(s)")
             AppCard(container = StsmnColors.Emergency.copy(alpha = 0.14f)) {
-                Text("3D map unavailable", fontWeight = FontWeight.Bold, color = StsmnColors.Emergency)
+                Text("3D Map Offline Fallback", fontWeight = FontWeight.Bold, color = StsmnColors.Emergency)
                 Text(why, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(top = 4.dp))
-                Text(
-                    "Live data, history and alerts are not affected.",
-                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
-                )
-                val tech = state.detail ?: web.exceptionOrNull()?.message
-                if (!tech.isNullOrBlank()) {
-                    Text("Technical: $tech", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
-                }
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = onRetry, modifier = Modifier.weight(1f)) { Text("Retry", maxLines = 1, softWrap = false) }
-                    OutlinedButton(onClick = onUseFlatMap, modifier = Modifier.weight(1f)) { Text("Flat map", maxLines = 1, softWrap = false) }
+                    Button(onClick = onRetry, modifier = Modifier.weight(1f)) { Text("Retry 3D", maxLines = 1, softWrap = false) }
+                    OutlinedButton(onClick = onUseFlatMap, modifier = Modifier.weight(1f)) { Text("Open Flat Map", maxLines = 1, softWrap = false) }
                 }
             }
             devices.forEach { DeviceCard(it, onClose = null) }
@@ -269,70 +251,122 @@ private fun GlobeSession(
         return
     }
 
+    // Full-screen 3D Globe with sleek floating glass controls
     Box(Modifier.fillMaxSize()) {
         AndroidView(modifier = Modifier.fillMaxSize(), factory = { view })
 
-        Column(Modifier.align(Alignment.TopStart).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            SummaryBar(devices, fleet, cloudEnabled, title = "3D MAP")
-            if (cloudEnabled && fleet.cloud != CloudState.ONLINE) {
-                Banner(
-                    when (fleet.cloud) {
-                        CloudState.AUTH_FAILED -> "Viewer key rejected by the server – check Settings → Realtime cloud"
-                        CloudState.OFF -> "Realtime cloud is off"
-                        else -> "Reconnecting… markers show last known state (STALE)"
-                    }, StsmnColors.Warning,
-                )
+        // Top Floating Status Chip
+        Row(
+            Modifier
+                .align(Alignment.TopCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(StsmnColors.Safe))
+                    Text(
+                        "3D EARTH GLOBE",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        letterSpacing = 0.8.sp,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        "• ${devices.size} TR",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
             }
-            if (!hasInternet) Banner(GlobeNotice.NO_INTERNET.message, StsmnColors.Info)
-            else if (GlobeNotice.TILES_FAILED in state.notices) Banner(GlobeNotice.TILES_FAILED.message, StsmnColors.Info)
-            if (GlobeNotice.TERRAIN_FAILED in state.notices) Banner(GlobeNotice.TERRAIN_FAILED.message, StsmnColors.Info)
-        }
-        if (!state.isReady) Text("Loading 3D map…", Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
 
-        if (devices.none { it.hasLocation }) {
-            AppCard(modifier = Modifier.align(Alignment.Center).padding(24.dp)) {
-                Text("No transformer positions yet", fontWeight = FontWeight.Bold)
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
+                    .clickable { debug = !debug }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+            ) {
                 Text(
-                    "Enter the site coordinates in Settings, or register transformers with coordinates on the server.",
-                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 8.dp),
+                    if (satellite) "🛰️ SATELLITE" else "🗺️ TECH",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
-                Button(onClick = onOpenSettings) { Text("Open Settings") }
             }
         }
 
-        Column(Modifier.align(Alignment.BottomCenter).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (selected != null) {
-                DeviceCard(selected, onClose = { onSelect(null) }, modifier = Modifier.heightIn(max = 280.dp))
+        if (!state.isReady) {
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
+                    .padding(horizontal = 20.dp, vertical = 12.dp),
+            ) {
+                Text(
+                    "Booting 3D Earth Globe…",
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                )
             }
-            // Row 1: Camera Actions (Globe, Region / Show all, Focus)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        }
+
+        // Bottom Controls Container
+        Column(
+            Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // Selected Transformer Quick Telemetry Card (Compact Glass Card)
+            if (selected != null) {
+                CompactGlobeDeviceCard(
+                    d = selected,
+                    onClose = { onSelect(null) },
+                    onFocus = {
+                        if (selected.hasLocation) view.evaluateJavascript("stsmn.focus('${selected.id}')", null)
+                    },
+                )
+            }
+
+            // Single Row Floating Action Bar
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.88f))
+                    .padding(5.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Button(
                     onClick = { view.evaluateJavascript("stsmn.globe()", null) },
                     enabled = state.isReady,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 ) {
-                    Text("Globe", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                    Text("🌍 Globe", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
+
                 Button(
                     onClick = { view.evaluateJavascript("stsmn.fitAll()", null) },
-                    enabled = state.isReady && devices.any { it.hasLocation },
+                    enabled = state.isReady,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 ) {
-                    Text("Region", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                    Text("📍 UP Site", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
-                Button(
-                    onClick = { selected?.let { s -> if (s.hasLocation) view.evaluateJavascript("stsmn.focus('${s.id}')", null) } },
-                    enabled = state.isReady && selected?.hasLocation == true,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp),
-                ) {
-                    Text("Focus", fontSize = 12.sp, maxLines = 1, softWrap = false)
-                }
-            }
-            // Row 2: View Toggles (Spin / Stop, Tilt 3D / Flat, Satellite / Streets)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+
                 OutlinedButton(
                     onClick = {
                         val next = !isSpinning
@@ -341,21 +375,11 @@ private fun GlobeSession(
                     },
                     enabled = state.isReady,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 ) {
-                    Text(if (isSpinning) "Stop" else "Spin", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                    Text(if (isSpinning) "⏹️ Pause" else "▶️ Spin", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
-                OutlinedButton(
-                    onClick = {
-                        tilted = !tilted
-                        view.evaluateJavascript("stsmn.tilt($tilted)", null)
-                    },
-                    enabled = state.isReady,
-                    modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp),
-                ) {
-                    Text(if (tilted) "Flat" else "Tilt 3D", fontSize = 12.sp, maxLines = 1, softWrap = false)
-                }
+
                 OutlinedButton(
                     onClick = {
                         satellite = !satellite
@@ -363,17 +387,114 @@ private fun GlobeSession(
                     },
                     enabled = state.isReady,
                     modifier = Modifier.weight(1f),
-                    contentPadding = PaddingValues(horizontal = 6.dp),
+                    contentPadding = PaddingValues(horizontal = 4.dp, vertical = 6.dp),
                 ) {
-                    Text(if (satellite) "Streets" else "Satellite", fontSize = 12.sp, maxLines = 1, softWrap = false)
+                    Text(if (satellite) "🗺️ Streets" else "🛰️ Sat", fontSize = 11.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
                 }
             }
-            // Tap the credit line to show/hide the developer diagnostics line (tile counters, JS errors, network).
+
+            // Unobtrusive Touch Guide Caption
             Text(
-                if (satellite) "Imagery © Esri, Maxar, Earthstar · Terrain © Mapzen/AWS · MapLibre" else "© OpenStreetMap contributors · MapLibre",
-                fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.End).clickable { debug = !debug },
+                "STSMN 3D Offline Engine • Drag to rotate • Pinch to zoom • Tap marker to view",
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                modifier = Modifier.align(Alignment.CenterHorizontally),
             )
+        }
+    }
+}
+
+/**
+ * Compact floating telemetry card designed specifically for the 3D globe.
+ * Keeps the globe 85% visible while providing instant real-time metrics.
+ */
+@Composable
+private fun CompactGlobeDeviceCard(
+    d: MapDevice,
+    onClose: () -> Unit,
+    onFocus: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val color = markerColor(d.state)
+    AppCard(
+        modifier = modifier.fillMaxWidth(),
+        container = color.copy(alpha = 0.14f),
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(d.label, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
+                Text(
+                    if (d.demoLocation) "Ajrara Demo Site (UP)" else d.name,
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Pill(d.state.label, color)
+            IconButton(onClick = onClose, modifier = Modifier.size(28.dp).padding(start = 4.dp)) {
+                Icon(Icons.Filled.Close, contentDescription = "Close", modifier = Modifier.size(16.dp))
+            }
+        }
+
+        // Live telemetry metric tiles in one compact row
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            GlobeMetricTile("TEMP", fmtTemp(d.temperature), color = StsmnColors.Safe, Modifier.weight(1f))
+            GlobeMetricTile("VOLT", fmtVolt(d.voltage), color = MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+            GlobeMetricTile("CURR", fmtAmp(d.current), color = MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+            GlobeMetricTile("RISK", d.risk?.let { "$it/100" } ?: "--", color = color, Modifier.weight(1f))
+        }
+
+        // Action row
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Button(
+                onClick = onFocus,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 4.dp, horizontal = 8.dp),
+            ) {
+                Text("Focus On Globe", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+            }
+            OutlinedButton(
+                onClick = onClose,
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(vertical = 4.dp, horizontal = 8.dp),
+            ) {
+                Text("Dismiss", fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun GlobeMetricTile(
+    label: String,
+    value: String,
+    color: androidx.compose.ui.graphics.Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+            .padding(horizontal = 6.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, color = color, maxLines = 1, softWrap = false)
         }
     }
 }

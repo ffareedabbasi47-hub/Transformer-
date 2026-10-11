@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-<!-- Locked down: only our own files run as script; tiles/images may come from https only; no inline script, no eval. -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; connect-src https: blob: data:; worker-src blob:; child-src blob:; font-src 'self' data:">
-<title>STSMN Globe</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data: blob:; connect-src https: blob: data:; font-src 'self' data:">
+<title>STSMN 3D Globe</title>
 <style>html,body{margin:0;height:100%;width:100%;background:#04070f;overflow:hidden}#map{position:absolute;inset:0}</style>
-<link rel="stylesheet" href="maplibre-gl.css">
 <link rel="stylesheet" href="globe.css">
 </head>
 <body>
-<div id="map"></div>
+<div id="map">
+  <canvas id="globe-canvas"></canvas>
+  <div id="markers-layer"></div>
+</div>
 <div id="dbg"></div>
-<script src="maplibre-gl.js"></script>
 <script src="globe.js"></script>
 </body>
 </html>

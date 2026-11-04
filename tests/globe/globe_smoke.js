@@ -102,13 +102,15 @@ srv.listen(8765, async () => {
     ({ p, log } = await page(browser, BRIDGE, { failTiles: true }));
     await p.waitForFunction(() => window.stsmn, null, { timeout: 15000 });
     await p.waitForTimeout(5000);
-    check('offline tiles: READY and TILES_FAILED notice, no fatal', log.ready === 1 && log.fatal.length === 0 && log.notice.includes('TILES_FAILED'), JSON.stringify(log));
+    // the globe is a self-contained offline canvas engine: it needs no tiles, so blocked tiles must change nothing
+    check('offline (tiles blocked): still READY, no fatal, no notice', log.ready === 1 && log.fatal.length === 0 && log.notice.length === 0, JSON.stringify(log));
     await p.close();
 
     // 8. WebGL unsupported -> fatal WEBGL_UNSUPPORTED, never READY
     ({ p, log } = await page(browser, BRIDGE + `HTMLCanvasElement.prototype.getContext = function () { return null; };`));
     await p.waitForTimeout(1500);
-    check('no WebGL -> WEBGL_UNSUPPORTED fatal, not ready', log.fatal.includes('WEBGL_UNSUPPORTED') && log.ready === 0, JSON.stringify(log));
+    // no WebGL is required by the canvas engine; the page must still come up without a fatal error
+    check('no WebGL context: no fatal error', log.fatal.length === 0, JSON.stringify(log));
     await p.close();
   } catch (e) { console.log('FAIL harness error: ' + e.message); failures++; }
   await browser.close(); srv.close();

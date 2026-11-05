@@ -197,6 +197,7 @@ fun MapScreen(
         while (true) {
             val r = TileProbe.run(ctx.packageName)
             probe = r
+            MapDiag.probe = MapDiag.probeText(r)
             if (r.any) break
             delay(15_000)
         }

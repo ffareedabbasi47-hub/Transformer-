@@ -131,6 +131,7 @@
       else notice('PAINTED', 'drawing');   // proof for the app that this phone really draws the globe
     } catch (e) { probeDone = true; }
   });
+  notice('ENV', envInfo);                              // phone info for the app's diagnostics line
   var epoch = Date.now();
   function providerFailed(why) {
     dbgOn = true;                                      // show the reason on screen so it can be reported

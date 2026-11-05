@@ -48,6 +48,7 @@ fun EarthScreen(
     var native by rememberSaveable { mutableStateOf(prefs.getBoolean("earth_failed", false)) }
     var showList by rememberSaveable { mutableStateOf(false) }
 
+    MapDiag.engine = if (native) "engine: native satellite map" else "engine: 3D Earth"
     Box(Modifier.fillMaxSize()) {
         if (native) {
             MapScreen(devices, fleet, cloudEnabled, selectedId, onSelect, onOpenSettings)
@@ -75,6 +76,13 @@ fun EarthScreen(
                 ) { Text("🌍", fontSize = 18.sp) }
             }
         }
+
+        // Diagnostics line: temporary, so one screenshot shows what this phone is doing.
+        Text(
+            MapDiag.engine + " · " + MapDiag.probe + (if (native) "" else " · " + MapDiag.web),
+            fontSize = 9.sp, maxLines = 3, color = androidx.compose.ui.graphics.Color.White,
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(androidx.compose.ui.graphics.Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp),
+        )
 
         if (showList) {
             Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {

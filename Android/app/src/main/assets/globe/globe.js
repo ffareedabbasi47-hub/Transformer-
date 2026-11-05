@@ -77,6 +77,13 @@
   // Globe projection must be applied after every style load (also after Satellite/Streets switches).
   map.on('style.load', function () {
     try { map.setProjection({ type: 'globe' }); } catch (e) { notice('SCRIPT_ERROR', 'globe projection unavailable: ' + e.message); }
+    // READY as soon as the globe itself exists. The map's own 'load' event waits for every first tile, so on a slow or
+    // blocked network it never fires and the app showed "Loading…" forever. Tiles now simply appear when they arrive.
+    if (!loaded) {
+      loaded = true;
+      setTimeout(spinStep, 300);
+      try { bridge.onReady && bridge.onReady(); } catch (e) {}
+    }
   });
 
   // GPU context can be taken away while the app is in the background: keep the map alive and redraw on return.
@@ -147,13 +154,6 @@
   }
   map.on('zoomend', syncTerrain);
   map.on('styledata', syncTerrain);
-
-  map.on('load', function () {
-    if (loaded) return;
-    loaded = true;
-    setTimeout(spinStep, 300);
-    try { bridge.onReady && bridge.onReady(); } catch (e) {}
-  });
 
   // ---- markers (DOM built with textContent only: server text can never become HTML) ----------
   var markers = {}; // id -> {marker, el, parts, sig}

@@ -23,7 +23,7 @@ async function page(browser, bridgeSrc, opts = {}) {
   await p.exposeFunction('__select', id => log.select.push(id));
   await p.addInitScript(bridgeSrc);
   p.on('pageerror', e => log.errors.push(e.message));
-  await p.route(/^https:\/\//, r => opts.failTiles ? r.abort() : r.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+  await p.route(/^https:\/\//, r => opts.hangTiles ? undefined : opts.failTiles ? r.abort() : r.fulfill({ status: 200, contentType: 'image/png', body: opts.tile || PNG }));
   await p.goto('http://localhost:8765/index.html');
   return { p, log };
 }
@@ -106,6 +106,31 @@ srv.listen(8765, async () => {
     ({ p, log } = await page(browser, BRIDGE + `HTMLCanvasElement.prototype.getContext = function () { return null; };`));
     await p.waitForTimeout(1500);
     check('no WebGL -> WEBGL_UNSUPPORTED fatal, not ready', log.fatal.includes('WEBGL_UNSUPPORTED') && log.ready === 0, JSON.stringify(log));
+    await p.close();
+
+    // 9. tile server that never answers (slow / blocked network): the globe must still become READY quickly,
+    //    never wait for tiles, and finally report TILES_FAILED instead of hanging on "Loading".
+    ({ p, log } = await page(browser, BRIDGE, { hangTiles: true }));
+    await p.waitForTimeout(3500);
+    check('hanging tiles: READY within 3.5 s', log.ready === 1 && log.fatal.length === 0, JSON.stringify(log));
+    await p.waitForTimeout(19000);
+    check('hanging tiles: provider fallback then TILES_FAILED, no fatal', log.notice.includes('SATELLITE_FALLBACK') && log.notice.includes('TILES_FAILED') && log.fatal.length === 0, JSON.stringify(log));
+    await p.close();
+
+    // 10. working tile server: the picture really appears on screen (green test tiles) and the globe is drawn
+    ({ p, log } = await page(browser, BRIDGE, { tile: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAIAAADTED8xAAACvklEQVR4nO3TMQEAIAzAsIEuFKMSGRxNFPTpmnsGqvbvAPjJAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIMwBpBiDNAKQZgDQDkGYA0gxAmgFIezqxAuY7RSaCAAAAAElFTkSuQmCC', 'base64') }));
+    await p.waitForTimeout(6000);
+    const shot = (await p.screenshot()).toString('base64');
+    const px = await p.evaluate(async b64 => {
+      const img = new Image(); img.src = 'data:image/png;base64,' + b64; await img.decode();
+      const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+      let green = 0, n = 0;
+      for (let yy = 0; yy < img.height; yy += 8) for (let xx = 0; xx < img.width; xx += 8) { const d = x.getImageData(xx, yy, 1, 1).data; n++; if (d[1] > 120 && d[0] < 80 && d[2] < 110) green++; }
+      return green / n;
+    }, shot);
+    check('tiles arrive and are drawn on the globe (>5% of screen shows tile colour)', px > 0.05, 'green share ' + px.toFixed(3));
+    check('working tiles: READY once, no fatal, no notice', log.ready === 1 && log.fatal.length === 0 && log.notice.length === 0, JSON.stringify(log));
     await p.close();
   } catch (e) { console.log('FAIL harness error: ' + e.message); failures++; }
   await browser.close(); srv.close();

@@ -277,7 +277,7 @@ private fun GlobeSession(
                 }
                 Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = onRetry, modifier = Modifier.weight(1f)) { Text("Retry", maxLines = 1, softWrap = false) }
-                    OutlinedButton(onClick = onUseFlatMap, modifier = Modifier.weight(1f)) { Text("Flat map", maxLines = 1, softWrap = false) }
+                    OutlinedButton(onClick = onUseFlatMap, modifier = Modifier.weight(1f)) { Text("Basic map", maxLines = 1, softWrap = false) }
                 }
             }
             devices.forEach { DeviceCard(it, onClose = null) }

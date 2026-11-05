@@ -94,6 +94,8 @@ private fun createMapView(ctx: Context, onFirstLayout: () -> Unit): MapView {
     MapConfig.ensure(ctx)
     return MapView(ctx).apply {
         setTileSource(ESRI_SATELLITE)
+        overlayManager.tilesOverlay.setLoadingBackgroundColor(0xFF0B3D6E.toInt())   // sea blue while pictures load, never a grey grid
+        overlayManager.tilesOverlay.setLoadingLineColor(0xFF0B3D6E.toInt())
         setMultiTouchControls(true)
         setTilesScaledToDpi(true)
         setMinZoomLevel(AppConfig.MAP_MIN_ZOOM)

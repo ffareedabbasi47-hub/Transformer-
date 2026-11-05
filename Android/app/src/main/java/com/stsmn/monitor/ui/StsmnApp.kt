@@ -59,14 +59,12 @@ private enum class Tab(val label: String, val icon: ImageVector?, val parent: Ta
 
 @Composable
 fun StsmnApp(vm: MainViewModel) {
-    val context = androidx.compose.ui.platform.LocalContext.current
     val settings by vm.settings.collectAsStateWithLifecycle()
     val live by vm.live.collectAsStateWithLifecycle()
     val fleet by vm.fleet.collectAsStateWithLifecycle()
     val events by vm.events.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
-    var mapMode by rememberSaveable { mutableIntStateOf(if (context.getSharedPreferences("stsmn_ui", android.content.Context.MODE_PRIVATE).getBoolean("earth_failed", false)) 1 else 0) } // 0 = 3D Earth (WebView), 1 = native satellite map, 2 = offline globe, 3 = all transformers
     val nowElapsed by rememberElapsedNow()
     var showSplash by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(Unit) { delay(1300); showSplash = false }
@@ -129,33 +127,10 @@ fun StsmnApp(vm: MainViewModel) {
                             live, settings, fleet, onConnect = vm::connect,
                             onOpenSensors = { tab = Tab.SENSORS.ordinal }, onOpenDiagnostics = { tab = Tab.DIAGNOSTICS.ordinal },
                         )
-                    Tab.MAP -> Column(Modifier.fillMaxSize()) {
-                        MapModeSwitch(mapMode, onChange = { mapMode = it })
-                        Box(Modifier.weight(1f)) {
-                            when (mapMode) {
-                                3 -> FleetScreen(
-                                    devices, fleet, settings.cloudEnabled,
-                                    onOpenOnMap = { id -> selectedId = id; mapMode = 1 },
-                                    onOpenSettings = { tab = Tab.SETTINGS.ordinal },
-                                )
-                                1 -> MapScreen(              // real satellite imagery, drawn natively (most reliable)
-                                    devices, fleet, settings.cloudEnabled, selectedId,
-                                    onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
-                                    onNoTiles = { mapMode = 2 },   // nothing reachable: the offline globe still works
-                                )
-                                2 -> GlobeScreen(            // offline hand-drawn globe: needs no internet
-                                    devices, fleet, settings.cloudEnabled, selectedId,
-                                    onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
-                                    onUseFlatMap = {},
-                                )
-                                else -> RealEarthScreen(     // real satellite Earth (needs internet)
-                                    devices, fleet, settings.cloudEnabled, selectedId,
-                                    onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
-                                    onUseFlatMap = { mapMode = 1 },
-                                )
-                            }
-                        }
-                    }
+                    Tab.MAP -> EarthScreen(
+                        devices, fleet, settings.cloudEnabled, selectedId,
+                        onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
+                    )
                     Tab.HISTORY -> HistoryScreen(live, events, onClear = vm::clearHistory)
                     Tab.SENSORS -> SensorsScreen(live)
                     Tab.DIAGNOSTICS -> DiagnosticsScreen(live, fleet, settings.cloudEnabled)
@@ -180,14 +155,3 @@ fun StsmnApp(vm: MainViewModel) {
     }
 }
 
-/** Two views: Unified 3D Earth Map (space orbit + real street map) and list of every transformer. */
-@Composable
-private fun MapModeSwitch(mode: Int, onChange: (Int) -> Unit) {
-    val names = listOf("🌍 3D", "🛰 Map", "🌐 Globe", "📋 List")
-    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        names.forEachIndexed { i, n ->
-            if (i == mode) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(n, maxLines = 1, softWrap = false) }
-            else OutlinedButton(onClick = { onChange(i) }, modifier = Modifier.weight(1f)) { Text(n, maxLines = 1, softWrap = false) }
-        }
-    }
-}

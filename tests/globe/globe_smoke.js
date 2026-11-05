@@ -86,9 +86,6 @@ srv.listen(8765, async () => {
     check('last style applied', (await p.evaluate(() => stsmn.styleKind())) === 'sat');
     await p.evaluate(() => stsmn.setStyle('evil')); check('unknown style ignored', (await p.evaluate(() => stsmn.styleKind())) === 'sat');
     await p.evaluate(() => { stsmn.tilt(true); stsmn.tilt(false); });
-    await p.evaluate(() => { stsmn.spin(false); }); check('spin can be paused', (await p.evaluate(() => stsmn.isSpinning())) === false);
-    await p.evaluate(() => { stsmn.spin(true); }); check('spin can be resumed', (await p.evaluate(() => stsmn.isSpinning())) === true);
-    await p.evaluate(() => { stsmn.globe(); });
     check('no page errors during all of the above', log.errors.length === 0, log.errors);
 
     // 6. a stray script error is only a notice, never fatal
@@ -102,15 +99,13 @@ srv.listen(8765, async () => {
     ({ p, log } = await page(browser, BRIDGE, { failTiles: true }));
     await p.waitForFunction(() => window.stsmn, null, { timeout: 15000 });
     await p.waitForTimeout(5000);
-    // the globe is a self-contained offline canvas engine: it needs no tiles, so blocked tiles must change nothing
-    check('offline (tiles blocked): still READY, no fatal, no notice', log.ready === 1 && log.fatal.length === 0 && log.notice.length === 0, JSON.stringify(log));
+    check('offline tiles: READY and TILES_FAILED notice, no fatal', log.ready === 1 && log.fatal.length === 0 && log.notice.includes('TILES_FAILED'), JSON.stringify(log));
     await p.close();
 
     // 8. WebGL unsupported -> fatal WEBGL_UNSUPPORTED, never READY
     ({ p, log } = await page(browser, BRIDGE + `HTMLCanvasElement.prototype.getContext = function () { return null; };`));
     await p.waitForTimeout(1500);
-    // no WebGL is required by the canvas engine; the page must still come up without a fatal error
-    check('no WebGL context: no fatal error', log.fatal.length === 0, JSON.stringify(log));
+    check('no WebGL -> WEBGL_UNSUPPORTED fatal, not ready', log.fatal.includes('WEBGL_UNSUPPORTED') && log.ready === 0, JSON.stringify(log));
     await p.close();
   } catch (e) { console.log('FAIL harness error: ' + e.message); failures++; }
   await browser.close(); srv.close();

@@ -12,7 +12,8 @@ enum class GlobeFailure(val message: String) {
 /** Something degraded, but the globe is still usable. */
 enum class GlobeNotice(val message: String) {
     NO_INTERNET("No internet: satellite pictures cannot load. Live data is not affected."),
-    TILES_FAILED("The map picture service is not answering. Try Streets, or retry later."),
+    SATELLITE_FALLBACK("Satellite pictures are blocked or unavailable here. Showing a street map instead."),
+    TILES_FAILED("No map pictures could be downloaded (check internet). Markers and live data still work."),
     TERRAIN_FAILED("Terrain relief is unavailable. The globe still works."),
     SCRIPT_ERROR("A minor error was ignored. Details are in Diagnostics."),
 }

@@ -137,10 +137,15 @@ fun StsmnApp(vm: MainViewModel) {
                                     onOpenOnMap = { id -> selectedId = id; mapMode = 0 },
                                     onOpenSettings = { tab = Tab.SETTINGS.ordinal },
                                 )
-                                else -> GlobeScreen(
+                                2 -> GlobeScreen(            // offline hand-drawn globe: needs no internet
                                     devices, fleet, settings.cloudEnabled, selectedId,
                                     onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
                                     onUseFlatMap = {},
+                                )
+                                else -> RealEarthScreen(     // real satellite Earth (needs internet)
+                                    devices, fleet, settings.cloudEnabled, selectedId,
+                                    onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
+                                    onUseFlatMap = { mapMode = 2 },
                                 )
                             }
                         }
@@ -172,7 +177,7 @@ fun StsmnApp(vm: MainViewModel) {
 /** Two views: Unified 3D Earth Map (space orbit + real street map) and list of every transformer. */
 @Composable
 private fun MapModeSwitch(mode: Int, onChange: (Int) -> Unit) {
-    val names = listOf("🌍 3D Earth Map", "📋 All Transformers")
+    val names = listOf("🌍 Earth", "📋 List", "🛰 Offline")
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         names.forEachIndexed { i, n ->
             if (i == mode) Button(onClick = {}, modifier = Modifier.weight(1f)) { Text(n, maxLines = 1, softWrap = false) }

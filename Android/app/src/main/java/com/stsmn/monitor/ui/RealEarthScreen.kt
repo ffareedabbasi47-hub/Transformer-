@@ -53,6 +53,7 @@ import com.stsmn.monitor.domain.GlobeFailure
 import com.stsmn.monitor.domain.GlobeLifecycle
 import com.stsmn.monitor.domain.GlobeNotice
 import com.stsmn.monitor.domain.MapDevice
+import com.stsmn.monitor.domain.TileProbe
 import kotlinx.coroutines.delay
 import org.json.JSONObject
 
@@ -231,8 +232,11 @@ private fun GlobeSession(
     val prefs = remember { ctx.getSharedPreferences("stsmn_ui", android.content.Context.MODE_PRIVATE) }
     var noPaint by remember { mutableStateOf(false) }
     LaunchedEffect(state.isReady) { if (state.isReady) { delay(10_000); noPaint = true } }
+    // Pre-flight: if no picture server is reachable from this phone, do not even wait for the 3D page.
+    var noServer by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { noServer = !TileProbe.run(ctx.packageName).any }
     val painted = GlobeNotice.PAINTED in state.notices
-    val giveUp = !painted && noPaint || GlobeNotice.TILES_FAILED in state.notices || GlobeNotice.RENDER_BLANK in state.notices || state.failure != null
+    val giveUp = noServer || !painted && noPaint || GlobeNotice.TILES_FAILED in state.notices || GlobeNotice.RENDER_BLANK in state.notices || state.failure != null
     val useOffline by rememberUpdatedState(onUseFlatMap)
     LaunchedEffect(painted) { if (painted) prefs.edit().putBoolean("earth_failed", false).apply() }
     LaunchedEffect(giveUp) {

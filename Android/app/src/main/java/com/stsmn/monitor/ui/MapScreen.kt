@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -49,6 +50,7 @@ import com.stsmn.monitor.domain.CloudState
 import com.stsmn.monitor.domain.FleetState
 import com.stsmn.monitor.domain.MapDevice
 import com.stsmn.monitor.domain.MarkerState
+import com.stsmn.monitor.domain.TileProbe
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
@@ -176,6 +178,7 @@ fun MapScreen(
     onSelect: (String?) -> Unit,
     onOpenSettings: () -> Unit,
     initialDeepZoom: Boolean = false,
+    onNoTiles: () -> Unit = {},
 ) {
     val ctx = LocalContext.current
     val hasInternet by rememberHasInternet()
@@ -185,6 +188,26 @@ fun MapScreen(
     val markerSet = remember { MarkerSet() }
     val selected = devices.firstOrNull { it.id == selectedId }
     var satellite by remember { mutableStateOf(true) }
+
+    // Pre-flight: which picture servers can this phone really reach? Retried every 15 s while none can.
+    var probe by remember { mutableStateOf<TileProbe.Result?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            val r = TileProbe.run(ctx.packageName)
+            probe = r
+            if (r.any) break
+            delay(15_000)
+        }
+    }
+    LaunchedEffect(probe) { if (probe?.choice() == TileProbe.Choice.STREETS) satellite = false }   // Esri blocked: use street pictures
+    val noTilesCallback by androidx.compose.runtime.rememberUpdatedState(onNoTiles)
+    LaunchedEffect(probe) {
+        if (probe?.any == false) {
+            delay(3500)
+            android.widget.Toast.makeText(ctx, "No internet: showing the offline globe", android.widget.Toast.LENGTH_LONG).show()
+            noTilesCallback()
+        }
+    }
     androidx.compose.runtime.LaunchedEffect(satellite, mapView) {
         mapView?.setTileSource(if (satellite) ESRI_SATELLITE else TileSourceFactory.MAPNIK)
         mapView?.invalidate()
@@ -273,7 +296,11 @@ fun MapScreen(
                     }, StsmnColors.Warning,
                 )
             }
-            if (!hasInternet) Banner("No internet: map background may be blank (cached tiles only). Markers still work.", StsmnColors.Info)
+            when {
+                probe?.any == false -> Banner("No map server reachable from this phone (no internet, or blocked). Markers and live data still work.", StsmnColors.Warning)
+                probe?.choice() == TileProbe.Choice.STREETS -> Banner("Satellite server is not reachable here: showing the street map instead.", StsmnColors.Info)
+                !hasInternet -> Banner("No internet: map background may be blank (cached tiles only). Markers still work.", StsmnColors.Info)
+            }
         }
 
         if (!mapReady) {

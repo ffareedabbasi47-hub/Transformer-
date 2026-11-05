@@ -141,6 +141,7 @@ fun StsmnApp(vm: MainViewModel) {
                                 1 -> MapScreen(              // real satellite imagery, drawn natively (most reliable)
                                     devices, fleet, settings.cloudEnabled, selectedId,
                                     onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
+                                    onNoTiles = { mapMode = 2 },   // nothing reachable: the offline globe still works
                                 )
                                 2 -> GlobeScreen(            // offline hand-drawn globe: needs no internet
                                     devices, fleet, settings.cloudEnabled, selectedId,

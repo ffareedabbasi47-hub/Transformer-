@@ -51,7 +51,8 @@
         relief: { type: 'raster-dem', tileSize: 256, maxzoom: 14, encoding: 'terrarium',
                   tiles: ['https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png'], attribution: 'Terrain: Mapzen/AWS' }
       },
-      layers: [{ id: 'base', type: 'raster', source: 'base', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 250 } }]
+      layers: [{ id: 'ocean', type: 'background', paint: { 'background-color': '#0b3d6e' } },   // the globe is never an invisible dark ball, even with no pictures
+               { id: 'base', type: 'raster', source: 'base', paint: { 'raster-resampling': 'linear', 'raster-fade-duration': 250 } }]
     };
     if (kind === 'sat') {                // place names and borders over the satellite picture, like Google Earth
       st.sources.labels = { type: 'raster', tileSize: 256, maxzoom: 19,
@@ -96,12 +97,39 @@
   function dbgText() {
     var d = document.getElementById('dbg'); if (!d) return;
     d.style.display = dbgOn ? 'block' : 'none';
-    if (dbgOn) d.textContent = 'tiles ok ' + tileOk + ' / failed ' + tileFail + ' · z ' + map.getZoom().toFixed(1) +
+    if (dbgOn) d.textContent = envInfo + ' · tiles ok ' + tileOk + ' / failed ' + tileFail + ' · z ' + map.getZoom().toFixed(1) +
       ' · js errors ' + scriptErrors + (netInfo ? ' · ' + netInfo : '') + (lastErr ? ' · ' + lastErr : '');
   }
   setInterval(dbgText, 1000);
   // A provider is "failed" when no tile arrives at all (blocked, unreachable, or the connection just hangs).
   // Move to the next one quickly so the picture appears within a couple of seconds instead of staying blank.
+
+  // ---- environment info (shown in the diagnostics line) and a "nothing is drawn" probe ----------
+  var envInfo = (function () {
+    var out = [];
+    try { var m = /Chrome\/(\d+)/.exec(navigator.userAgent); out.push('wv ' + (m ? m[1] : '?')); } catch (e) {}
+    try {
+      var c = document.createElement('canvas'), g = c.getContext('webgl2'); out.push(g ? 'gl2' : 'NO-gl2');
+      if (g) { var x = g.getExtension('WEBGL_debug_renderer_info'); if (x) out.push(String(g.getParameter(x.UNMASKED_RENDERER_WEBGL)).slice(0, 24)); }
+    } catch (e) { out.push('gl?'); }
+    return out.join(' ');
+  })();
+  var probePending = false, probeDone = false;
+  setTimeout(function () { probePending = true; try { map.triggerRepaint(); } catch (e) {} }, 5000);
+  map.on('render', function () {
+    if (!probePending || probeDone) return;
+    probePending = false;
+    try {
+      var gl = map.getCanvas().getContext('webgl2') || map.getCanvas().getContext('webgl');
+      var w = gl.drawingBufferWidth, h = gl.drawingBufferHeight, px = new Uint8Array(4), dark = 0, n = 0;
+      [[.5, .5], [.3, .5], [.7, .5], [.5, .3], [.5, .7]].forEach(function (p) {
+        gl.readPixels(Math.floor(w * p[0]), Math.floor(h * p[1]), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        n++; if (px[3] === 0 || px[0] + px[1] + px[2] < 24) dark++;
+      });
+      probeDone = true;
+      if (dark === n) { dbgOn = true; lastErr = 'blank render'; notice('RENDER_BLANK', 'all sampled pixels dark'); }
+    } catch (e) { probeDone = true; }
+  });
   var epoch = Date.now();
   function providerFailed(why) {
     dbgOn = true;                                      // show the reason on screen so it can be reported

@@ -14,6 +14,7 @@ enum class GlobeNotice(val message: String) {
     NO_INTERNET("No internet: satellite pictures cannot load. Live data is not affected."),
     SATELLITE_FALLBACK("Satellite pictures are blocked or unavailable here. Showing a street map instead."),
     TILES_FAILED("No map pictures could be downloaded (check internet). Markers and live data still work."),
+    RENDER_BLANK("The 3D view draws nothing on this phone (graphics problem). Switching to the offline globe."),
     TERRAIN_FAILED("Terrain relief is unavailable. The globe still works."),
     SCRIPT_ERROR("A minor error was ignored. Details are in Diagnostics."),
 }

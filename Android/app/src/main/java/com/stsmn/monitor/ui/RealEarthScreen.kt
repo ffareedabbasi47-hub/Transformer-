@@ -225,6 +225,12 @@ private fun GlobeSession(
     // The timeout only matters while still initializing; GlobeLifecycle.onTimeout ignores a started globe.
     LaunchedEffect(Unit) { delay(START_TIMEOUT_MS); state = GlobeLifecycle.onTimeout(state) }
 
+    // Never leave the person on an empty screen: if the satellite globe cannot show anything on this phone/network
+    // (no pictures from any server, nothing drawn, or a fatal error) open the offline globe automatically.
+    val giveUp = GlobeNotice.TILES_FAILED in state.notices || GlobeNotice.RENDER_BLANK in state.notices || state.failure != null
+    val useOffline by rememberUpdatedState(onUseFlatMap)
+    LaunchedEffect(giveUp) { if (giveUp) { delay(3500); useOffline() } }
+
     // Commands are sent only after the page reported READY.
     val json = remember(devices) { GlobeData.json(devices) }
     val ready = state.isReady && view != null
@@ -281,6 +287,7 @@ private fun GlobeSession(
             if (!hasInternet) Banner(GlobeNotice.NO_INTERNET.message, StsmnColors.Info)
             else if (GlobeNotice.TILES_FAILED in state.notices) Banner(GlobeNotice.TILES_FAILED.message, StsmnColors.Info)
             if (GlobeNotice.SATELLITE_FALLBACK in state.notices && GlobeNotice.TILES_FAILED !in state.notices) Banner(GlobeNotice.SATELLITE_FALLBACK.message, StsmnColors.Info)
+            if (GlobeNotice.RENDER_BLANK in state.notices) Banner(GlobeNotice.RENDER_BLANK.message, StsmnColors.Warning)
             if (GlobeNotice.TERRAIN_FAILED in state.notices) Banner(GlobeNotice.TERRAIN_FAILED.message, StsmnColors.Info)
         }
         if (!state.isReady) Text("Loading 3D map…", Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)

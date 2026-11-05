@@ -51,7 +51,9 @@ import com.stsmn.monitor.domain.MapDevice
 import com.stsmn.monitor.domain.MarkerState
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
@@ -77,10 +79,19 @@ private object MapConfig {
     }
 }
 
+/** Real satellite pictures (Esri World Imagery), drawn natively by osmdroid: no WebView or WebGL needed. */
+private val ESRI_SATELLITE = object : OnlineTileSourceBase(
+    "EsriWorldImagery", 0, 19, 256, ".jpg",
+    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"),
+) {
+    override fun getTileURLString(pMapTileIndex: Long): String =
+        baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex)
+}
+
 private fun createMapView(ctx: Context, onFirstLayout: () -> Unit): MapView {
     MapConfig.ensure(ctx)
     return MapView(ctx).apply {
-        setTileSource(TileSourceFactory.MAPNIK)
+        setTileSource(ESRI_SATELLITE)
         setMultiTouchControls(true)
         setTilesScaledToDpi(true)
         setMinZoomLevel(AppConfig.MAP_MIN_ZOOM)
@@ -173,6 +184,11 @@ fun MapScreen(
     val mapView = mapResult.getOrNull()
     val markerSet = remember { MarkerSet() }
     val selected = devices.firstOrNull { it.id == selectedId }
+    var satellite by remember { mutableStateOf(true) }
+    androidx.compose.runtime.LaunchedEffect(satellite, mapView) {
+        mapView?.setTileSource(if (satellite) ESRI_SATELLITE else TileSourceFactory.MAPNIK)
+        mapView?.invalidate()
+    }
 
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, mapView) {
@@ -328,6 +344,10 @@ fun MapScreen(
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                 Legend()
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    OutlinedButton(
+                        onClick = { satellite = !satellite },
+                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
+                    ) { Text(if (satellite) "🗺 Streets" else "🛰 Satellite", maxLines = 1, softWrap = false) }
                     Button(onClick = { fitAll(mapView, devices) }, enabled = devices.any { it.hasLocation }) { Text("Show all") }
                     OutlinedButton(
                         onClick = { selected?.let { s -> if (s.hasLocation) mapView.controller.animateTo(GeoPoint(s.lat!!, s.lng!!), maxOf(mapView.zoomLevelDouble, AppConfig.MAP_CENTER_ZOOM), 600L) } },
@@ -340,7 +360,7 @@ fun MapScreen(
                 DeviceCard(selected, onClose = { onSelect(null) }, modifier = Modifier.heightIn(max = 340.dp))
             }
             Text(
-                "© OpenStreetMap contributors",
+                if (satellite) "Imagery © Esri, Maxar, Earthstar Geographics" else "© OpenStreetMap contributors",
                 fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.End),
             )

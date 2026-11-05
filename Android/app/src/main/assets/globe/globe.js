@@ -128,6 +128,7 @@
       });
       probeDone = true;
       if (dark === n) { dbgOn = true; lastErr = 'blank render'; notice('RENDER_BLANK', 'all sampled pixels dark'); }
+      else notice('PAINTED', 'drawing');   // proof for the app that this phone really draws the globe
     } catch (e) { probeDone = true; }
   });
   var epoch = Date.now();

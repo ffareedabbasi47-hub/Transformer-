@@ -225,11 +225,22 @@ private fun GlobeSession(
     // The timeout only matters while still initializing; GlobeLifecycle.onTimeout ignores a started globe.
     LaunchedEffect(Unit) { delay(START_TIMEOUT_MS); state = GlobeLifecycle.onTimeout(state) }
 
-    // Never leave the person on an empty screen: if the satellite globe cannot show anything on this phone/network
-    // (no pictures from any server, nothing drawn, or a fatal error) open the offline globe automatically.
-    val giveUp = GlobeNotice.TILES_FAILED in state.notices || GlobeNotice.RENDER_BLANK in state.notices || state.failure != null
+    // Never leave the person on an empty screen. The 3D page must PROVE it is drawing (PAINTED); if it does not within
+    // 10 s after READY, or nothing can be downloaded, or it is fatal, open the native satellite map instead and
+    // remember that, so the next start goes straight to the map that works on this phone.
+    val prefs = remember { ctx.getSharedPreferences("stsmn_ui", android.content.Context.MODE_PRIVATE) }
+    var noPaint by remember { mutableStateOf(false) }
+    LaunchedEffect(state.isReady) { if (state.isReady) { delay(10_000); noPaint = true } }
+    val painted = GlobeNotice.PAINTED in state.notices
+    val giveUp = !painted && noPaint || GlobeNotice.TILES_FAILED in state.notices || GlobeNotice.RENDER_BLANK in state.notices || state.failure != null
     val useOffline by rememberUpdatedState(onUseFlatMap)
-    LaunchedEffect(giveUp) { if (giveUp) { delay(3500); useOffline() } }
+    LaunchedEffect(painted) { if (painted) prefs.edit().putBoolean("earth_failed", false).apply() }
+    LaunchedEffect(giveUp) {
+        if (giveUp) {
+            prefs.edit().putBoolean("earth_failed", true).apply()
+            delay(3500); useOffline()
+        }
+    }
 
     // Commands are sent only after the page reported READY.
     val json = remember(devices) { GlobeData.json(devices) }

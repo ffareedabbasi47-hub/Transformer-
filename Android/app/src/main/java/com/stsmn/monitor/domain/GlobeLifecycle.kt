@@ -16,6 +16,7 @@ enum class GlobeNotice(val message: String) {
     TILES_FAILED("No map pictures could be downloaded (check internet). Markers and live data still work."),
     RENDER_BLANK("The 3D view draws nothing on this phone (graphics problem). Switching to the offline globe."),
     TERRAIN_FAILED("Terrain relief is unavailable. The globe still works."),
+    PAINTED("The 3D view is drawing."),
     SCRIPT_ERROR("A minor error was ignored. Details are in Diagnostics."),
 }
 

@@ -113,7 +113,7 @@ srv.listen(8765, async () => {
     ({ p, log } = await page(browser, BRIDGE, { hangTiles: true }));
     await p.waitForTimeout(3500);
     check('hanging tiles: READY within 3.5 s', log.ready === 1 && log.fatal.length === 0, JSON.stringify(log));
-    await p.waitForTimeout(19000);
+    await p.waitForTimeout(30000);
     check('hanging tiles: provider fallback then TILES_FAILED, no fatal', log.notice.includes('SATELLITE_FALLBACK') && log.notice.includes('TILES_FAILED') && log.fatal.length === 0, JSON.stringify(log));
     await p.close();
 

@@ -70,7 +70,7 @@
     map = new maplibregl.Map({
       container: 'map', style: style(kind, 0), center: HOME.center, zoom: HOME.zoom, minZoom: 0.5, maxZoom: 20, pitch: 0, bearing: 0,
       maxPitch: 75, attributionControl: { compact: true },
-      pixelRatio: Math.min(window.devicePixelRatio || 1, 2), canvasContextAttributes: { antialias: false }
+      pixelRatio: Math.min(window.devicePixelRatio || 1, 2), canvasContextAttributes: { antialias: false, preserveDrawingBuffer: true }   // keeps the picture on screen on GPUs that drop an idle WebGL buffer
     });
   } catch (e) { fatal('INIT_ERROR', 'map could not start: ' + (e && e.message)); return; }
   map.addControl(new maplibregl.NavigationControl({ visualizePitch: true, showCompass: true }), 'top-right');
@@ -80,6 +80,7 @@
     try { map.setProjection({ type: 'globe' }); } catch (e) { notice('SCRIPT_ERROR', 'globe projection unavailable: ' + e.message); }
     // READY as soon as the globe itself exists. The map's own 'load' event waits for every first tile, so on a slow or
     // blocked network it never fires and the app showed "Loading…" forever. Tiles now simply appear when they arrive.
+    epoch = Date.now();
     if (!loaded) {
       loaded = true;
       setTimeout(spinStep, 300);
@@ -142,7 +143,7 @@
     } else notice('TILES_FAILED', why);
   }
   setInterval(function () {
-    if (loaded && tileOk === 0 && Date.now() - epoch > 5000) providerFailed('no tiles after 5 s');
+    if (loaded && tileOk === 0 && Date.now() - epoch > 9000) providerFailed('no tiles after 9 s');
   }, 1000);
   map.on('data', function (ev) { if (ev && ev.dataType === 'source' && ev.tile) tileOk++; });
   map.on('error', function (ev) {

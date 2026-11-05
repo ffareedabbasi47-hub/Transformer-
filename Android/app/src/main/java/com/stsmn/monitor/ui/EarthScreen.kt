@@ -45,8 +45,9 @@ fun EarthScreen(
 ) {
     val ctx = LocalContext.current
     val prefs = remember { ctx.getSharedPreferences("stsmn_ui", android.content.Context.MODE_PRIVATE) }
-    // "earth_failed" is written by RealEarthScreen when the 3D view could not draw on this phone.
-    var native by rememberSaveable { mutableStateOf(prefs.getBoolean("earth_failed", false)) }
+    // The native satellite map is the dependable default. The 3D Earth is one tap away (🌍 / 🛰 on the left edge);
+    // the choice is remembered. If 3D cannot draw it hands over to the native map by itself.
+    var native by rememberSaveable { mutableStateOf(prefs.getString("earth_engine", "native") != "3d") }
     var showList by rememberSaveable { mutableStateOf(false) }
 
     MapDiag.engine = if (native) "engine: native satellite map" else "engine: 3D Earth"
@@ -67,23 +68,14 @@ fun EarthScreen(
             Box(Modifier.size(44.dp).clip(CircleShape).clickable { showList = true }, contentAlignment = Alignment.Center) {
                 Text("📋", fontSize = 18.sp)
             }
-            if (native) {
-                Box(
-                    Modifier.size(44.dp).clip(CircleShape).clickable {
-                        prefs.edit().putBoolean("earth_failed", false).apply()
-                        native = false
-                    },
-                    contentAlignment = Alignment.Center,
-                ) { Text("🌍", fontSize = 18.sp) }
-            }
+            Box(
+                Modifier.size(44.dp).clip(CircleShape).clickable {
+                    native = !native
+                    prefs.edit().putString("earth_engine", if (native) "native" else "3d").apply()
+                },
+                contentAlignment = Alignment.Center,
+            ) { Text(if (native) "🌍" else "🛰", fontSize = 18.sp) }
         }
-
-        // Diagnostics line: temporary, so one screenshot shows what this phone is doing.
-        Text(
-            MapDiag.engine + " · " + MapDiag.probe + (if (native) "" else " · " + MapDiag.web),
-            fontSize = 9.sp, maxLines = 3, color = androidx.compose.ui.graphics.Color.White,
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(androidx.compose.ui.graphics.Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp),
-        )
 
         if (showList) {
             Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {

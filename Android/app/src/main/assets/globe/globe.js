@@ -93,6 +93,20 @@
       ' · js errors ' + scriptErrors + (netInfo ? ' · ' + netInfo : '') + (lastErr ? ' · ' + lastErr : '');
   }
   setInterval(dbgText, 1000);
+  // A provider is "failed" when no tile arrives at all (blocked, unreachable, or the connection just hangs).
+  // Move to the next one quickly so the picture appears within a couple of seconds instead of staying blank.
+  var epoch = Date.now();
+  function providerFailed(why) {
+    dbgOn = true;                                      // show the reason on screen so it can be reported
+    if (provIdx + 1 < CHAIN[kind].length) {
+      provIdx++; tileFail = 0; tileOk = 0; epoch = Date.now();
+      if (kind === 'sat') notice('SATELLITE_FALLBACK', CHAIN[kind][provIdx]);
+      map.setStyle(style(kind, provIdx));
+    } else notice('TILES_FAILED', why);
+  }
+  setInterval(function () {
+    if (loaded && tileOk === 0 && Date.now() - epoch > 5000) providerFailed('no tiles after 5 s');
+  }, 1000);
   map.on('data', function (ev) { if (ev && ev.dataType === 'source' && ev.tile) tileOk++; });
   map.on('error', function (ev) {
     var msg = String((ev && ev.error && ev.error.message) || 'error').slice(0, 80);
@@ -105,13 +119,7 @@
     if (src === 'labels') return;         // optional place-name overlay: ignore its failures
     if (src) {                           // individual satellite/street tile
       tileFail++;
-      if (tileFail >= 8 && tileOk === 0) {
-        if (provIdx + 1 < CHAIN[kind].length) {      // this provider is blocked/unreachable: try the next one
-          provIdx++; tileFail = 0; tileOk = 0;
-          if (kind === 'sat') notice('SATELLITE_FALLBACK', CHAIN[kind][provIdx]);
-          map.setStyle(style(kind, provIdx));
-        } else notice('TILES_FAILED', msg);          // every provider failed: most likely no internet
-      }
+      if (tileFail >= 6 && tileOk === 0) providerFailed(msg);
       return;
     }
     if (!loaded) fatal('LOAD_ERROR', msg);   // style itself failed before the first load
@@ -234,7 +242,7 @@
     },
     setStyle: function (k) {
       if (k !== 'sat' && k !== 'street') return;
-      kind = k; provIdx = 0; tileOk = 0; tileFail = 0; sent['NTILES_FAILED'] = false;
+      kind = k; provIdx = 0; epoch = Date.now(); tileOk = 0; tileFail = 0; sent['NTILES_FAILED'] = false;
       map.setStyle(style(k, 0));
     },
     tilt: function (on) { terrainOn = !!on; map.easeTo({ pitch: on ? 60 : 0, duration: 700 }); setTimeout(syncTerrain, 800); },

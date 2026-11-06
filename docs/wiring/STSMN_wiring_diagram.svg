@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 980" width="1500" height="980" font-family="Arial, Helvetica, sans-serif">
+<rect width="1500" height="980" fill="#ffffff"/>
+<text x="750" y="44" text-anchor="middle" font-size="30" font-weight="bold" fill="#0b1b33">STSMN - ESP32 wiring (sirf signal wires)</text>
+<text x="750" y="74" text-anchor="middle" font-size="17" fill="#444">Har box ke andar likha hai kaunsa power (3.3V / 5V) aur GND lagana hai. Line = signal wire jo ESP32 ke GPIO pin tak jati hai.</text>
+<rect x="590" y="110" width="320" height="820" rx="18" fill="#10233f" stroke="#0b1b33" stroke-width="4"/>
+<text x="750.0" y="154" text-anchor="middle" font-size="26" font-weight="bold" fill="#fff">ESP32</text>
+<text x="750.0" y="180" text-anchor="middle" font-size="15" fill="#9fb6d9">DevKit V1 (30 pin)</text>
+<rect x="30" y="138" width="400" height="100" rx="12" fill="#f6f9ff" stroke="#1d6fe0" stroke-width="3"/>
+<text x="42" y="164" font-size="18" font-weight="bold" fill="#1d6fe0">1. Temperature  DS18B20</text>
+<text x="42" y="186" font-size="14" fill="#222">Laal wire -&gt; 3.3V, Kaala -&gt; GND</text>
+<text x="42" y="205" font-size="14" fill="#222">Peela (data) -&gt; GPIO 4</text>
+<text x="42" y="224" font-size="14" fill="#222">4.7k resistor: data aur 3.3V ke beech</text>
+<circle cx="590" cy="190" r="7" fill="#1d6fe0" stroke="#fff" stroke-width="2"/>
+<text x="604" y="195" text-anchor="start" font-size="16" font-weight="bold" fill="#fff">GPIO 4</text>
+<path d="M430,190 C510.0,190 510.0,190 590,190" fill="none" stroke="#1d6fe0" stroke-width="4" stroke-linecap="round"/>
+<rect x="30" y="248" width="400" height="100" rx="12" fill="#f6f9ff" stroke="#1d6fe0" stroke-width="3"/>
+<text x="42" y="274" font-size="18" font-weight="bold" fill="#1d6fe0">2. Current  ACS712 (5A)</text>
+<text x="42" y="296" font-size="14" fill="#222">VCC -&gt; 5V, GND -&gt; GND</text>
+<text x="42" y="315" font-size="14" fill="#222">OUT -&gt; 10k -&gt; GPIO 34, aur</text>
+<text x="42" y="334" font-size="14" fill="#222">GPIO 34 -&gt; 20k -&gt; GND (divider)</text>
+<circle cx="590" cy="300" r="7" fill="#1d6fe0" stroke="#fff" stroke-width="2"/>
+<text x="604" y="305" text-anchor="start" font-size="16" font-weight="bold" fill="#fff">GPIO 34</text>
+<path d="M430,300 C510.0,300 510.0,300 590,300" fill="none" stroke="#1d6fe0" stroke-width="4" stroke-linecap="round"/>
+<rect x="30" y="358" width="400" height="100" rx="12" fill="#f6f9ff" stroke="#1d6fe0" stroke-width="3"/>
+<text x="42" y="384" font-size="18" font-weight="bold" fill="#1d6fe0">3. Voltage sensor (0-25V)</text>
+<text x="42" y="406" font-size="14" fill="#222">S -&gt; GPIO 35,  &#x27;-&#x27; -&gt; GND</text>
+<text x="42" y="425" font-size="14" fill="#222">&#x27;+&#x27; khali chhodo</text>
+<text x="42" y="444" font-size="14" fill="#222">Screw terminal: battery + / -</text>
+<circle cx="590" cy="410" r="7" fill="#1d6fe0" stroke="#fff" stroke-width="2"/>
+<text x="604" y="415" text-anchor="start" font-size="16" font-weight="bold" fill="#fff">GPIO 35</text>
+<path d="M430,410 C510.0,410 510.0,410 590,410" fill="none" stroke="#1d6fe0" stroke-width="4" stroke-linecap="round"/>
+<rect x="30" y="468" width="400" height="100" rx="12" fill="#f6f9ff" stroke="#e07b00" stroke-width="3"/>
+<text x="42" y="494" font-size="18" font-weight="bold" fill="#e07b00">4. Smoke  MQ-2</text>
+<text x="42" y="516" font-size="14" fill="#222">VCC -&gt; 5V, GND -&gt; GND</text>
+<text x="42" y="535" font-size="14" fill="#222">AO -&gt; 10k -&gt; GPIO 32, aur</text>
+<text x="42" y="554" font-size="14" fill="#222">GPIO 32 -&gt; 20k -&gt; GND (divider)</text>
+<circle cx="590" cy="520" r="7" fill="#e07b00" stroke="#fff" stroke-width="2"/>
+<text x="604" y="525" text-anchor="start" font-size="16" font-weight="bold" fill="#fff">GPIO 32</text>
+<path d="M430,520 C510.0,520 510.0,520 590,520" fill="none" stroke="#e07b00" stroke-width="4" stroke-linecap="round"/>
+<rect x="30" y="578" width="400" height="100" rx="12" fill="#f6f9ff" stroke="#e07b00" stroke-width="3"/>
+<text x="42" y="604" font-size="18" font-weight="bold" fill="#e07b00">5. Water level (oil demo)</text>
+<text x="42" y="626" font-size="14" fill="#222">+ -&gt; 3.3V,  &#x27;-&#x27; -&gt; GND</text>
+<text x="42" y="645" font-size="14" fill="#222">S -&gt; GPIO 33</text>
+<text x="42" y="664" font-size="14" fill="#222">Sirf PAANI, transformer oil nahi</text>
+<circle cx="590" cy="630" r="7" fill="#e07b00" stroke="#fff" stroke-width="2"/>
+<text x="604" y="635" text-anchor="start" font-size="16" font-weight="bold" fill="#fff">GPIO 33</text>
+<path d="M430,630 C510.0,630 510.0,630 590,630" fill="none" stroke="#e07b00" stroke-width="4" stroke-linecap="round"/>
+<rect x="30" y="688" width="400" height="100" rx="12" fill="#f6f9ff" stroke="#e07b00" stroke-width="3"/>
+<text x="42" y="714" font-size="18" font-weight="bold" fill="#e07b00">6. Flame sensor</text>
+<text x="42" y="736" font-size="14" fill="#222">VCC -&gt; 3.3V, GND -&gt; GND</text>
+<text x="42" y="755" font-size="14" fill="#222">DO -&gt; GPIO 25</text>
+<text x="42" y="774" font-size="14" fill="#222">(AO khali chhodo)</text>
+<circle cx="590" cy="740" r="7" fill="#e07b00" stroke="#fff" stroke-width="2"/>
+<text x="604" y="745" text-anchor="start" font-size="16" font-weight="bold" fill="#fff">GPIO 25</text>
+<path d="M430,740 C510.0,740 510.0,740 590,740" fill="none" stroke="#e07b00" stroke-width="4" stroke-linecap="round"/>
+<rect x="1070" y="138" width="400" height="100" rx="12" fill="#f6f9ff" stroke="#1f9d55" stroke-width="3"/>
+<text x="1082" y="164" font-size="18" font-weight="bold" fill="#1f9d55">Relay module (1 channel)</text>
+<text x="1082" y="186" font-size="14" fill="#222">VCC -&gt; 5V, GND -&gt; GND, IN -&gt; GPIO 26</text>
+<text x="1082" y="205" font-size="14" fill="#222">Load COM + NO se jodo (NC nahi)</text>
+<text x="1082" y="224" font-size="14" fill="#222">Sirf low-voltage demo load</text>
+<circle cx="910" cy="190" r="7" fill="#1f9d55" stroke="#fff" stroke-width="2"/>
+<text x="896" y="195" text-anchor="end" font-size="16" font-weight="bold" fill="#fff">GPIO 26</text>
+<path d="M910,190 C990.0,190 990.0,190 1070,190" fill="none" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>
+<rect x="1070" y="248" width="400" height="100" rx="12" fill="#f6f9ff" stroke="#1f9d55" stroke-width="3"/>
+<text x="1082" y="274" font-size="18" font-weight="bold" fill="#1f9d55">Buzzer (active)</text>
+<text x="1082" y="296" font-size="14" fill="#222">+ -&gt; GPIO 27</text>
+<text x="1082" y="315" font-size="14" fill="#222">- -&gt; GND</text>
+<circle cx="910" cy="300" r="7" fill="#1f9d55" stroke="#fff" stroke-width="2"/>
+<text x="896" y="305" text-anchor="end" font-size="16" font-weight="bold" fill="#fff">GPIO 27</text>
+<path d="M910,300 C990.0,300 990.0,300 1070,300" fill="none" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>
+<rect x="1070" y="358" width="400" height="100" rx="12" fill="#f6f9ff" stroke="#1f9d55" stroke-width="3"/>
+<text x="1082" y="384" font-size="18" font-weight="bold" fill="#1f9d55">3 LED (Hara, Peela, Laal)</text>
+<text x="1082" y="406" font-size="14" fill="#222">Har LED: GPIO -&gt; 220 ohm -&gt; LED lamba pair</text>
+<text x="1082" y="425" font-size="14" fill="#222">LED chhota pair -&gt; GND</text>
+<circle cx="910" cy="380" r="7" fill="#1f9d55" stroke="#fff" stroke-width="2"/>
+<text x="896" y="385" text-anchor="end" font-size="16" font-weight="bold" fill="#fff">GPIO 18</text>
+<path d="M910,380 C990.0,380 990.0,408.0 1070,408.0" fill="none" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>
+<circle cx="910" cy="410" r="7" fill="#1f9d55" stroke="#fff" stroke-width="2"/>
+<text x="896" y="415" text-anchor="end" font-size="16" font-weight="bold" fill="#fff">GPIO 19</text>
+<path d="M910,410 C990.0,410 990.0,408.0 1070,408.0" fill="none" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>
+<circle cx="910" cy="440" r="7" fill="#1f9d55" stroke="#fff" stroke-width="2"/>
+<text x="896" y="445" text-anchor="end" font-size="16" font-weight="bold" fill="#fff">GPIO 23</text>
+<path d="M910,440 C990.0,440 990.0,408.0 1070,408.0" fill="none" stroke="#1f9d55" stroke-width="4" stroke-linecap="round"/>
+<rect x="1070" y="538" width="400" height="116" rx="12" fill="#f6f9ff" stroke="#8a3ffc" stroke-width="3"/>
+<text x="1082" y="564" font-size="18" font-weight="bold" fill="#8a3ffc">7. GPS  NEO-6M</text>
+<text x="1082" y="586" font-size="14" fill="#222">VCC -&gt; 3.3V, GND -&gt; GND</text>
+<text x="1082" y="605" font-size="14" fill="#222">GPS TXD -&gt; GPIO 16</text>
+<text x="1082" y="624" font-size="14" fill="#222">GPS RXD -&gt; GPIO 17 (zaroori nahi)</text>
+<text x="1082" y="643" font-size="14" fill="#222">Antenna khuli jagah / khidki ke paas</text>
+<circle cx="910" cy="570" r="7" fill="#8a3ffc" stroke="#fff" stroke-width="2"/>
+<text x="896" y="575" text-anchor="end" font-size="16" font-weight="bold" fill="#fff">GPIO 16</text>
+<path d="M910,570 C990.0,570 990.0,596.0 1070,596.0" fill="none" stroke="#8a3ffc" stroke-width="4" stroke-linecap="round"/>
+<circle cx="910" cy="610" r="7" fill="#8a3ffc" stroke="#fff" stroke-width="2"/>
+<text x="896" y="615" text-anchor="end" font-size="16" font-weight="bold" fill="#fff">GPIO 17</text>
+<path d="M910,610 C990.0,610 990.0,596.0 1070,596.0" fill="none" stroke="#8a3ffc" stroke-width="4" stroke-linecap="round"/>
+<rect x="1070" y="738" width="400" height="116" rx="12" fill="#f6f9ff" stroke="#0f9fb0" stroke-width="3"/>
+<text x="1082" y="764" font-size="18" font-weight="bold" fill="#0f9fb0">8. SIM  SIM800L (SMS)</text>
+<text x="1082" y="786" font-size="14" fill="#222">VCC -&gt; alag 3.7-4.2V battery (ESP32 se NAHI)</text>
+<text x="1082" y="805" font-size="14" fill="#222">GND -&gt; ESP32 GND se bhi jodo (common)</text>
+<text x="1082" y="824" font-size="14" fill="#222">SIM TXD -&gt; GPIO 13</text>
+<text x="1082" y="843" font-size="14" fill="#222">GPIO 14 -&gt; 1k -&gt; SIM RXD, SIM RXD -&gt; 2k -&gt; GND</text>
+<circle cx="910" cy="760" r="7" fill="#0f9fb0" stroke="#fff" stroke-width="2"/>
+<text x="896" y="765" text-anchor="end" font-size="16" font-weight="bold" fill="#fff">GPIO 13</text>
+<path d="M910,760 C990.0,760 990.0,796.0 1070,796.0" fill="none" stroke="#0f9fb0" stroke-width="4" stroke-linecap="round"/>
+<circle cx="910" cy="820" r="7" fill="#0f9fb0" stroke="#fff" stroke-width="2"/>
+<text x="896" y="825" text-anchor="end" font-size="16" font-weight="bold" fill="#fff">GPIO 14</text>
+<path d="M910,820 C990.0,820 990.0,796.0 1070,796.0" fill="none" stroke="#0f9fb0" stroke-width="4" stroke-linecap="round"/>
+<rect x="30" y="852" width="400" height="100" rx="12" fill="#fff4f4" stroke="#d93025" stroke-width="3"/>
+<text x="42" y="880" font-size="18" font-weight="bold" fill="#d93025">Sabse zaroori (power)</text>
+<text x="42" y="904" font-size="14" fill="#222">ESP32 ko USB 5V 2A adapter se chalao.</text>
+<text x="42" y="923" font-size="14" fill="#222">Sabhi GND (ESP32, sensors, SIM battery) ek saath jodo.</text>
+<text x="42" y="942" font-size="14" fill="#222">SIM800L ko kabhi 3.3V ya ESP32 pin se mat chalao.</text>
+</svg>

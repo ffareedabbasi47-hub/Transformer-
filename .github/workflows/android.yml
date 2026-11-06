@@ -168,6 +168,8 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware risk_engine_test.cpp -o risk_test
           ./risk_test
+          g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware gps_sms_test.cpp -o gps_sms_test
+          ./gps_sms_test
           g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware protection_logic_test.cpp -o prot_test
           ./prot_test
           g++ -std=c++17 -Wall -Wno-unused-variable -Ifirmware/mock -I../ESP32/stsmn_firmware firmware/sensor_actuator_test.cpp -o sensor_test

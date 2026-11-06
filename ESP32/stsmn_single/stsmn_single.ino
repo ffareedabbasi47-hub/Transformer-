@@ -6,6 +6,8 @@
 // the phone or on the HTTP server (a stalled client cannot delay protection).
 // The phone only reads GET /api/status and GET /api/health.
 //
+// Modules: DS18B20 temperature, ACS712 current, voltage sensor, MQ-2 smoke, flame sensor, water level,
+//          NEO-6M GPS (UART2), SIM800L SMS (UART1), relay, buzzer, 3 LEDs.
 // Libraries (Arduino Library Manager): "OneWire", "DallasTemperature".
 // Board: "ESP32 Dev Module" (ESP32 Arduino core 2.x or 3.x).
 // LOW-VOLTAGE DEMO ONLY - never connect to 230V mains or a real transformer.
@@ -54,6 +56,23 @@ constexpr int PIN_LED_GREEN = 18;
 constexpr int PIN_LED_YELLOW= 19;
 constexpr int PIN_LED_RED   = 23;
 constexpr int PIN_BUZZER    = 27;  // ASSUMPTION: ACTIVE buzzer (on/off)
+
+// ---------- GPS module (NEO-6M) on UART2 ----------------------------------------
+constexpr int PIN_GPS_RX = 16;   // ESP32 RX  <-  GPS TX
+constexpr int PIN_GPS_TX = 17;   // ESP32 TX  ->  GPS RX (the NEO-6M only talks; this wire is optional)
+constexpr uint32_t GPS_BAUD = 9600;
+constexpr uint32_t GPS_FIX_TIMEOUT_MS = 10000;   // no valid sentence for 10 s = "no fix" (never an old position)
+
+// ---------- SIM module (SIM800L) on UART1 ----------------------------------------
+constexpr int PIN_SIM_RX = 13;   // ESP32 RX  <-  SIM800L TXD
+constexpr int PIN_SIM_TX = 14;   // ESP32 TX  ->  SIM800L RXD, through a 1k + 2k voltage divider
+constexpr uint32_t SIM_BAUD = 9600;
+// SMS alert: sent when the status ENTERS EMERGENCY (and WARNING if SMS_ON_WARNING). The phone number is in secrets.h.
+constexpr bool     SMS_ON_WARNING      = false;
+constexpr uint32_t SMS_MIN_INTERVAL_MS = 120000;   // never more than one SMS per 2 minutes
+constexpr uint32_t SMS_REPEAT_MS       = 1800000;  // reminder every 30 min while the alarm persists
+constexpr uint32_t GSM_STATUS_EVERY_MS = 30000;    // signal/registration check
+constexpr uint32_t COMM_TASK_STACK     = 6144;     // GPS + SMS task (low priority, never touches the relay)
 
 // ---------- Relay polarity (VERIFY ON YOUR MODULE!) --------------------------
 // Logical meaning is fixed: relay=true -> supply allowed, relay=false -> cutoff.
@@ -152,6 +171,8 @@ constexpr uint32_t CRIT_SMOKE_HEAT_HOLD_MS = 2000; // smoke while temp >= TEMP_W
 // ===== Wi-Fi settings: CHANGE THE PASSWORD BELOW (8 to 63 characters). The sketch will not compile with the example one. =====
 #define WIFI_AP_SSID "STSMN-TR001"
 #define WIFI_AP_PASSWORD "CHANGE_ME_min8chars"
+// Phone that receives the SMS alert, with country code (e.g. "+919876543210"). Leave the X placeholder to switch SMS off.
+#define ALERT_PHONE_NUMBER "+91XXXXXXXXXX"
 
 
 // ===== util.h =====
@@ -596,6 +617,291 @@ class Actuators {
   bool relayAllowed_ = false;
 };
 
+// ===== gps_nmea.h =====
+// NMEA parser for the GPS module (NEO-6M and compatible). No Arduino dependency: testable on a PC.
+// Only sentences with a correct checksum are used. A position is reported only while the module says "fix".
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
+
+struct GpsFix {
+  bool valid = false;
+  double lat = 0, lng = 0;   // decimal degrees, + = N/E, - = S/W
+  int sats = 0;
+};
+
+class NmeaParser {
+ public:
+  // Feed one received character. Returns true when a complete, checksum-valid RMC/GGA sentence was processed.
+  bool feed(char c) {
+    if (c == '$') { len_ = 0; in_ = true; return false; }
+    if (!in_) return false;
+    if (c == '\r' || c == '\n') {
+      in_ = false;
+      if (len_ == 0) return false;
+      buf_[len_] = 0;
+      return handle();
+    }
+    if (len_ >= sizeof(buf_) - 1) { in_ = false; return false; }   // too long: junk
+    buf_[len_++] = c;
+    return false;
+  }
+  const GpsFix& fix() const { return fix_; }
+
+  // XOR of the characters between '$' and '*'.
+  static uint8_t checksum(const char* body, size_t n) {
+    uint8_t x = 0;
+    for (size_t i = 0; i < n; i++) x ^= (uint8_t)body[i];
+    return x;
+  }
+
+ private:
+  char buf_[110];
+  size_t len_ = 0;
+  bool in_ = false;
+  GpsFix fix_;
+  bool rmcOk_ = false, ggaOk_ = false;
+
+  static int hexv(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return -1;
+  }
+
+  // "4807.038" + 'N' -> 48.1173
+  static bool coord(const char* v, char hemi, bool isLat, double& out) {
+    if (!v || !*v) return false;
+    char* end = nullptr;
+    const double raw = strtod(v, &end);
+    if (end == v || raw < 0) return false;
+    const double deg = floor(raw / 100.0);
+    const double min = raw - deg * 100.0;
+    if (min >= 60.0) return false;
+    double d = deg + min / 60.0;
+    if (hemi == 'S' || hemi == 'W') d = -d;
+    else if (hemi != 'N' && hemi != 'E') return false;
+    if (isLat ? (fabs(d) > 90.0) : (fabs(d) > 180.0)) return false;
+    out = d;
+    return true;
+  }
+
+  bool handle() {
+    char* star = strrchr(buf_, '*');
+    if (!star || star == buf_ || strlen(star) < 3) return false;
+    const int h1 = hexv(star[1]), h2 = hexv(star[2]);
+    if (h1 < 0 || h2 < 0) return false;
+    if (checksum(buf_, (size_t)(star - buf_)) != (uint8_t)(h1 * 16 + h2)) return false;   // corrupted: ignore
+    *star = 0;
+
+    char* f[16];
+    int n = 0;
+    char* p = buf_;
+    while (n < 16) {                      // split on commas in place (empty fields stay empty strings)
+      f[n++] = p;
+      char* comma = strchr(p, ',');
+      if (!comma) break;
+      *comma = 0;
+      p = comma + 1;
+    }
+    const size_t tl = strlen(f[0]);
+    if (tl < 5) return false;
+    const char* type = f[0] + tl - 3;     // GPRMC / GNRMC -> "RMC"
+
+    if (!strcmp(type, "RMC") && n >= 7) {
+      double la, lo;
+      const bool ok = f[2][0] == 'A' && coord(f[3], f[4][0], true, la) && coord(f[5], f[6][0], false, lo) &&
+                      !(la == 0 && lo == 0);
+      rmcOk_ = ok;
+      if (ok) { fix_.lat = la; fix_.lng = lo; }
+    } else if (!strcmp(type, "GGA") && n >= 8) {
+      double la, lo;
+      const int quality = atoi(f[6]);
+      const bool ok = quality > 0 && coord(f[2], f[3][0], true, la) && coord(f[4], f[5][0], false, lo) &&
+                      !(la == 0 && lo == 0);
+      ggaOk_ = ok;
+      if (ok) { fix_.lat = la; fix_.lng = lo; }
+      fix_.sats = atoi(f[7]);
+    } else {
+      return false;
+    }
+    fix_.valid = rmcOk_ || ggaOk_;
+    return true;
+  }
+};
+
+// ===== sms_logic.h =====
+// Pure SMS / GSM logic (no Arduino dependency) so it can be tested on a PC.
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+
+namespace sms {
+
+// "+919876543210" or "9876543210": optional '+', then 8..15 digits. The placeholder "+91XXXXXXXXXX" is NOT valid.
+inline bool isValidPhone(const char* p) {
+  if (!p) return false;
+  size_t i = 0;
+  if (p[0] == '+') i = 1;
+  int digits = 0;
+  for (; p[i]; i++) {
+    if (p[i] < '0' || p[i] > '9') return false;
+    digits++;
+  }
+  return digits >= 8 && digits <= 15;
+}
+
+// Plain-ASCII alert (one 160-character SMS). The position is included ONLY when the GPS has a real fix.
+// Returns false if it did not fit.
+inline bool buildAlertText(char* out, size_t n, const char* id, const char* status, int risk,
+                           bool tempValid, float tempC, bool gpsValid, double lat, double lng) {
+  int w = snprintf(out, n, "STSMN %s %s risk %d/100", id, status, risk);
+  if (w < 0 || (size_t)w >= n) return false;
+  size_t used = (size_t)w;
+  if (tempValid) {
+    w = snprintf(out + used, n - used, " temp %.1fC", (double)tempC);
+    if (w < 0 || (size_t)w >= n - used) return false;
+    used += (size_t)w;
+  }
+  if (gpsValid) w = snprintf(out + used, n - used, " https://maps.google.com/?q=%.6f,%.6f", lat, lng);
+  else w = snprintf(out + used, n - used, " GPS: no fix");
+  if (w < 0 || (size_t)w >= n - used) return false;
+  return (used + (size_t)w) <= 160;
+}
+
+// Decides WHEN to send an alert SMS. level: 0 SAFE, 1 WARNING, 2 EMERGENCY.
+// - a new alert episode (level rises to the threshold) sends once,
+// - never more often than minIntervalMs (an episode that starts too soon waits),
+// - while the alarm persists, a reminder every repeatMs,
+// - a failed send is retried after minIntervalMs via retry().
+class SmsGate {
+ public:
+  SmsGate(bool onWarning, uint32_t minIntervalMs, uint32_t repeatMs)
+      : thr_(onWarning ? 1 : 2), minMs_(minIntervalMs), repeatMs_(repeatMs) {}
+  bool update(int level, uint32_t now) {
+    if (level < thr_) { wasActive_ = false; pending_ = false; return false; }
+    if (!wasActive_) { wasActive_ = true; pending_ = true; }
+    if (!pending_ && sentOnce_ && (uint32_t)(now - lastSent_) >= repeatMs_) pending_ = true;
+    if (pending_ && (!sentOnce_ || (uint32_t)(now - lastSent_) >= minMs_)) {
+      pending_ = false; sentOnce_ = true; lastSent_ = now;
+      return true;
+    }
+    return false;
+  }
+  void retry() { if (wasActive_) pending_ = true; }
+ private:
+  int thr_;
+  uint32_t minMs_, repeatMs_;
+  bool wasActive_ = false, pending_ = false, sentOnce_ = false;
+  uint32_t lastSent_ = 0;
+};
+
+// "+CSQ: 18,0" -> 18 (0..31, 99 = unknown). -1 if the reply has no +CSQ line.
+inline int parseCsq(const char* resp) {
+  const char* p = resp ? strstr(resp, "+CSQ:") : nullptr;
+  if (!p) return -1;
+  p += 5;
+  while (*p == ' ') p++;
+  if (*p < '0' || *p > '9') return -1;
+  int v = 0;
+  while (*p >= '0' && *p <= '9') { v = v * 10 + (*p - '0'); p++; }
+  return v;
+}
+
+// "+CREG: 0,1" (home) or "+CREG: 0,5" (roaming) -> true. Anything else (searching, denied, no reply) -> false.
+inline bool parseCregRegistered(const char* resp) {
+  const char* p = resp ? strstr(resp, "+CREG:") : nullptr;
+  if (!p) return false;
+  p += 6;
+  while (*p == ' ') p++;
+  const char* comma = strchr(p, ',');
+  const char* q = comma ? comma + 1 : p;      // "+CREG: n,stat" or the unsolicited form "+CREG: stat"
+  while (*q == ' ') q++;
+  return *q == '1' || *q == '5';
+}
+
+}  // namespace sms
+
+// ===== sim800.h =====
+// SIM800L driver: sends SMS over AT commands. Blocking calls (up to ~40 s) -> only used from the comm task,
+// NEVER from the protection task. Arduino-ESP32 only (uses HardwareSerial).
+
+class SimModule {
+ public:
+  // Starts the UART and checks that the module answers. Returns true when it is ready to send SMS.
+  bool begin(HardwareSerial& ser, int rxPin, int txPin, uint32_t baud) {
+    s_ = &ser;
+    ser.begin(baud, SERIAL_8N1, rxPin, txPin);
+    delay(300);
+    ok_ = false;
+    for (int i = 0; i < 4 && !ok_; i++) ok_ = cmd("AT", "OK", 1000);
+    if (!ok_) return false;
+    cmd("ATE0", "OK", 1000);                // no echo
+    ok_ = cmd("AT+CMGF=1", "OK", 2000);     // text mode
+    if (ok_) cmd("AT+CSCS=\"GSM\"", "OK", 2000);
+    return ok_;
+  }
+  bool ready() const { return ok_; }
+
+  int signal() {                            // 0..31, 99 unknown, -1 no answer
+    if (!ok_ || !cmd("AT+CSQ", "OK", 2000)) return -1;
+    return sms::parseCsq(rx_);
+  }
+  bool registered() {
+    if (!ok_ || !cmd("AT+CREG?", "OK", 2000)) return false;
+    return sms::parseCregRegistered(rx_);
+  }
+
+  bool sendSms(const char* number, const char* text) {
+    if (!ok_ || !s_) return false;
+    flushInput();
+    s_->print("AT+CMGS=\"");
+    s_->print(number);
+    s_->print("\"\r");
+    if (!waitFor(">", nullptr, 8000)) { s_->write((uint8_t)0x1B); return false; }   // ESC cancels a half-open SMS
+    s_->print(text);
+    s_->write((uint8_t)0x1A);                                                      // Ctrl-Z = send
+    return waitFor("+CMGS:", "ERROR", 40000);
+  }
+
+ private:
+  HardwareSerial* s_ = nullptr;
+  bool ok_ = false;
+  char rx_[200] = "";
+
+  void flushInput() { while (s_ && s_->available()) s_->read(); }
+
+  // Collects the reply in rx_ until `want` appears (true), `bad` appears or the time runs out (false).
+  bool waitFor(const char* want, const char* bad, uint32_t timeoutMs) {
+    size_t len = 0;
+    rx_[0] = 0;
+    const uint32_t t0 = millis();
+    while ((uint32_t)(millis() - t0) < timeoutMs) {
+      while (s_->available()) {
+        const int c = s_->read();
+        if (c < 0) break;
+        if (len >= sizeof(rx_) - 1) { memmove(rx_, rx_ + 100, len - 100); len -= 100; }
+        rx_[len++] = (char)c;
+        rx_[len] = 0;
+      }
+      if (strstr(rx_, want)) return true;
+      if (bad && strstr(rx_, bad)) return false;
+      delay(5);
+    }
+    return false;
+  }
+
+  bool cmd(const char* c, const char* want, uint32_t timeoutMs) {
+    flushInput();
+    s_->print(c);
+    s_->print("\r");
+    return waitFor(want, "ERROR", timeoutMs);
+  }
+};
+
 // ===== main sketch =====
 // ---- Compile-time check of the Wi-Fi settings (a known default password must never ship) ------------------
 constexpr size_t cstrLen(const char* s, size_t i = 0) { return s[i] ? cstrLen(s, i + 1) : i; }
@@ -613,6 +919,21 @@ static Actuators actuators;
 static RiskEngine riskEngine;
 static RelayGate relayGate;
 static TaskHandle_t protectionHandle = nullptr;
+
+// GPS + SIM (SMS) run in a separate low-priority task: a slow modem can never delay protection.
+static NmeaParser gps;
+static SimModule sim;
+static sms::SmsGate smsGate(SMS_ON_WARNING, SMS_MIN_INTERVAL_MS, SMS_REPEAT_MS);   // protection task only
+static const bool smsEnabled = sms::isValidPhone(ALERT_PHONE_NUMBER);
+struct CommState {                       // written by the comm task, read by /api/health (under stateMutex)
+  bool gpsValid = false; double lat = 0, lng = 0; int sats = 0; uint32_t lastFixMs = 0;
+  bool gsmReady = false, gsmRegistered = false; int gsmSignal = -1;
+  uint32_t smsSent = 0, smsFailed = 0;
+};
+struct AlertRequest { bool pending = false; int status = 0; int risk = 0; bool tempValid = false; float tempC = 0; };
+static CommState comm;
+static AlertRequest alertReq;
+static volatile bool smsRetryFlag = false;
 
 // State shared between the protection task (writer) and the HTTP handlers (readers).
 // Guarded by stateMutex; the mutex is NEVER held while sending data over the network.
@@ -673,22 +994,31 @@ static void handleStatus() {
 }
 
 static void handleHealth() {
-  SensorReadings rd; bool armed; uint32_t sq;
+  SensorReadings rd; bool armed; uint32_t sq; CommState cs;
   xSemaphoreTake(stateMutex, portMAX_DELAY);
-  rd = lastReadings; armed = relayArmed; sq = seq;
+  rd = lastReadings; armed = relayArmed; sq = seq; cs = comm;
   xSemaphoreGive(stateMutex);
-  char buf[384];
+  const bool gpsFix = cs.gpsValid && (uint32_t)(millis() - cs.lastFixMs) < GPS_FIX_TIMEOUT_MS;
+  char latS[16], lngS[16];
+  if (gpsFix) { snprintf(latS, sizeof(latS), "%.6f", cs.lat); snprintf(lngS, sizeof(lngS), "%.6f", cs.lng); }
+  else { snprintf(latS, sizeof(latS), "null"); snprintf(lngS, sizeof(lngS), "null"); }
+  char buf[640];
   snprintf(buf, sizeof(buf),
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"seq\":%lu,\"clients\":%d,"
     "\"mq2Ready\":%s,\"tempValid\":%s,\"currentValid\":%s,\"voltageValid\":%s,\"relayMismatch\":%s,"
-    "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu}",
+    "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
+    "\"gpsFix\":%s,\"gpsSats\":%d,\"lat\":%s,\"lng\":%s,"
+    "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), (unsigned long)sq,
     WiFi.softAPgetStationNum(),
     rd.mq2Ready ? "true" : "false", rd.tempValid ? "true" : "false",
     rd.currentValid ? "true" : "false", rd.voltageValid ? "true" : "false",
     actuators.relayMismatch() ? "true" : "false", armed ? "true" : "false",
     (unsigned long)ESP.getFreeHeap(),
-    (unsigned long)(protectionHandle ? uxTaskGetStackHighWaterMark(protectionHandle) * sizeof(StackType_t) : 0));
+    (unsigned long)(protectionHandle ? uxTaskGetStackHighWaterMark(protectionHandle) * sizeof(StackType_t) : 0),
+    gpsFix ? "true" : "false", cs.sats, latS, lngS,
+    cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
+    smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed);
   sendJson(200, buf);
 }
 
@@ -714,6 +1044,15 @@ static void protectionCycle(uint32_t now) {
   const bool allow = relayGate.update(now, lastRisk.status, lastRisk.sensorFault);
   actuators.setRelayAllowed(allow);
   alarmOn = (lastRisk.status == Status::EMERGENCY);
+
+  // SMS alert request (the comm task sends it; nothing here waits for the modem).
+  if (smsRetryFlag) { smsRetryFlag = false; smsGate.retry(); }
+  if (smsEnabled && smsGate.update((int)lastRisk.status, now)) {
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    alertReq.pending = true; alertReq.status = (int)lastRisk.status; alertReq.risk = lastRisk.risk;
+    alertReq.tempValid = rd.tempValid; alertReq.tempC = rd.tempC;
+    xSemaphoreGive(stateMutex);
+  }
 
   char json[sizeof(statusJson)];
   const uint32_t nextSeq = seq + 1;
@@ -750,6 +1089,59 @@ static void protectionTask(void*) {
   }
 }
 
+// GPS reader + SIM/SMS sender. Low priority; never touches sensors, relay or LEDs.
+static void commTask(void*) {
+  uint32_t lastGsmCheck = 0, lastSimTry = 0;
+  bool simTried = false;
+  for (;;) {
+    const uint32_t now = millis();
+
+    // 1) GPS: feed the parser with whatever arrived on UART2.
+    for (int guard = 0; guard < 256 && Serial2.available(); guard++) {
+      if (gps.feed((char)Serial2.read())) {
+        const GpsFix f = gps.fix();
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+        comm.gpsValid = f.valid; comm.sats = f.sats;
+        if (f.valid) { comm.lat = f.lat; comm.lng = f.lng; comm.lastFixMs = now; }
+        xSemaphoreGive(stateMutex);
+      }
+    }
+
+    // 2) SIM: (re)start the modem, then keep signal/registration up to date.
+    if (smsEnabled && !sim.ready() && (!simTried || (uint32_t)(now - lastSimTry) >= 30000)) {
+      simTried = true; lastSimTry = now;
+      const bool ok = sim.begin(Serial1, PIN_SIM_RX, PIN_SIM_TX, SIM_BAUD);
+      xSemaphoreTake(stateMutex, portMAX_DELAY); comm.gsmReady = ok; xSemaphoreGive(stateMutex);
+      Serial.println(ok ? "SIM module ready" : "SIM module not answering (check power, wiring, SIM card)");
+    }
+    if (sim.ready() && (uint32_t)(now - lastGsmCheck) >= GSM_STATUS_EVERY_MS) {
+      lastGsmCheck = now;
+      const int sig = sim.signal();
+      const bool reg = sim.registered();
+      xSemaphoreTake(stateMutex, portMAX_DELAY); comm.gsmSignal = sig; comm.gsmRegistered = reg; xSemaphoreGive(stateMutex);
+    }
+
+    // 3) Alert SMS requested by the protection task.
+    AlertRequest req;
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    req = alertReq; alertReq.pending = false;
+    const bool fixNow = comm.gpsValid && (uint32_t)(now - comm.lastFixMs) < GPS_FIX_TIMEOUT_MS;
+    const double la = comm.lat, lo = comm.lng;
+    xSemaphoreGive(stateMutex);
+    if (req.pending) {
+      char text[161];
+      const char* st = req.status == 2 ? "EMERGENCY" : (req.status == 1 ? "WARNING" : "SAFE");
+      bool ok = false;
+      if (sim.ready() && sms::buildAlertText(text, sizeof(text), STSMN_DEVICE_ID, st, req.risk, req.tempValid, req.tempC, fixNow, la, lo))
+        ok = sim.sendSms(ALERT_PHONE_NUMBER, text);
+      xSemaphoreTake(stateMutex, portMAX_DELAY); if (ok) comm.smsSent++; else comm.smsFailed++; xSemaphoreGive(stateMutex);
+      if (!ok) smsRetryFlag = true;
+      Serial.println(ok ? "SMS alert sent" : "SMS alert FAILED (will retry)");
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
+
 static void startWatchdog() {
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
   const esp_task_wdt_config_t cfg = {
@@ -783,6 +1175,10 @@ void setup() {
   server.on("/api/health", HTTP_GET, handleHealth);
   server.onNotFound(handleNotFound);
   server.begin();
+
+  Serial2.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);     // GPS module
+  Serial.println(smsEnabled ? "SMS alerts: ON" : "SMS alerts: OFF (set ALERT_PHONE_NUMBER in secrets.h)");
+  xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0);
 
   startWatchdog();
   xTaskCreatePinnedToCore(protectionTask, "stsmn_protect", PROTECTION_TASK_STACK, nullptr,

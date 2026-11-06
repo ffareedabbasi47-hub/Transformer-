@@ -29,6 +29,15 @@ Not certified protection equipment. A qualified adult/technician must review any
 | 26 | Relay IN | `RELAY_ACTIVE_LOW` in config.h, verify on your module |
 | 18 / 19 / 23 | LED green / yellow / red | |
 | 27 | Active buzzer | |
+| 16 / 17 | GPS NEO-6M: ESP32 RX <- GPS TXD / ESP32 TX -> GPS RXD | UART2, 9600 baud |
+| 13 / 14 | SIM800L: ESP32 RX <- SIM TXD / ESP32 TX -> SIM RXD | UART1, 9600 baud; 1k+2k divider on 14; SIM800L powered from its own 3.7-4.2 V supply, common GND |
+
+## GPS and SMS (new in this version)
+* `gps_nmea.h` reads the NEO-6M (only checksum-valid RMC/GGA sentences). A position is reported only while the module has a real fix; no fix for 10 s = `null`, never an old or invented position.
+* `sim800.h` + `sms_logic.h`: when the status ENTERS EMERGENCY, one SMS goes to `ALERT_PHONE_NUMBER` (set it in `secrets.h`; the `+91XXXXXXXXXX` placeholder keeps SMS off): `STSMN TR-001 EMERGENCY risk 92/100 temp 71.2C https://maps.google.com/?q=LAT,LNG` (or `GPS: no fix`). At most one per 2 min, reminder every 30 min while the alarm lasts, failed sends are retried. Warning SMS: `SMS_ON_WARNING` in config.h.
+* GPS and SIM run in their own low-priority task; they never touch the relay, sensors or the protection task.
+* `GET /api/health` additionally returns `gpsFix, gpsSats, lat, lng, gsmReady, gsmRegistered, gsmSignal, smsEnabled, smsSent, smsFailed` (`lat/lng` are `null` without a fix). `/api/status` is unchanged.
+* SIM800L is a 2G modem: it needs a 2G network in your area. Beginner wiring guide: `docs/STSMN_Wiring_Guide.pdf`.
 
 ## Behaviour that matters
 * Protection (sensors, risk score, relay, LEDs, buzzer) runs in its **own FreeRTOS task** (priority 3, core 1) with a task watchdog (8 s). The HTTP server runs in the Arduino loop; a slow/stalled client cannot delay protection. The phone can never arm, disarm or override anything.
@@ -54,6 +63,7 @@ Errors: `404 {"error":"not found"}`, `405` + `Allow: GET` for other methods on t
 ```
 cd tests
 g++ -std=c++17 -I../ESP32/stsmn_firmware risk_engine_test.cpp -o risk_test && ./risk_test
+g++ -std=c++17 -I../ESP32/stsmn_firmware gps_sms_test.cpp -o gps_sms_test && ./gps_sms_test
 g++ -std=c++17 -I../ESP32/stsmn_firmware protection_logic_test.cpp -o prot_test && ./prot_test
 g++ -std=c++17 -Ifirmware/mock -I../ESP32/stsmn_firmware firmware/sensor_actuator_test.cpp -o sensor_test && ./sensor_test
 cd .. && sh tests/firmware/compile_sketch.sh        # syntax check against HOST MOCKS, not the ESP32 core

@@ -42,15 +42,22 @@ class IPAddress {
   IPAddress(uint8_t a = 0, uint8_t b = 0, uint8_t c = 0, uint8_t d = 0) { v[0]=a; v[1]=b; v[2]=c; v[3]=d; }
   uint8_t v[4];
 };
+#define SERIAL_8N1 0x800001c
 struct HardwareSerial {
   void begin(unsigned long) {}
-  void print(const char* s) { fputs(s, stdout); }
+  void begin(unsigned long, uint32_t, int, int) {}
+  int available() { return 0; }
+  int read() { return -1; }
+  size_t write(uint8_t) { return 1; }
+  void print(const char* s, int = 0) { fputs(s, stdout); }
   void print(const IPAddress&) {}
   void println(const char* s = "") { puts(s); }
   void println(const IPAddress&) { puts("ip"); }
   int printf(const char* f, ...) __attribute__((format(printf, 2, 3))) { va_list a; va_start(a, f); int n = vprintf(f, a); va_end(a); return n; }
 };
 static HardwareSerial Serial;
+static HardwareSerial Serial1;
+static HardwareSerial Serial2;
 struct EspClass { uint32_t getFreeHeap() { return 123456; } };
 static EspClass ESP;
 inline size_t strlcpy(char* d, const char* s, size_t n) { size_t l = strlen(s); if (n) { size_t c = l >= n ? n - 1 : l; memcpy(d, s, c); d[c] = 0; } return l; }

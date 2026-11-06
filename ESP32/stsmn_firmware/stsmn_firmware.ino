@@ -6,6 +6,8 @@
 // the phone or on the HTTP server (a stalled client cannot delay protection).
 // The phone only reads GET /api/status and GET /api/health.
 //
+// Modules: DS18B20 temperature, ACS712 current, voltage sensor, MQ-2 smoke, flame sensor, water level,
+//          NEO-6M GPS (UART2), SIM800L SMS (UART1), relay, buzzer, 3 LEDs.
 // Libraries (Arduino Library Manager): "OneWire", "DallasTemperature".
 // Board: "ESP32 Dev Module" (ESP32 Arduino core 2.x or 3.x).
 // LOW-VOLTAGE DEMO ONLY - never connect to 230V mains or a real transformer.
@@ -28,6 +30,12 @@
 #include "protection_logic.h"
 #include "sensors.h"
 #include "actuators.h"
+#include "gps_nmea.h"
+#include "sms_logic.h"
+#include "sim800.h"
+#ifndef ALERT_PHONE_NUMBER
+#define ALERT_PHONE_NUMBER ""   // old secrets.h without a phone number: SMS stays off
+#endif
 
 // ---- Compile-time check of the Wi-Fi settings (a known default password must never ship) ------------------
 constexpr size_t cstrLen(const char* s, size_t i = 0) { return s[i] ? cstrLen(s, i + 1) : i; }
@@ -45,6 +53,21 @@ static Actuators actuators;
 static RiskEngine riskEngine;
 static RelayGate relayGate;
 static TaskHandle_t protectionHandle = nullptr;
+
+// GPS + SIM (SMS) run in a separate low-priority task: a slow modem can never delay protection.
+static NmeaParser gps;
+static SimModule sim;
+static sms::SmsGate smsGate(SMS_ON_WARNING, SMS_MIN_INTERVAL_MS, SMS_REPEAT_MS);   // protection task only
+static const bool smsEnabled = sms::isValidPhone(ALERT_PHONE_NUMBER);
+struct CommState {                       // written by the comm task, read by /api/health (under stateMutex)
+  bool gpsValid = false; double lat = 0, lng = 0; int sats = 0; uint32_t lastFixMs = 0;
+  bool gsmReady = false, gsmRegistered = false; int gsmSignal = -1;
+  uint32_t smsSent = 0, smsFailed = 0;
+};
+struct AlertRequest { bool pending = false; int status = 0; int risk = 0; bool tempValid = false; float tempC = 0; };
+static CommState comm;
+static AlertRequest alertReq;
+static volatile bool smsRetryFlag = false;
 
 // State shared between the protection task (writer) and the HTTP handlers (readers).
 // Guarded by stateMutex; the mutex is NEVER held while sending data over the network.
@@ -105,22 +128,31 @@ static void handleStatus() {
 }
 
 static void handleHealth() {
-  SensorReadings rd; bool armed; uint32_t sq;
+  SensorReadings rd; bool armed; uint32_t sq; CommState cs;
   xSemaphoreTake(stateMutex, portMAX_DELAY);
-  rd = lastReadings; armed = relayArmed; sq = seq;
+  rd = lastReadings; armed = relayArmed; sq = seq; cs = comm;
   xSemaphoreGive(stateMutex);
-  char buf[384];
+  const bool gpsFix = cs.gpsValid && (uint32_t)(millis() - cs.lastFixMs) < GPS_FIX_TIMEOUT_MS;
+  char latS[16], lngS[16];
+  if (gpsFix) { snprintf(latS, sizeof(latS), "%.6f", cs.lat); snprintf(lngS, sizeof(lngS), "%.6f", cs.lng); }
+  else { snprintf(latS, sizeof(latS), "null"); snprintf(lngS, sizeof(lngS), "null"); }
+  char buf[640];
   snprintf(buf, sizeof(buf),
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"seq\":%lu,\"clients\":%d,"
     "\"mq2Ready\":%s,\"tempValid\":%s,\"currentValid\":%s,\"voltageValid\":%s,\"relayMismatch\":%s,"
-    "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu}",
+    "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
+    "\"gpsFix\":%s,\"gpsSats\":%d,\"lat\":%s,\"lng\":%s,"
+    "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), (unsigned long)sq,
     WiFi.softAPgetStationNum(),
     rd.mq2Ready ? "true" : "false", rd.tempValid ? "true" : "false",
     rd.currentValid ? "true" : "false", rd.voltageValid ? "true" : "false",
     actuators.relayMismatch() ? "true" : "false", armed ? "true" : "false",
     (unsigned long)ESP.getFreeHeap(),
-    (unsigned long)(protectionHandle ? uxTaskGetStackHighWaterMark(protectionHandle) * sizeof(StackType_t) : 0));
+    (unsigned long)(protectionHandle ? uxTaskGetStackHighWaterMark(protectionHandle) * sizeof(StackType_t) : 0),
+    gpsFix ? "true" : "false", cs.sats, latS, lngS,
+    cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
+    smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed);
   sendJson(200, buf);
 }
 
@@ -146,6 +178,15 @@ static void protectionCycle(uint32_t now) {
   const bool allow = relayGate.update(now, lastRisk.status, lastRisk.sensorFault);
   actuators.setRelayAllowed(allow);
   alarmOn = (lastRisk.status == Status::EMERGENCY);
+
+  // SMS alert request (the comm task sends it; nothing here waits for the modem).
+  if (smsRetryFlag) { smsRetryFlag = false; smsGate.retry(); }
+  if (smsEnabled && smsGate.update((int)lastRisk.status, now)) {
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    alertReq.pending = true; alertReq.status = (int)lastRisk.status; alertReq.risk = lastRisk.risk;
+    alertReq.tempValid = rd.tempValid; alertReq.tempC = rd.tempC;
+    xSemaphoreGive(stateMutex);
+  }
 
   char json[sizeof(statusJson)];
   const uint32_t nextSeq = seq + 1;
@@ -182,6 +223,59 @@ static void protectionTask(void*) {
   }
 }
 
+// GPS reader + SIM/SMS sender. Low priority; never touches sensors, relay or LEDs.
+static void commTask(void*) {
+  uint32_t lastGsmCheck = 0, lastSimTry = 0;
+  bool simTried = false;
+  for (;;) {
+    const uint32_t now = millis();
+
+    // 1) GPS: feed the parser with whatever arrived on UART2.
+    for (int guard = 0; guard < 256 && Serial2.available(); guard++) {
+      if (gps.feed((char)Serial2.read())) {
+        const GpsFix f = gps.fix();
+        xSemaphoreTake(stateMutex, portMAX_DELAY);
+        comm.gpsValid = f.valid; comm.sats = f.sats;
+        if (f.valid) { comm.lat = f.lat; comm.lng = f.lng; comm.lastFixMs = now; }
+        xSemaphoreGive(stateMutex);
+      }
+    }
+
+    // 2) SIM: (re)start the modem, then keep signal/registration up to date.
+    if (smsEnabled && !sim.ready() && (!simTried || (uint32_t)(now - lastSimTry) >= 30000)) {
+      simTried = true; lastSimTry = now;
+      const bool ok = sim.begin(Serial1, PIN_SIM_RX, PIN_SIM_TX, SIM_BAUD);
+      xSemaphoreTake(stateMutex, portMAX_DELAY); comm.gsmReady = ok; xSemaphoreGive(stateMutex);
+      Serial.println(ok ? "SIM module ready" : "SIM module not answering (check power, wiring, SIM card)");
+    }
+    if (sim.ready() && (uint32_t)(now - lastGsmCheck) >= GSM_STATUS_EVERY_MS) {
+      lastGsmCheck = now;
+      const int sig = sim.signal();
+      const bool reg = sim.registered();
+      xSemaphoreTake(stateMutex, portMAX_DELAY); comm.gsmSignal = sig; comm.gsmRegistered = reg; xSemaphoreGive(stateMutex);
+    }
+
+    // 3) Alert SMS requested by the protection task.
+    AlertRequest req;
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    req = alertReq; alertReq.pending = false;
+    const bool fixNow = comm.gpsValid && (uint32_t)(now - comm.lastFixMs) < GPS_FIX_TIMEOUT_MS;
+    const double la = comm.lat, lo = comm.lng;
+    xSemaphoreGive(stateMutex);
+    if (req.pending) {
+      char text[161];
+      const char* st = req.status == 2 ? "EMERGENCY" : (req.status == 1 ? "WARNING" : "SAFE");
+      bool ok = false;
+      if (sim.ready() && sms::buildAlertText(text, sizeof(text), STSMN_DEVICE_ID, st, req.risk, req.tempValid, req.tempC, fixNow, la, lo))
+        ok = sim.sendSms(ALERT_PHONE_NUMBER, text);
+      xSemaphoreTake(stateMutex, portMAX_DELAY); if (ok) comm.smsSent++; else comm.smsFailed++; xSemaphoreGive(stateMutex);
+      if (!ok) smsRetryFlag = true;
+      Serial.println(ok ? "SMS alert sent" : "SMS alert FAILED (will retry)");
+    }
+    vTaskDelay(pdMS_TO_TICKS(20));
+  }
+}
+
 static void startWatchdog() {
 #if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
   const esp_task_wdt_config_t cfg = {
@@ -215,6 +309,10 @@ void setup() {
   server.on("/api/health", HTTP_GET, handleHealth);
   server.onNotFound(handleNotFound);
   server.begin();
+
+  Serial2.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);     // GPS module
+  Serial.println(smsEnabled ? "SMS alerts: ON" : "SMS alerts: OFF (set ALERT_PHONE_NUMBER in secrets.h)");
+  xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0);
 
   startWatchdog();
   xTaskCreatePinnedToCore(protectionTask, "stsmn_protect", PROTECTION_TASK_STACK, nullptr,

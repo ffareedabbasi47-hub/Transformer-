@@ -19,9 +19,11 @@ tail = "\n".join(ino[after_includes:])
 wifi = '''// ===== Wi-Fi settings: CHANGE THE PASSWORD BELOW (8 to 63 characters). The sketch will not compile with the example one. =====
 #define WIFI_AP_SSID "STSMN-TR001"
 #define WIFI_AP_PASSWORD "CHANGE_ME_min8chars"
+// Phone that receives the SMS alert, with country code (e.g. "+919876543210"). Leave the X placeholder to switch SMS off.
+#define ALERT_PHONE_NUMBER "+91XXXXXXXXXX"
 '''
 parts = [head, "// ===== config.h =====\n" + body("config.h"), wifi]
-for f in ["util.h", "risk_engine.h", "protection_logic.h", "sensors.h", "actuators.h"]:
+for f in ["util.h", "risk_engine.h", "protection_logic.h", "sensors.h", "actuators.h", "gps_nmea.h", "sms_logic.h", "sim800.h"]:
     parts.append("// ===== %s =====\n%s" % (f, body(f)))
 parts.append("// ===== main sketch =====\n" + tail)
 out = pathlib.Path("ESP32/stsmn_single/stsmn_single.ino")

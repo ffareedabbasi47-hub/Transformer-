@@ -35,6 +35,23 @@ constexpr int PIN_LED_YELLOW= 19;
 constexpr int PIN_LED_RED   = 23;
 constexpr int PIN_BUZZER    = 27;  // ASSUMPTION: ACTIVE buzzer (on/off)
 
+// ---------- GPS module (NEO-6M) on UART2 ----------------------------------------
+constexpr int PIN_GPS_RX = 16;   // ESP32 RX  <-  GPS TX
+constexpr int PIN_GPS_TX = 17;   // ESP32 TX  ->  GPS RX (the NEO-6M only talks; this wire is optional)
+constexpr uint32_t GPS_BAUD = 9600;
+constexpr uint32_t GPS_FIX_TIMEOUT_MS = 10000;   // no valid sentence for 10 s = "no fix" (never an old position)
+
+// ---------- SIM module (SIM800L) on UART1 ----------------------------------------
+constexpr int PIN_SIM_RX = 13;   // ESP32 RX  <-  SIM800L TXD
+constexpr int PIN_SIM_TX = 14;   // ESP32 TX  ->  SIM800L RXD, through a 1k + 2k voltage divider
+constexpr uint32_t SIM_BAUD = 9600;
+// SMS alert: sent when the status ENTERS EMERGENCY (and WARNING if SMS_ON_WARNING). The phone number is in secrets.h.
+constexpr bool     SMS_ON_WARNING      = false;
+constexpr uint32_t SMS_MIN_INTERVAL_MS = 120000;   // never more than one SMS per 2 minutes
+constexpr uint32_t SMS_REPEAT_MS       = 1800000;  // reminder every 30 min while the alarm persists
+constexpr uint32_t GSM_STATUS_EVERY_MS = 30000;    // signal/registration check
+constexpr uint32_t COMM_TASK_STACK     = 6144;     // GPS + SMS task (low priority, never touches the relay)
+
 // ---------- Relay polarity (VERIFY ON YOUR MODULE!) --------------------------
 // Logical meaning is fixed: relay=true -> supply allowed, relay=false -> cutoff.
 // Wire the load through COM + NO so that a dead/unpowered ESP32 = cutoff.

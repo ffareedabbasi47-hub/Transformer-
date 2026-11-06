@@ -77,6 +77,13 @@ fun EarthScreen(
             ) { Text(if (native) "🌍" else "🛰", fontSize = 18.sp) }
         }
 
+        // Diagnostics line: temporary, so one screenshot shows what this phone is doing.
+        Text(
+            MapDiag.engine + " · " + MapDiag.probe + (if (native) "" else " · " + MapDiag.web),
+            fontSize = 9.sp, maxLines = 4, color = androidx.compose.ui.graphics.Color.White,
+            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(androidx.compose.ui.graphics.Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp),
+        )
+
         if (showList) {
             Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
                 TextButton(onClick = { showList = false }, modifier = Modifier.padding(start = 8.dp)) { Text("‹  Back to map") }

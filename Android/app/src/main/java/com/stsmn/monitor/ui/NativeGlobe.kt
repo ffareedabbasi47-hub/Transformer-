@@ -62,7 +62,12 @@ private const val HOME_LON = 78.96
 private const val DIVE_SCALE = 2.0f
 
 /** Where the camera is gliding to (button presses); null while the user is steering. */
-private class Glide(val lat: Double, val lon: Double, val scale: Float)
+private class Glide(val lat: Double, val lon: Double, val scale: Float, val seconds: Double = 1.6) {
+    var t0 = -1.0
+    var sLat = 0.0; var sLon = 0.0; var sScale = 1f
+}
+
+private fun easeInOut(p: Double): Double = if (p < 0.5) 4 * p * p * p else 1 - Math.pow(-2 * p + 2, 3.0) / 2
 
 /**
  * Native 3D Earth drawn on the GPU (OpenGL ES): real satellite imagery on a sphere. Drag to spin (with momentum),
@@ -96,7 +101,7 @@ fun NativeGlobe(
     val motion = remember { doubleArrayOf(0.0, 0.0, 0.0) }   // [vLat deg/s, vLon deg/s, last gesture time (s)]
     var handedOff by remember { mutableStateOf(startScale >= DIVE_SCALE) }
     // Arriving from the flat map: start close and fly out to the full Earth, centred on where the map was looking.
-    LaunchedEffect(Unit) { if (startLat != null && startScale > 1f) glide = Glide(cam.lat, cam.lon, 1f) }
+    LaunchedEffect(Unit) { if (startLat != null && startScale > 1f) glide = Glide(cam.lat, cam.lon, 1f, 2.0) }
     val density = LocalDensity.current.density
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF02040A))) {
@@ -111,6 +116,8 @@ fun NativeGlobe(
         // One animation loop: momentum after a swipe, button glides, and the hand-off to the flat map.
         LaunchedEffect(ready) {
             var last = 0L
+            var idleSince = System.nanoTime() / 1e9
+            var spun = 0.0
             while (true) {
                 androidx.compose.runtime.withFrameNanos { now ->
                     val dt = if (last == 0L) 0.016 else min((now - last) / 1e9, 0.05)
@@ -122,18 +129,26 @@ fun NativeGlobe(
                     if (touching) {
                         if (t - motion[2] > 0.05) { motion[0] *= 0.8; motion[1] *= 0.8 }   // finger resting: kill speed
                     } else if (g != null) {
-                        val k = 1.0 - exp(-dt * 6.0)
-                        cam.lat += (g.lat - cam.lat) * k
-                        cam.lon = GlobeMath.normLon(cam.lon + GlobeMath.normLon(g.lon - cam.lon) * k)
-                        cam.scale += ((g.scale - cam.scale) * k).toFloat()
+                        if (g.t0 < 0) { g.t0 = t; g.sLat = cam.lat; g.sLon = cam.lon; g.sScale = cam.scale }
+                        val p = ((t - g.t0) / g.seconds).coerceIn(0.0, 1.0)
+                        val e = easeInOut(p)
+                        cam.lat = g.sLat + (g.lat - g.sLat) * e
+                        cam.lon = GlobeMath.normLon(g.sLon + GlobeMath.normLon(g.lon - g.sLon) * e)
+                        cam.scale = (g.sScale + (g.scale - g.sScale) * e).toFloat()
                         busy = true
-                        if (abs(g.lat - cam.lat) < 0.05 && abs(GlobeMath.normLon(g.lon - cam.lon)) < 0.05 && abs(g.scale - cam.scale) < 0.01f) glide = null
+                        idleSince = t; spun = 99.0
+                        if (p >= 1.0) glide = null
                     } else if (abs(motion[0]) > 1.5 || abs(motion[1]) > 1.5) {
                         cam.lat = (cam.lat + motion[0] * dt).coerceIn(-80.0, 80.0)
                         cam.lon = GlobeMath.normLon(cam.lon + motion[1] * dt)
                         val damp = exp(-dt * 3.2)
                         motion[0] *= damp; motion[1] *= damp
                         busy = true
+                    }
+                    if (touching) { idleSince = t; spun = 99.0 }                       // any touch ends the intro drift for good
+                    if (!busy && spun < 10.0 && ready && t - idleSince > 5.0 && cam.scale < 1.3f) {
+                        val step = 1.0 * dt                                              // a slow, natural turn (1 deg/s, at most 10 deg)
+                        cam.lon = GlobeMath.normLon(cam.lon + step); spun += step
                     }
                     moving = busy
                     tick = now
@@ -168,7 +183,7 @@ fun NativeGlobe(
         // Touch layer (above the GPU view): double-tap flies closer, drag spins, pinch zooms.
         Box(
             Modifier.fillMaxSize().pointerInput(Unit) {
-                detectTapGestures(onDoubleTap = { glide = Glide(cam.lat, cam.lon, (cam.scale * 1.5f).coerceAtMost(DIVE_SCALE + 0.1f)) })
+                detectTapGestures(onDoubleTap = { glide = Glide(cam.lat, cam.lon, (cam.scale * 1.5f).coerceAtMost(DIVE_SCALE + 0.1f), 0.7) })
             }.pointerInput(Unit) {
                 var lastEvent = 0L
                 detectTransformGestures { _, pan, zoom, _ ->
@@ -231,8 +246,7 @@ fun NativeGlobe(
 
         when {
             failed -> Column(
-                Modifier.align(Alignment.Center).padding(24.dp).clip(RoundedCornerShape(16.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)).padding(18.dp),
+                Modifier.align(Alignment.Center).padding(24.dp).panel(16.dp, 0.95f).padding(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
                 Text("The 3D Earth could not start (needs internet the first time, and OpenGL).", color = MaterialTheme.colorScheme.onSurface)
@@ -251,10 +265,10 @@ fun NativeGlobe(
             ) {
                 if (!moving) Text("Drag to spin · pinch or double-tap to zoom", fontSize = 11.sp, color = Color(0xCCFFFFFF))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = { glide = Glide(HOME_LAT, HOME_LON, 1f) }) { Text("India", maxLines = 1, softWrap = false) }
+                    OutlinedButton(onClick = { glide = Glide(HOME_LAT, HOME_LON, 1f, 1.8) }) { Text("India", maxLines = 1, softWrap = false) }
                     Button(onClick = {
                         val site = devices.firstOrNull { it.hasLocation }
-                        glide = if (site != null) Glide(site.lat!!, site.lng!!, DIVE_SCALE + 0.1f) else Glide(cam.lat, cam.lon, DIVE_SCALE + 0.1f)
+                        glide = if (site != null) Glide(site.lat!!, site.lng!!, DIVE_SCALE + 0.1f, 2.6) else Glide(cam.lat, cam.lon, DIVE_SCALE + 0.1f, 1.4)
                     }) { Text(if (devices.any { it.hasLocation }) "Fly to site" else "Zoom in", maxLines = 1, softWrap = false) }
                 }
             }

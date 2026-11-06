@@ -1,7 +1,13 @@
 package com.stsmn.monitor.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -100,8 +106,7 @@ fun EarthScreen(
 
         // Left rail: every button has a word on it.
         Column(
-            Modifier.align(Alignment.CenterStart).padding(start = 8.dp)
-                .clip(RoundedCornerShape(18.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)).padding(4.dp),
+            Modifier.align(Alignment.CenterStart).padding(start = 8.dp).panel(16.dp, 0.84f).padding(3.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -115,7 +120,12 @@ fun EarthScreen(
             }
         }
 
-        if (showSearch) {
+        AnimatedVisibility(
+            visible = showSearch,
+            modifier = Modifier.align(Alignment.TopCenter).padding(top = 58.dp, start = 12.dp, end = 12.dp),
+            enter = fadeIn(tween(180)) + slideInVertically(tween(220)) { -it / 4 },
+            exit = fadeOut(tween(140)) + slideOutVertically(tween(160)) { -it / 4 },
+        ) {
             SearchPanel(
                 all = devices, shown = visible, query = query, onQuery = { query = it },
                 active = active,
@@ -127,12 +137,11 @@ fun EarthScreen(
                     showSearch = false
                 },
                 onClose = { showSearch = false },
-                modifier = Modifier.align(Alignment.TopCenter).padding(top = 58.dp, start = 12.dp, end = 12.dp),
             )
-        } else if (filtering) {
+        }
+        if (!showSearch && filtering) {
             Row(
-                Modifier.align(Alignment.TopCenter).padding(top = 58.dp).clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)).padding(start = 12.dp),
+                Modifier.align(Alignment.TopCenter).padding(top = 58.dp).panel(14.dp, 0.92f).padding(start = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("Showing ${visible.size} of ${devices.size}", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
@@ -157,12 +166,15 @@ fun EarthScreen(
 
 @Composable
 private fun RailButton(label: String, highlighted: Boolean, onClick: () -> Unit) {
+    val bg by animateColorAsState(if (highlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.18f) else Color.Transparent, tween(180), label = "rail")
     Box(
-        Modifier.size(width = 54.dp, height = 44.dp).clip(RoundedCornerShape(14.dp))
-            .background(if (highlighted) MaterialTheme.colorScheme.primary.copy(alpha = 0.25f) else Color.Transparent)
-            .clickable(onClick = onClick),
+        Modifier.size(width = 52.dp, height = 42.dp).clip(RoundedCornerShape(12.dp))
+            .background(bg).clickable(onClick = onClick),
         contentAlignment = Alignment.Center,
-    ) { Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false) }
+    ) {
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false,
+            color = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+    }
 }
 
 @Composable
@@ -173,7 +185,7 @@ private fun SearchPanel(
 ) {
     val counts = FleetFilter.counts(all)
     Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)).padding(12.dp),
+        modifier.fillMaxWidth().panel(18.dp, 0.97f).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -186,13 +198,16 @@ private fun SearchPanel(
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             StateFilter.values().forEach { f ->
                 val on = f in active
+                val chipBg by animateColorAsState(
+                    if (on) chipColor(f).copy(alpha = 0.30f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f), tween(160), label = "chip",
+                )
                 val c = when (f) {
                     StateFilter.SAFE -> StsmnColors.Safe; StateFilter.WARNING -> StsmnColors.Warning
                     StateFilter.EMERGENCY -> StsmnColors.Emergency; StateFilter.OFFLINE -> StsmnColors.Stale
                 }
                 Row(
                     Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
-                        .background(if (on) c.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .background(chipBg)
                         .clickable { onToggle(f) }.padding(vertical = 8.dp, horizontal = 4.dp),
                     horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -222,4 +237,9 @@ private fun SearchPanel(
         }
         if (query.isNotBlank() || active.isNotEmpty()) TextButton(onClick = onClear) { Text("Clear search and filters") }
     }
+}
+
+private fun chipColor(f: StateFilter): Color = when (f) {
+    StateFilter.SAFE -> StsmnColors.Safe; StateFilter.WARNING -> StsmnColors.Warning
+    StateFilter.EMERGENCY -> StsmnColors.Emergency; StateFilter.OFFLINE -> StsmnColors.Stale
 }

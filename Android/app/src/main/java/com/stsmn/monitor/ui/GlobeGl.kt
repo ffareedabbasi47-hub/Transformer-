@@ -93,7 +93,7 @@ class GlobeSurface(
                 buildMeshes()
                 hasTex = false
                 textureDirty = texture != null           // context (re)created: upload again
-                GLES20.glClearColor(0.008f, 0.016f, 0.04f, 1f)
+                GLES20.glClearColor(0.012f, 0.020f, 0.045f, 1f)
             } catch (e: Exception) {
                 fail("GL init failed: ${e.message}")
             }
@@ -132,7 +132,7 @@ class GlobeSurface(
                 if (hasTex) {
                     ring.position(0); GLES20.glVertexAttribPointer(aP, 2, GLES20.GL_FLOAT, false, 12, ring)
                     ring.position(2); GLES20.glVertexAttribPointer(aA, 1, GLES20.GL_FLOAT, false, 12, ring)
-                    GLES20.glUniform2f(uS, sx, sy); GLES20.glUniform3f(uC, 0.30f, 0.58f, 1f); GLES20.glUniform1f(uPt, 1f)
+                    GLES20.glUniform2f(uS, sx, sy); GLES20.glUniform3f(uC, 0.32f, 0.66f, 1f); GLES20.glUniform1f(uPt, 1f)
                     GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, ringCount)
                 }
                 GLES20.glDisableVertexAttribArray(aP)
@@ -217,8 +217,8 @@ class GlobeSurface(
             for (i in 0..seg) {
                 val a = 2 * PI * i / seg
                 val ca = cos(a).toFloat(); val sa = sin(a).toFloat()
-                rg[n++] = ca * 0.985f; rg[n++] = sa * 0.985f; rg[n++] = 0.65f
-                rg[n++] = ca * 1.22f; rg[n++] = sa * 1.22f; rg[n++] = 0f
+                rg[n++] = ca * 0.99f; rg[n++] = sa * 0.99f; rg[n++] = 0.42f
+                rg[n++] = ca * 1.16f; rg[n++] = sa * 1.16f; rg[n++] = 0f
             }
             ring = floats(rg)
             ringCount = (seg + 1) * 2
@@ -228,7 +228,7 @@ class GlobeSurface(
             for (i in 0 until starCount) {
                 st[i * 3] = rnd.nextFloat() * 2f - 1f
                 st[i * 3 + 1] = rnd.nextFloat() * 2f - 1f
-                st[i * 3 + 2] = 0.25f + rnd.nextFloat() * 0.6f
+                st[i * 3 + 2] = 0.12f + rnd.nextFloat() * 0.45f
             }
             stars = floats(st)
         }
@@ -238,22 +238,28 @@ class GlobeSurface(
         const val SPHERE_VS = """
             attribute vec3 aPos; attribute vec2 aUv;
             uniform mat3 uRot; uniform vec2 uScale;
-            varying vec2 vUv; varying float vZ;
+            varying vec2 vUv; varying float vZ; varying vec3 vN;
             void main() {
                 vec3 p = uRot * aPos;
-                vUv = aUv; vZ = p.z;
+                vUv = aUv; vZ = p.z; vN = p;
                 gl_Position = vec4(p.x * uScale.x, p.y * uScale.y, -p.z * 0.5, 1.0);
             }"""
         const val SPHERE_FS = """
             precision mediump float;
-            uniform sampler2D uTex; varying vec2 vUv; varying float vZ;
+            uniform sampler2D uTex; varying vec2 vUv; varying float vZ; varying vec3 vN;
             void main() {
                 vec3 c = texture2D(uTex, vUv).rgb;
                 float z = max(vZ, 0.0);
-                float shade = 0.62 + 0.38 * sqrt(z);
+                // key light from the upper left, soft terminator, a little ambient so the dark side is never black
+                float ndl = dot(normalize(vN), normalize(vec3(-0.45, 0.40, 0.80)));
+                float lit = smoothstep(-0.35, 0.65, ndl);
+                float shade = 0.50 + 0.58 * lit;
+                // gentle contrast so oceans and land separate
+                c = (c - 0.5) * 1.08 + 0.5;
+                // thin cool atmosphere on the edge, stronger on the lit side
                 float rim = 1.0 - z;
-                float glow = rim * rim * rim * 0.55;
-                c = mix(c * shade, vec3(0.35, 0.63, 1.0), glow);
+                float glow = rim * rim * rim * (0.35 + 0.45 * lit);
+                c = mix(c * shade, vec3(0.30, 0.62, 1.0), glow);
                 gl_FragColor = vec4(c, 1.0);
             }"""
         const val FLAT_VS = """

@@ -30,6 +30,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Path
@@ -49,46 +50,38 @@ fun rememberElapsedNow(periodMs: Long = 1000L): State<Long> = produceState(initi
 }
 
 /**
- * Glassmorphism without a blur API (works on every Android version): a translucent tinted gradient, a bright
- * top-left edge and a thin light border over the soft glow background from [GlassBackground].
+ * Card surface used app-wide: a solid deep surface with a hairline border (no blur, no gradient, cheap on weak GPUs).
+ * A tint (status cards) shows as a faint wash and a coloured hairline.
  */
 @Composable
 fun Modifier.glass(
-    shape: Shape = RoundedCornerShape(20.dp),
+    shape: Shape = RoundedCornerShape(18.dp),
     tint: Color = MaterialTheme.colorScheme.onSurface,
     strength: Float = 0.07f,
 ): Modifier {
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val s = if (dark) strength else strength * 0.7f
-    return this
-        .clip(shape)
-        .background(Brush.linearGradient(listOf(tint.copy(alpha = s + 0.05f), tint.copy(alpha = s * 0.55f))), shape)
-        .border(
-            1.dp,
-            Brush.linearGradient(listOf(Color.White.copy(alpha = if (dark) 0.30f else 0.9f), Color.White.copy(alpha = if (dark) 0.05f else 0.25f))),
-            shape,
-        )
+    val cs = MaterialTheme.colorScheme
+    val tinted = strength > 0.1f
+    val fill = if (tinted) tint.copy(alpha = 0.10f).compositeOver(cs.surface) else cs.surface
+    return this.clip(shape).background(fill, shape).border(1.dp, if (tinted) tint.copy(alpha = 0.35f) else cs.outline, shape)
 }
 
-/** App-wide backdrop: deep navy with two soft colour glows, so the glass cards have something to refract. */
+/** Floating map/overlay panel: slightly see-through surface so the map stays visible, with a hairline border. */
+@Composable
+fun Modifier.panel(radius: androidx.compose.ui.unit.Dp = 16.dp, alpha: Float = 0.90f): Modifier {
+    val cs = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(radius)
+    return this.clip(shape).background(cs.surface.copy(alpha = alpha), shape).border(1.dp, cs.outline, shape)
+}
+
+/** App-wide backdrop: flat deep space with one very faint cool light from the top edge (dark theme only). */
 @Composable
 fun GlassBackground(content: @Composable () -> Unit) {
     val bg = MaterialTheme.colorScheme.background
     val dark = bg.luminance() < 0.5f
+    val accent = MaterialTheme.colorScheme.primary
     Box(Modifier.fillMaxSize().background(bg)) {
-        Canvas(Modifier.fillMaxSize()) {
-            drawRect(
-                Brush.radialGradient(
-                    listOf(Color(0xFF1B63C9).copy(alpha = if (dark) 0.38f else 0.20f), Color.Transparent),
-                    center = Offset(size.width * 0.12f, size.height * 0.04f), radius = size.width * 0.95f,
-                ),
-            )
-            drawRect(
-                Brush.radialGradient(
-                    listOf(Color(0xFF00B8D9).copy(alpha = if (dark) 0.22f else 0.12f), Color.Transparent),
-                    center = Offset(size.width * 0.98f, size.height * 0.55f), radius = size.width * 0.85f,
-                ),
-            )
+        if (dark) Canvas(Modifier.fillMaxSize()) {
+            drawRect(Brush.verticalGradient(listOf(accent.copy(alpha = 0.07f), Color.Transparent), endY = size.height * 0.45f))
         }
         content()
     }

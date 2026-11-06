@@ -5,7 +5,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 import com.stsmn.monitor.data.ThemeMode
 import com.stsmn.monitor.domain.AlertLevel
 import com.stsmn.monitor.domain.SystemStatus
@@ -30,16 +34,19 @@ fun alertColor(l: AlertLevel): Color = when (l) {
     AlertLevel.CRITICAL -> StsmnColors.Emergency
 }
 
+// Deep-space dark scheme: near-black blue surfaces, one electric cyan-blue accent, white text. No gradients.
 private val DarkScheme = darkColorScheme(
-    primary = Color(0xFF5AA9FF),
-    onPrimary = Color(0xFF04213D),
-    background = Color(0xFF070E1C),
-    onBackground = Color(0xFFE8EEF8),
-    surface = Color(0xFF0E1A2E),
-    onSurface = Color(0xFFE8EEF8),
-    surfaceVariant = Color(0xFF16253F),
-    onSurfaceVariant = Color(0xFFA9B6CC),
-    outline = Color(0xFF2A3B5C),
+    primary = Color(0xFF4DB8FF),
+    onPrimary = Color(0xFF031422),
+    secondary = Color(0xFF8FD3FF),
+    background = Color(0xFF05080F),
+    onBackground = Color(0xFFEAF0FA),
+    surface = Color(0xFF0B111D),
+    onSurface = Color(0xFFEAF0FA),
+    surfaceVariant = Color(0xFF121A2A),
+    onSurfaceVariant = Color(0xFF9AA8C0),
+    outline = Color(0xFF1F2B42),
+    outlineVariant = Color(0xFF172033),
 )
 
 private val LightScheme = lightColorScheme(
@@ -61,5 +68,15 @@ fun StsmnTheme(mode: ThemeMode, content: @Composable () -> Unit) {
         ThemeMode.LIGHT -> false
         ThemeMode.DARK -> true
     }
-    MaterialTheme(colorScheme = if (dark) DarkScheme else LightScheme, content = content)
+    MaterialTheme(colorScheme = if (dark) DarkScheme else LightScheme, typography = StsmnTypography, content = content)
 }
+
+/** One type scale for the whole app: system font, clear weight steps, slightly open tracking on small caps-style labels. */
+private val StsmnTypography = Typography(
+    headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold),
+    titleMedium = TextStyle(fontSize = 16.sp, lineHeight = 22.sp, fontWeight = FontWeight.SemiBold),
+    bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, letterSpacing = 0.1.sp),
+    bodySmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, letterSpacing = 0.2.sp),
+    labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.1.sp),
+    labelSmall = TextStyle(fontSize = 10.sp, lineHeight = 14.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp),
+)

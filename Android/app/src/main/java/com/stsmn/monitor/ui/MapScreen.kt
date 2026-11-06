@@ -3,6 +3,14 @@ package com.stsmn.monitor.ui
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -408,7 +416,13 @@ fun MapScreen(
         }
 
         if (!mapReady) {
-            Text("Loading map…", modifier = Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onBackground, fontWeight = FontWeight.Bold)
+            Column(
+                Modifier.align(Alignment.Center).panel(16.dp, 0.92f).padding(horizontal = 20.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text("Loading map…", fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                androidx.compose.material3.LinearProgressIndicator(Modifier.size(width = 140.dp, height = 3.dp))
+            }
         }
 
         if (devices.none { it.hasLocation }) {
@@ -424,49 +438,19 @@ fun MapScreen(
             }
         }
 
-        // ---------------- Floating 5ft & Road Zoom Controls ----------------
+        // ---------------- Zoom controls (right edge, vertically centred) ----------------
         Column(
-            Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 12.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f))
-                .padding(4.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier.align(Alignment.CenterEnd).padding(end = 10.dp).panel(16.dp, 0.86f).padding(3.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .clickable { mapView.controller.zoomIn() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("➕", fontSize = 16.sp)
-            }
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .clickable { mapView.controller.zoomOut() },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("➖", fontSize = 16.sp)
-            }
-            Box(
-                Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
-                    .clickable {
-                        val pt = selected?.let { GeoPoint(it.lat ?: AppConfig.DEMO_LAT, it.lng ?: AppConfig.DEMO_LNG) }
-                            ?: devices.firstOrNull { it.hasLocation }?.let { GeoPoint(it.lat!!, it.lng!!) }
-                            ?: GeoPoint(AppConfig.DEMO_LAT, AppConfig.DEMO_LNG)
-                        mapView.controller.animateTo(pt, AppConfig.MAP_MAX_ZOOM, 600L)
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("🛣️", fontSize = 16.sp)
+            ZoomKey("+") { mapView.controller.zoomIn() }
+            ZoomKey("−") { mapView.controller.zoomOut() }
+            ZoomKey("Max", small = true) {
+                val pt = selected?.takeIf { it.hasLocation }?.let { GeoPoint(it.lat!!, it.lng!!) }
+                    ?: devices.firstOrNull { it.hasLocation }?.let { GeoPoint(it.lat!!, it.lng!!) }
+                    ?: GeoPoint(AppConfig.DEMO_LAT, AppConfig.DEMO_LNG)
+                mapView.controller.animateTo(pt, AppConfig.MAP_MAX_ZOOM, 900L)
             }
         }
 
@@ -476,7 +460,9 @@ fun MapScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                     Legend()
                     Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        if (showLayers) LayerPanel(base, roads, onBase = { base = it }, onRoads = { roads = it })
+                        AnimatedVisibility(showLayers, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                            LayerPanel(base, roads, onBase = { base = it }, onRoads = { roads = it })
+                        }
                         OutlinedButton(
                             onClick = { showLayers = !showLayers },
                             colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
@@ -485,12 +471,19 @@ fun MapScreen(
                     }
                 }
             }
-            if (selected != null) {
-                TransformerSheet(
-                    selected, expanded = sheetExpanded, onToggle = { sheetExpanded = !sheetExpanded },
+            var lastSelected by remember { mutableStateOf<MapDevice?>(null) }
+            LaunchedEffect(selected) { if (selected != null) lastSelected = selected }
+            AnimatedVisibility(
+                visible = selected != null,
+                enter = slideInVertically(initialOffsetY = { it / 2 }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it / 2 }) + fadeOut(),
+            ) {
+                val d = selected ?: lastSelected
+                if (d != null) TransformerSheet(
+                    d, expanded = sheetExpanded, onToggle = { sheetExpanded = !sheetExpanded },
                     onClose = { onSelect(null); sheetExpanded = false },
                     onFlyTo = {
-                        if (selected.hasLocation) mapView.controller.animateTo(GeoPoint(selected.lat!!, selected.lng!!), maxOf(mapView.zoomLevelDouble, AppConfig.MAP_CENTER_ZOOM), 700L)
+                        if (d.hasLocation) mapView.controller.animateTo(GeoPoint(d.lat!!, d.lng!!), maxOf(mapView.zoomLevelDouble, AppConfig.MAP_CENTER_ZOOM), 900L)
                     },
                 )
             }
@@ -503,11 +496,18 @@ fun MapScreen(
     }
 }
 
+@Composable
+private fun ZoomKey(label: String, small: Boolean = false, onClick: () -> Unit) {
+    Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(label, fontSize = if (small) 11.sp else 22.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
 /** Layer selector: one base picture + an optional road overlay. */
 @Composable
 private fun LayerPanel(base: BaseLayer, roads: Boolean, onBase: (BaseLayer) -> Unit, onRoads: (Boolean) -> Unit) {
     Column(
-        Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)).padding(10.dp),
+        Modifier.panel(14.dp, 0.96f).padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Text("MAP LAYER", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.primary)
@@ -543,7 +543,7 @@ internal fun SummaryBar(devices: List<MapDevice>, fleet: FleetState, cloudEnable
     val safe = devices.count { it.state == MarkerState.SAFE }
     val off = devices.count { it.state == MarkerState.OFFLINE || it.state == MarkerState.STALE }
     Row(
-        Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)).padding(horizontal = 12.dp, vertical = 8.dp),
+        Modifier.panel(14.dp, 0.94f).padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Text(title, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.primary)
@@ -563,7 +563,7 @@ internal fun Count(n: Int, state: MarkerState) {
 
 @Composable
 internal fun Banner(text: String, color: Color) {
-    Box(Modifier.clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)).padding(horizontal = 10.dp, vertical = 6.dp)) {
+    Box(Modifier.panel(12.dp, 0.94f).padding(horizontal = 10.dp, vertical = 6.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(8.dp).clip(CircleShape).background(color))
             Text(text, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface)
@@ -573,12 +573,22 @@ internal fun Banner(text: String, color: Color) {
 
 @Composable
 internal fun Legend() {
+    var open by remember { mutableStateOf(false) }
     Column(
-        Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.94f)).padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+        Modifier.panel(14.dp, 0.88f).clickable { open = !open }.padding(horizontal = 10.dp, vertical = 8.dp).animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        LegendRow(MarkerState.SAFE, "SAFE"); LegendRow(MarkerState.WARNING, "WARNING")
-        LegendRow(MarkerState.EMERGENCY, "EMERGENCY"); LegendRow(MarkerState.OFFLINE, "OFFLINE / STALE")
+        if (!open) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                listOf(MarkerState.SAFE, MarkerState.WARNING, MarkerState.EMERGENCY, MarkerState.OFFLINE).forEach {
+                    Box(Modifier.size(8.dp).clip(CircleShape).background(markerColor(it)))
+                }
+                Text("Legend", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 2.dp))
+            }
+        } else {
+            LegendRow(MarkerState.SAFE, "SAFE"); LegendRow(MarkerState.WARNING, "WARNING")
+            LegendRow(MarkerState.EMERGENCY, "EMERGENCY"); LegendRow(MarkerState.OFFLINE, "OFFLINE / STALE")
+        }
     }
 }
 

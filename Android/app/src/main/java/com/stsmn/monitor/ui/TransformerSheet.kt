@@ -1,5 +1,6 @@
 package com.stsmn.monitor.ui
 
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -45,8 +46,7 @@ fun TransformerSheet(d: MapDevice, expanded: Boolean, onToggle: () -> Unit, onCl
     val hasData = d.status != null
 
     Column(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp, bottomStart = 14.dp, bottomEnd = 14.dp))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.98f)).padding(horizontal = 14.dp, vertical = 8.dp),
+        Modifier.fillMaxWidth().animateContentSize().panel(22.dp, 0.97f).padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         // drag-handle style toggle
         Box(Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 4.dp), contentAlignment = Alignment.Center) {

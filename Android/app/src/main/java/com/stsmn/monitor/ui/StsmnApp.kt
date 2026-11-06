@@ -104,7 +104,7 @@ fun StsmnApp(vm: MainViewModel) {
             containerColor = Color.Transparent,
             bottomBar = {
                 if (!fullNow) NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
+                    containerColor = MaterialTheme.colorScheme.surface,
                     tonalElevation = 0.dp,
                 ) {
                     Tab.values().filter { it.icon != null }.forEach { t ->

@@ -65,6 +65,7 @@ fun StsmnApp(vm: MainViewModel) {
     val events by vm.events.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+    var fullscreen by rememberSaveable { mutableStateOf(false) }
     val nowElapsed by rememberElapsedNow()
     var showSplash by rememberSaveable { mutableStateOf(true) }
     LaunchedEffect(Unit) { delay(1300); showSplash = false }
@@ -82,13 +83,27 @@ fun StsmnApp(vm: MainViewModel) {
             onDispose { view.keepScreenOn = false }
         }
         // Back from a sub-screen returns to its parent tab instead of closing the app.
+        // Full-screen map: bottom bar and system bars hidden (only on the Map tab; swipe from an edge to peek at the bars).
+        val fullNow = fullscreen && current == Tab.MAP
+        LaunchedEffect(current) { if (current != Tab.MAP) fullscreen = false }
+        DisposableEffect(fullNow) {
+            var c: android.content.Context? = view.context
+            while (c is android.content.ContextWrapper && c !is android.app.Activity) c = c.baseContext
+            val window = (c as? android.app.Activity)?.window
+            val ctl = window?.let { androidx.core.view.WindowCompat.getInsetsController(it, view) }
+            if (fullNow) {
+                ctl?.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                ctl?.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+            onDispose { ctl?.show(androidx.core.view.WindowInsetsCompat.Type.systemBars()) }
+        }
         BackHandler(enabled = current.parent != null) { tab = current.parent!!.ordinal }
 
         GlassBackground {
         Scaffold(
             containerColor = Color.Transparent,
             bottomBar = {
-                NavigationBar(
+                if (!fullNow) NavigationBar(
                     containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.78f),
                     tonalElevation = 0.dp,
                 ) {
@@ -130,6 +145,7 @@ fun StsmnApp(vm: MainViewModel) {
                     Tab.MAP -> EarthScreen(
                         devices, fleet, settings.cloudEnabled, selectedId,
                         onSelect = { selectedId = it }, onOpenSettings = { tab = Tab.SETTINGS.ordinal },
+                        fullscreen = fullNow, onFullscreen = { fullscreen = it },
                     )
                     Tab.HISTORY -> HistoryScreen(live, events, onClear = vm::clearHistory)
                     Tab.SENSORS -> SensorsScreen(live)

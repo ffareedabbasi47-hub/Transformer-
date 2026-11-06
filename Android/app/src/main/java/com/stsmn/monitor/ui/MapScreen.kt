@@ -28,6 +28,8 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -46,6 +48,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.stsmn.monitor.config.AppConfig
+import com.stsmn.monitor.domain.BaseLayer
+import com.stsmn.monitor.domain.Clustering
+import com.stsmn.monitor.domain.MapLayers
 import com.stsmn.monitor.domain.CloudState
 import com.stsmn.monitor.domain.FleetState
 import com.stsmn.monitor.domain.MapDevice
@@ -53,6 +58,11 @@ import com.stsmn.monitor.domain.MarkerState
 import com.stsmn.monitor.domain.TileProbe
 import kotlinx.coroutines.delay
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
+import org.osmdroid.tileprovider.MapTileProviderBasic
+import org.osmdroid.views.overlay.TilesOverlay
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.MapTileIndex
@@ -81,13 +91,22 @@ private object MapConfig {
     }
 }
 
-/** Real satellite pictures (Esri World Imagery), drawn natively by osmdroid: no WebView or WebGL needed. */
-private val ESRI_SATELLITE = object : OnlineTileSourceBase(
-    "EsriWorldImagery", 0, 19, 256, ".jpg",
-    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/"),
+private fun esriSource(name: String, service: String, ext: String, maxZoom: Int) = object : OnlineTileSourceBase(
+    name, 0, maxZoom, 256, ext, arrayOf(MapLayers.esriBase(service)),
 ) {
     override fun getTileURLString(pMapTileIndex: Long): String =
         baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex)
+}
+
+/** Real pictures drawn natively by osmdroid (no WebView/WebGL). Satellite, terrain and the transparent road overlay are Esri services. */
+private val ESRI_SATELLITE = esriSource("EsriWorldImagery", MapLayers.IMAGERY_SERVICE, ".jpg", 19)
+private val ESRI_TERRAIN = esriSource("EsriWorldTopo", MapLayers.TERRAIN_SERVICE, ".jpg", 19)
+private val ESRI_ROADS = esriSource("EsriRoads", MapLayers.ROADS_SERVICE, ".png", 19)
+
+private fun sourceFor(base: BaseLayer) = when (base) {
+    BaseLayer.SATELLITE -> ESRI_SATELLITE
+    BaseLayer.TERRAIN -> ESRI_TERRAIN
+    BaseLayer.STREETS -> TileSourceFactory.MAPNIK
 }
 
 private fun createMapView(ctx: Context, onFirstLayout: () -> Unit): MapView {
@@ -106,33 +125,77 @@ private fun createMapView(ctx: Context, onFirstLayout: () -> Unit): MapView {
     }
 }
 
+private class Wanted(val sig: String, val lat: Double, val lng: Double, val icon: () -> MarkerIcon, val tap: () -> Unit)
+
+private fun clusterIcon(ctx: Context, n: Int, color: Int): MarkerIcon {
+    val d = ctx.resources.displayMetrics.density
+    val size = (46 * d).toInt()
+    val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val c = android.graphics.Canvas(bmp)
+    val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    val r = size / 2f - 2 * d
+    p.color = color; c.drawCircle(size / 2f, size / 2f, r, p)
+    p.style = android.graphics.Paint.Style.STROKE; p.strokeWidth = 3 * d; p.color = android.graphics.Color.WHITE
+    c.drawCircle(size / 2f, size / 2f, r, p)
+    p.style = android.graphics.Paint.Style.FILL; p.textSize = 16 * d; p.textAlign = android.graphics.Paint.Align.CENTER; p.isFakeBoldText = true
+    c.drawText(n.toString(), size / 2f, size / 2f - (p.descent() + p.ascent()) / 2, p)
+    return MarkerIcon(android.graphics.drawable.BitmapDrawable(ctx.resources, bmp), 0.5f)
+}
+
 /**
- * Keeps ONE osmdroid Marker per transformer and updates it in place. Work happens only when something
- * visible changed (position, state, label, selection), so a 1-second UI tick costs nothing.
+ * Keeps ONE osmdroid Marker per visible item (a transformer, or a cluster of nearby ones) and updates it in place.
+ * Work happens only when something visible changed, so a 1-second UI tick costs nothing. The selected transformer is
+ * never merged into a cluster; a cluster sits at the mean position of its members and a tap zooms into them.
  */
 private class MarkerSet {
     private val markers = HashMap<String, Marker>()
     private val signatures = HashMap<String, String>()
 
-    fun sync(map: MapView, devices: List<MapDevice>, selectedId: String?, onTap: (String) -> Unit) {
-        var changed = false
-        val wanted = devices.filter { it.hasLocation }.associateBy { it.id }
-        for (id in markers.keys.toList()) if (id !in wanted) {
-            map.overlays.remove(markers.remove(id)); signatures.remove(id); changed = true
-        }
-        for ((id, d) in wanted) {
-            val sig = "${d.lat}|${d.lng}|${d.label}|${d.state.name}|${d.demoLocation}|${id == selectedId}"
-            if (signatures[id] == sig) continue
-            val marker = markers.getOrPut(id) { Marker(map).also { map.overlays.add(it) } }
-            val icon = MarkerIcons.get(
-                map.context, d.label, d.state.label, if (d.demoLocation) "DEMO LOCATION" else null, markerColorInt(d.state), id == selectedId,
+    fun sync(map: MapView, devices: List<MapDevice>, selectedId: String?, zoom: Double, onTap: (String) -> Unit) {
+        val density = map.context.resources.displayMetrics.density.toDouble()
+        val located = devices.filter { it.hasLocation }
+        val byId = located.associateBy { it.id }
+        val wanted = LinkedHashMap<String, Wanted>()
+
+        fun single(d: MapDevice) {
+            wanted["d:" + d.id] = Wanted(
+                "${d.lat}|${d.lng}|${d.label}|${d.state.name}|${d.demoLocation}|${d.id == selectedId}", d.lat!!, d.lng!!,
+                { MarkerIcons.get(map.context, d.label, d.state.label, if (d.demoLocation) "DEMO LOCATION" else null, markerColorInt(d.state), d.id == selectedId) },
+                { onTap(d.id) },
             )
-            marker.position = GeoPoint(d.lat!!, d.lng!!)
+        }
+        located.firstOrNull { it.id == selectedId }?.let { single(it) }
+        val items = located.filter { it.id != selectedId }.map { Clustering.Item(it.id, it.lat!!, it.lng!!, it.state) }
+        for (c in Clustering.cluster(items, zoom, 256.0 * density, 56.0 * density)) {
+            if (c.size == 1) { single(byId.getValue(c.members[0].id)); continue }
+            val key = "c:" + c.members.joinToString(",") { it.id }
+            val worst = c.worst
+            wanted[key] = Wanted(
+                "$key|${worst.name}|${c.lat}|${c.lng}", c.lat, c.lng,
+                { clusterIcon(map.context, c.size, markerColorInt(worst)) },
+                {
+                    val pts = c.members.map { GeoPoint(it.lat, it.lng) }
+                    val span = maxOf(pts.maxOf { it.latitude } - pts.minOf { it.latitude }, pts.maxOf { it.longitude } - pts.minOf { it.longitude })
+                    if (span < 0.00002) map.controller.animateTo(GeoPoint(c.lat, c.lng), minOf(map.zoomLevelDouble + 3.0, AppConfig.MAP_MAX_ZOOM), 500L)
+                    else map.zoomToBoundingBox(BoundingBox.fromGeoPoints(pts), true, 140)
+                },
+            )
+        }
+
+        var changed = false
+        for (key in markers.keys.toList()) if (key !in wanted) {
+            map.overlays.remove(markers.remove(key)); signatures.remove(key); changed = true
+        }
+        for ((key, w) in wanted) {
+            if (signatures[key] == w.sig) continue
+            val marker = markers.getOrPut(key) { Marker(map).also { map.overlays.add(it) } }
+            val icon = w.icon()
+            marker.position = GeoPoint(w.lat, w.lng)
             marker.setIcon(icon.drawable)
             marker.setAnchor(Marker.ANCHOR_CENTER, icon.anchorY)
             marker.setInfoWindow(null)
-            marker.setOnMarkerClickListener { _, _ -> onTap(id); true }
-            signatures[id] = sig
+            marker.setOnMarkerClickListener { _, _ -> w.tap(); true }
+            signatures[key] = w.sig
             changed = true
         }
         if (changed) map.invalidate()
@@ -183,6 +246,7 @@ fun MapScreen(
     startLat: Double? = null,
     startLng: Double? = null,
     startZoom: Double? = null,
+    onCamera: (lat: Double, lon: Double, zoom: Double) -> Unit = { _, _, _ -> },
 ) {
     val ctx = LocalContext.current
     val hasInternet by rememberHasInternet()
@@ -191,7 +255,11 @@ fun MapScreen(
     val mapView = mapResult.getOrNull()
     val markerSet = remember { MarkerSet() }
     val selected = devices.firstOrNull { it.id == selectedId }
-    var satellite by remember { mutableStateOf(true) }
+    var base by remember { mutableStateOf(BaseLayer.SATELLITE) }
+    var roads by remember { mutableStateOf(false) }
+    var showLayers by remember { mutableStateOf(false) }
+    var sheetExpanded by remember { mutableStateOf(false) }
+    val zoomState = remember { mutableDoubleStateOf(AppConfig.MAP_INITIAL_ZOOM) }
 
     // Pre-flight: which picture servers can this phone really reach? Retried every 15 s while none can.
     var probe by remember { mutableStateOf<TileProbe.Result?>(null) }
@@ -203,11 +271,30 @@ fun MapScreen(
             delay(15_000)
         }
     }
-    LaunchedEffect(probe) { if (probe?.choice() == TileProbe.Choice.STREETS) satellite = false }   // Esri blocked: use street pictures
-    androidx.compose.runtime.LaunchedEffect(satellite, mapView) {
-        mapView?.setTileSource(if (satellite) ESRI_SATELLITE else TileSourceFactory.MAPNIK)
+    LaunchedEffect(probe) { if (probe?.choice() == TileProbe.Choice.STREETS) base = BaseLayer.STREETS }   // Esri blocked: use street pictures
+    androidx.compose.runtime.LaunchedEffect(base, mapView) {
+        mapView?.setTileSource(sourceFor(base))
         mapView?.invalidate()
     }
+    // Road overlay: transparent Esri road/label tiles on top of the base picture, below the markers.
+    val roadsOverlay = remember { arrayOfNulls<TilesOverlay>(1) }
+    LaunchedEffect(roads, mapView) {
+        val m = mapView ?: return@LaunchedEffect
+        val existing = roadsOverlay[0]
+        if (roads && existing == null) {
+            val provider = MapTileProviderBasic(m.context.applicationContext)
+            provider.tileSource = ESRI_ROADS
+            val o = TilesOverlay(provider, m.context)
+            o.setLoadingBackgroundColor(android.graphics.Color.TRANSPARENT)
+            o.setLoadingLineColor(android.graphics.Color.TRANSPARENT)
+            m.overlays.add(0, o)
+            roadsOverlay[0] = o
+        } else if (!roads && existing != null) {
+            m.overlays.remove(existing); existing.onDetach(m); roadsOverlay[0] = null
+        }
+        m.invalidate()
+    }
+    val cameraCallback by rememberUpdatedState(onCamera)
 
     val owner = LocalLifecycleOwner.current
     DisposableEffect(owner, mapView) {
@@ -223,6 +310,7 @@ fun MapScreen(
             owner.lifecycle.removeObserver(observer)
             mapView?.onPause()
             mapView?.onDetach() // release tile threads/overlays: the map is rebuilt when the tab is opened again
+            roadsOverlay[0]?.let { o -> mapView?.let { m -> m.overlays.remove(o); o.onDetach(m) }; roadsOverlay[0] = null }
             markerSet.clear()
         }
     }
@@ -246,6 +334,16 @@ fun MapScreen(
         return
     }
 
+    // Zoom drives clustering; every move is reported so the globe can fly back out from exactly here.
+    DisposableEffect(mapView) {
+        fun report() { val c = mapView.mapCenter; cameraCallback(c.latitude, c.longitude, mapView.zoomLevelDouble) }
+        val l = object : MapListener {
+            override fun onScroll(event: ScrollEvent?): Boolean { report(); return false }
+            override fun onZoom(event: ZoomEvent?): Boolean { zoomState.doubleValue = mapView.zoomLevelDouble; report(); return false }
+        }
+        mapView.addMapListener(l)
+        onDispose { mapView.removeMapListener(l) }
+    }
     // Focus the camera when a device is picked (from a marker or from the Fleet tab).
     DisposableEffectKey(selected?.id, mapReady, initialDeepZoom) {
         if (mapReady && selected != null && selected.hasLocation) {
@@ -287,7 +385,7 @@ fun MapScreen(
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { mapView },
-            update = { m -> markerSet.sync(m, devices, selectedId) { id -> onSelect(id) } },
+            update = { m -> markerSet.sync(m, devices, selectedId, zoomState.doubleValue) { id -> onSelect(id) } },
         )
 
         // ---------------- Top: one compact status row ----------------
@@ -372,31 +470,62 @@ fun MapScreen(
             }
         }
 
-        // ---------------- Bottom: buttons, selected-device card ----------------
+        // ---------------- Bottom: layers, actions, selected-transformer sheet ----------------
         Column(Modifier.align(Alignment.BottomCenter).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
-                Legend()
-                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    OutlinedButton(
-                        onClick = { satellite = !satellite },
-                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
-                    ) { Text(if (satellite) "🗺 Streets" else "🛰 Satellite", maxLines = 1, softWrap = false) }
-                    Button(onClick = { fitAll(mapView, devices) }, enabled = devices.any { it.hasLocation }) { Text("Show all") }
-                    OutlinedButton(
-                        onClick = { selected?.let { s -> if (s.hasLocation) mapView.controller.animateTo(GeoPoint(s.lat!!, s.lng!!), maxOf(mapView.zoomLevelDouble, AppConfig.MAP_CENTER_ZOOM), 600L) } },
-                        enabled = selected?.hasLocation == true,
-                        colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
-                    ) { Text("Center") }
+            if (!(selected != null && sheetExpanded)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                    Legend()
+                    Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (showLayers) LayerPanel(base, roads, onBase = { base = it }, onRoads = { roads = it })
+                        OutlinedButton(
+                            onClick = { showLayers = !showLayers },
+                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
+                        ) { Text("Layers · ${base.label}" + if (roads) " + Roads" else "", maxLines = 1, softWrap = false) }
+                        Button(onClick = { fitAll(mapView, devices) }, enabled = devices.any { it.hasLocation }) { Text("Show all") }
+                    }
                 }
             }
             if (selected != null) {
-                DeviceCard(selected, onClose = { onSelect(null) }, modifier = Modifier.heightIn(max = 340.dp))
+                TransformerSheet(
+                    selected, expanded = sheetExpanded, onToggle = { sheetExpanded = !sheetExpanded },
+                    onClose = { onSelect(null); sheetExpanded = false },
+                    onFlyTo = {
+                        if (selected.hasLocation) mapView.controller.animateTo(GeoPoint(selected.lat!!, selected.lng!!), maxOf(mapView.zoomLevelDouble, AppConfig.MAP_CENTER_ZOOM), 700L)
+                    },
+                )
             }
             Text(
-                if (satellite) "Imagery © Esri, Maxar, Earthstar Geographics" else "© OpenStreetMap contributors",
+                MapLayers.attribution(base, roads),
                 fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.End),
             )
+        }
+    }
+}
+
+/** Layer selector: one base picture + an optional road overlay. */
+@Composable
+private fun LayerPanel(base: BaseLayer, roads: Boolean, onBase: (BaseLayer) -> Unit, onRoads: (Boolean) -> Unit) {
+    Column(
+        Modifier.clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surface.copy(alpha = 0.96f)).padding(10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text("MAP LAYER", fontSize = 10.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.primary)
+        BaseLayer.values().forEach { b ->
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)).clickable { onBase(b) }.padding(vertical = 6.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                androidx.compose.material3.RadioButton(selected = base == b, onClick = { onBase(b) }, modifier = Modifier.size(20.dp))
+                Text(b.label, fontSize = 13.sp, fontWeight = if (base == b) FontWeight.Bold else FontWeight.Normal)
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(if (base == BaseLayer.STREETS) "Roads (already shown)" else "Roads & labels", fontSize = 13.sp, modifier = Modifier.weight(1f))
+            androidx.compose.material3.Switch(checked = roads && base != BaseLayer.STREETS, onCheckedChange = onRoads, enabled = base != BaseLayer.STREETS)
         }
     }
 }

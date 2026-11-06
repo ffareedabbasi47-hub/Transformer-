@@ -75,6 +75,9 @@ fun NativeGlobe(
     cloudEnabled: Boolean,
     onOpenMap: (lat: Double, lon: Double, zoom: Double, deviceId: String?) -> Unit,
     onUnavailable: () -> Unit,
+    startLat: Double? = null,
+    startLon: Double? = null,
+    startScale: Float = 1f,
 ) {
     val ctx = LocalContext.current
     var texture by remember { mutableStateOf<Bitmap?>(null) }
@@ -86,12 +89,14 @@ fun NativeGlobe(
         if (t == null) failed = true else texture = t
     }
 
-    val cam = remember { GlobeCam() }
+    val cam = remember { GlobeCam().also { c -> if (startLat != null && startLon != null) { c.lat = startLat.coerceIn(-80.0, 80.0); c.lon = startLon; c.scale = startScale } } }
     var tick by remember { mutableLongStateOf(0L) }          // changes every frame: markers follow the globe
     var moving by remember { mutableStateOf(false) }
     var glide by remember { mutableStateOf<Glide?>(null) }
     val motion = remember { doubleArrayOf(0.0, 0.0, 0.0) }   // [vLat deg/s, vLon deg/s, last gesture time (s)]
-    var handedOff by remember { mutableStateOf(false) }
+    var handedOff by remember { mutableStateOf(startScale >= DIVE_SCALE) }
+    // Arriving from the flat map: start close and fly out to the full Earth, centred on where the map was looking.
+    LaunchedEffect(Unit) { if (startLat != null && startScale > 1f) glide = Glide(cam.lat, cam.lon, 1f) }
     val density = LocalDensity.current.density
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF02040A))) {
@@ -132,6 +137,7 @@ fun NativeGlobe(
                     }
                     moving = busy
                     tick = now
+                    if (handedOff && cam.scale < 1.8f) handedOff = false      // re-arm after a fly-out
                     if (!handedOff && ready && cam.scale >= DIVE_SCALE) {
                         handedOff = true
                         onOpenMap(cam.lat, cam.lon, diveZoom(), null)

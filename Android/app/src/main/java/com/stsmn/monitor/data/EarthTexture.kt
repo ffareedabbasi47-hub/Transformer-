@@ -30,14 +30,18 @@ object EarthTexture {
     private const val CACHE_NAME = "earth_z3_v1.jpg"
     private const val SEA = 0xFF0B3D6E.toInt()
 
-    /** Returns SIZE*SIZE ARGB pixels, or null when nothing usable could be loaded. `onProgress` gets 0..TILE_COUNT. */
-    suspend fun load(ctx: Context, onProgress: (Int) -> Unit): IntArray? = withContext(Dispatchers.IO) {
+    /** Returns a SIZE x SIZE world bitmap (owned by the caller), or null when nothing usable could be loaded. `onProgress` gets 0..TILE_COUNT. */
+    suspend fun load(ctx: Context, onProgress: (Int) -> Unit): Bitmap? = withContext(Dispatchers.IO) {
         val cache = File(ctx.filesDir, CACHE_NAME)
         if (cache.isFile) {
-            decodeToPixels(BitmapFactory.decodeFile(cache.absolutePath))?.let { return@withContext it }
+            BitmapFactory.decodeFile(cache.absolutePath)?.let { b ->
+                if (b.width == SIZE && b.height == SIZE) return@withContext b
+                b.recycle()
+            }
             cache.delete()                                         // unreadable cache: download again
         }
         val world = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
+        var ok = false
         try {
             val canvas = Canvas(world)
             canvas.drawColor(SEA)
@@ -65,23 +69,14 @@ object EarthTexture {
                 tmp.outputStream().use { world.compress(Bitmap.CompressFormat.JPEG, 88, it) }
                 if (!tmp.renameTo(cache)) tmp.delete()
             }
-            val px = IntArray(SIZE * SIZE)
-            world.getPixels(px, 0, SIZE, 0, 0, SIZE, SIZE)
-            px
+            ok = true
+            world
         } catch (e: Exception) {
             Log.w(TAG, "texture load failed: ${e.message}")
             null
         } finally {
-            world.recycle()
+            if (!ok) world.recycle()
         }
-    }
-
-    private fun decodeToPixels(b: Bitmap?): IntArray? {
-        if (b == null || b.width != SIZE || b.height != SIZE) { b?.recycle(); return null }
-        val px = IntArray(SIZE * SIZE)
-        b.getPixels(px, 0, SIZE, 0, 0, SIZE, SIZE)
-        b.recycle()
-        return px
     }
 
     private fun fetchTile(x: Int, y: Int): Bitmap? {

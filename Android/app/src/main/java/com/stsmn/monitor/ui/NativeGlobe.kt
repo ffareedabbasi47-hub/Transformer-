@@ -1,7 +1,6 @@
 package com.stsmn.monitor.ui
 
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
+import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,67 +9,63 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.stsmn.monitor.data.EarthTexture
 import com.stsmn.monitor.domain.FleetState
 import com.stsmn.monitor.domain.GlobeMath
 import com.stsmn.monitor.domain.MapDevice
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.withContext
 import kotlin.math.PI
-import kotlin.math.atan2
-import kotlin.math.cos
-import kotlin.math.floor
+import kotlin.math.abs
+import kotlin.math.exp
 import kotlin.math.ln
 import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlin.math.sin
-import kotlin.math.sqrt
-import kotlin.random.Random
 
 private const val HOME_LAT = 22.5
 private const val HOME_LON = 78.96
+private const val DIVE_SCALE = 2.0f
+
+/** Where the camera is gliding to (button presses); null while the user is steering. */
+private class Glide(val lat: Double, val lon: Double, val scale: Float)
 
 /**
- * Native 3D Earth: a real satellite picture wrapped on a sphere and drawn by our own code (no WebView, no WebGL),
- * so it works on every phone. Drag to rotate, pinch or tap "Zoom in" to dive into the satellite map.
+ * Native 3D Earth drawn on the GPU (OpenGL ES): real satellite imagery on a sphere. Drag to spin (with momentum),
+ * pinch to zoom; zooming in far enough continues into the satellite map at the same spot.
  */
 @Composable
 fun NativeGlobe(
@@ -81,88 +76,137 @@ fun NativeGlobe(
     onUnavailable: () -> Unit,
 ) {
     val ctx = LocalContext.current
-    var texture by remember { mutableStateOf<IntArray?>(null) }
+    var texture by remember { mutableStateOf<Bitmap?>(null) }
     var progress by remember { mutableIntStateOf(0) }
     var failed by remember { mutableStateOf(false) }
+    var ready by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val t = EarthTexture.load(ctx) { progress = it }
         if (t == null) failed = true else texture = t
     }
 
-    var centerLat by remember { mutableDoubleStateOf(HOME_LAT) }
-    var centerLon by remember { mutableDoubleStateOf(HOME_LON) }
-    var scale by remember { mutableFloatStateOf(1f) }
-    var frame by remember { mutableStateOf<ImageBitmap?>(null) }
-    val stars = remember {
-        val rnd = Random(7)
-        List(140) { Triple(rnd.nextFloat(), rnd.nextFloat(), 0.25f + rnd.nextFloat() * 0.6f) }
-    }
+    val cam = remember { GlobeCam() }
+    var tick by remember { mutableLongStateOf(0L) }          // changes every frame: markers follow the globe
+    var moving by remember { mutableStateOf(false) }
+    var glide by remember { mutableStateOf<Glide?>(null) }
+    val motion = remember { doubleArrayOf(0.0, 0.0, 0.0) }   // [vLat deg/s, vLon deg/s, last gesture time (s)]
+    var handedOff by remember { mutableStateOf(false) }
+    val density = LocalDensity.current.density
 
     BoxWithConstraints(Modifier.fillMaxSize().background(Color(0xFF02040A))) {
-        val density = LocalDensity.current
         val wPx = constraints.maxWidth.toFloat()
         val hPx = constraints.maxHeight.toFloat()
-        val baseDiameter = min(wPx, hPx) * 0.9f
-        val diameter = baseDiameter * scale
-        val radius = diameter / 2f
-        val cx = wPx / 2f
-        val cy = hPx / 2f
-        val renderSize = min(576, maxOf(240, baseDiameter.toInt()))
 
-        // Re-draw the sphere whenever the view moves; a newer position cancels an older, still running render.
-        LaunchedEffect(texture, renderSize) {
-            val tex = texture ?: return@LaunchedEffect
-            snapshotFlow { centerLat to centerLon }.collectLatest { (lat, lon) ->
-                frame = withContext(Dispatchers.Default) { renderSphere(tex, renderSize, lat, lon, this) }
+        fun diveZoom(): Double {
+            val diameter = 2.0 * globeRadiusPx(wPx, hPx, cam.scale)
+            return (ln(PI * diameter / (256.0 * density)) / ln(2.0)).coerceIn(3.0, 6.0)
+        }
+
+        // One animation loop: momentum after a swipe, button glides, and the hand-off to the flat map.
+        LaunchedEffect(ready) {
+            var last = 0L
+            while (true) {
+                androidx.compose.runtime.withFrameNanos { now ->
+                    val dt = if (last == 0L) 0.016 else min((now - last) / 1e9, 0.05)
+                    last = now
+                    val t = now / 1e9
+                    val touching = t - motion[2] < 0.12
+                    val g = glide
+                    var busy = touching
+                    if (touching) {
+                        if (t - motion[2] > 0.05) { motion[0] *= 0.8; motion[1] *= 0.8 }   // finger resting: kill speed
+                    } else if (g != null) {
+                        val k = 1.0 - exp(-dt * 6.0)
+                        cam.lat += (g.lat - cam.lat) * k
+                        cam.lon = GlobeMath.normLon(cam.lon + GlobeMath.normLon(g.lon - cam.lon) * k)
+                        cam.scale += ((g.scale - cam.scale) * k).toFloat()
+                        busy = true
+                        if (abs(g.lat - cam.lat) < 0.05 && abs(GlobeMath.normLon(g.lon - cam.lon)) < 0.05 && abs(g.scale - cam.scale) < 0.01f) glide = null
+                    } else if (abs(motion[0]) > 1.5 || abs(motion[1]) > 1.5) {
+                        cam.lat = (cam.lat + motion[0] * dt).coerceIn(-80.0, 80.0)
+                        cam.lon = GlobeMath.normLon(cam.lon + motion[1] * dt)
+                        val damp = exp(-dt * 3.2)
+                        motion[0] *= damp; motion[1] *= damp
+                        busy = true
+                    }
+                    moving = busy
+                    tick = now
+                    if (!handedOff && ready && cam.scale >= DIVE_SCALE) {
+                        handedOff = true
+                        onOpenMap(cam.lat, cam.lon, diveZoom(), null)
+                    }
+                }
             }
         }
-        // Pinching far enough dives into the satellite map at the current position.
-        LaunchedEffect(scale) {
-            if (scale >= 1.9f) onOpenMap(centerLat, centerLon, 4.0, null)
-        }
 
-        Canvas(
+        // The GPU globe.
+        val owner = LocalLifecycleOwner.current
+        var surface by remember { mutableStateOf<GlobeSurface?>(null) }
+        DisposableEffect(owner, surface) {
+            val s = surface
+            val obs = LifecycleEventObserver { _, e ->
+                when (e) { Lifecycle.Event.ON_RESUME -> s?.onResume(); Lifecycle.Event.ON_PAUSE -> s?.onPause(); else -> Unit }
+            }
+            owner.lifecycle.addObserver(obs)
+            onDispose { owner.lifecycle.removeObserver(obs); s?.onPause() }
+        }
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { c ->
+                GlobeSurface(c, cam, onFailure = { failed = true }, onReady = { ready = true }).also { surface = it }
+            },
+            update = { v -> texture?.let { v.setTexture(it) } },
+        )
+
+        // Touch layer (above the GPU view).
+        Box(
             Modifier.fillMaxSize().pointerInput(Unit) {
+                var lastEvent = 0L
                 detectTransformGestures { _, pan, zoom, _ ->
-                    val r = min(size.width, size.height) * 0.45f * scale
-                    val moved = GlobeMath.dragCenter(centerLat, centerLon, pan.x.toDouble(), pan.y.toDouble(), r.toDouble())
-                    centerLat = moved.first
-                    centerLon = moved.second
-                    scale = (scale * zoom).coerceIn(0.6f, 2.2f)
+                    glide = null
+                    val now = System.nanoTime()
+                    val dtS = ((now - lastEvent) / 1e9).coerceIn(0.008, 0.1)
+                    lastEvent = now
+                    val r = globeRadiusPx(size.width.toFloat(), size.height.toFloat(), cam.scale).toDouble()
+                    val moved = GlobeMath.dragCenter(cam.lat, cam.lon, pan.x.toDouble(), pan.y.toDouble(), r)
+                    val dLat = moved.first - cam.lat
+                    val dLon = GlobeMath.normLon(moved.second - cam.lon)
+                    cam.lat = moved.first
+                    cam.lon = moved.second
+                    cam.scale = (cam.scale * zoom).coerceIn(0.6f, 2.4f)
+                    motion[0] = motion[0] * 0.5 + (dLat / dtS) * 0.5
+                    motion[1] = motion[1] * 0.5 + (dLon / dtS) * 0.5
+                    motion[2] = now / 1e9
                 }
             },
-        ) {
-            stars.forEach { (sx, sy, a) -> drawCircle(Color.White.copy(alpha = a), radius = 1.2f, center = Offset(sx * size.width, sy * size.height)) }
-            drawCircle(
-                brush = Brush.radialGradient(
-                    0.78f to Color(0x773D8BFF), 1.0f to Color.Transparent,
-                    center = Offset(cx, cy), radius = radius * 1.3f,
-                ),
-                radius = radius * 1.3f, center = Offset(cx, cy),
-            )
-        }
-        frame?.let {
-            Image(
-                bitmap = it, contentDescription = "3D Earth", filterQuality = FilterQuality.Medium,
-                modifier = Modifier.align(Alignment.Center).size(with(density) { diameter.toDp() }),
-            )
-        }
+        )
 
-        // Transformer markers on the visible hemisphere.
-        if (frame != null) {
+        // Transformer markers: positions come from the same camera as the GPU picture, so they stay glued to the ground.
+        if (ready) {
             devices.filter { it.hasLocation }.forEach { d ->
-                val s = GlobeMath.project(d.lat!!, d.lng!!, centerLat, centerLon)
-                if (s.visible) {
-                    val px = cx + (s.x * radius).toFloat()
-                    val py = cy - (s.y * radius).toFloat()
-                    val half = with(density) { 22.dp.toPx() }
-                    Column(
-                        Modifier.offset { IntOffset((px - half).roundToInt(), (py - half).roundToInt()) }
-                            .size(44.dp).clickable { onOpenMap(d.lat!!, d.lng!!, 11.0, d.id) },
-                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-                    ) {
+                val la = d.lat!!
+                val lo = d.lng!!
+                Box(
+                    Modifier
+                        .offset {
+                            tick
+                            val s = GlobeMath.project(la, lo, cam.lat, cam.lon)
+                            val r = globeRadiusPx(wPx, hPx, cam.scale)
+                            val half = 22.dp.toPx()
+                            IntOffset((wPx / 2f + (s.x * r).toFloat() - half).roundToInt(), (hPx / 2f - (s.y * r).toFloat() - half).roundToInt())
+                        }
+                        .size(44.dp)
+                        .graphicsLayer {
+                            tick
+                            alpha = if (GlobeMath.project(la, lo, cam.lat, cam.lon).visible) 1f else 0f
+                        }
+                        .clickable {
+                            if (GlobeMath.project(la, lo, cam.lat, cam.lon).visible) onOpenMap(la, lo, 11.0, d.id)
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.size(16.dp).clip(CircleShape).background(markerColor(d.state)).border(2.dp, Color.White, CircleShape))
-                        Text(d.label, fontSize = 9.sp, color = Color.White, modifier = Modifier.background(Color(0x99000000)).padding(horizontal = 3.dp))
                     }
                 }
             }
@@ -174,14 +218,14 @@ fun NativeGlobe(
 
         when {
             failed -> Column(
-                Modifier.align(Alignment.Center).padding(24.dp).clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
+                Modifier.align(Alignment.Center).padding(24.dp).clip(RoundedCornerShape(16.dp))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)).padding(18.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Text("Earth imagery could not be downloaded (internet needed the first time).", color = MaterialTheme.colorScheme.onSurface)
+                Text("The 3D Earth could not start (needs internet the first time, and OpenGL).", color = MaterialTheme.colorScheme.onSurface)
                 Button(onClick = onUnavailable) { Text("Open satellite map") }
             }
-            frame == null -> Column(
+            !ready -> Column(
                 Modifier.align(Alignment.Center).padding(24.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
@@ -192,52 +236,12 @@ fun NativeGlobe(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Text("Drag to rotate · pinch or tap Zoom in", fontSize = 11.sp, color = Color(0xCCFFFFFF))
-                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = { centerLat = HOME_LAT; centerLon = HOME_LON; scale = 1f }) { Text("India", maxLines = 1, softWrap = false) }
-                    Button(onClick = { onOpenMap(centerLat, centerLon, 5.0, null) }) { Text("Zoom in", maxLines = 1, softWrap = false) }
+                if (!moving) Text("Drag to spin · pinch to zoom", fontSize = 11.sp, color = Color(0xCCFFFFFF))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { glide = Glide(HOME_LAT, HOME_LON, 1f) }) { Text("India", maxLines = 1, softWrap = false) }
+                    Button(onClick = { glide = Glide(cam.lat, cam.lon, DIVE_SCALE + 0.1f) }) { Text("Zoom in", maxLines = 1, softWrap = false) }
                 }
             }
         }
     }
-}
-
-/** Draws the textured sphere as ARGB pixels for the given view centre. Runs off the main thread; cancellable. */
-private fun renderSphere(tex: IntArray, size: Int, latDeg: Double, lonDeg: Double, scope: CoroutineScope): ImageBitmap {
-    val ts = EarthTexture.SIZE
-    val out = IntArray(size * size)
-    val phi0 = Math.toRadians(latDeg)
-    val sinP = sin(phi0)
-    val cosP = cos(phi0)
-    val inv = 2.0 / size
-    val quarterPi = 4.0 * PI
-    for (j in 0 until size) {
-        scope.ensureActive()
-        val y = 1.0 - (j + 0.5) * inv
-        for (i in 0 until size) {
-            val x = (i + 0.5) * inv - 1.0
-            val r2 = x * x + y * y
-            if (r2 >= 1.0) continue
-            val z = sqrt(1.0 - r2)
-            var s = z * sinP + y * cosP
-            if (s > 0.99999) s = 0.99999 else if (s < -0.99999) s = -0.99999
-            val lon = lonDeg + Math.toDegrees(atan2(x, z * cosP - y * sinP))
-            var u = (lon + 180.0) / 360.0
-            u -= floor(u)
-            var v = 0.5 - ln((1.0 + s) / (1.0 - s)) / quarterPi
-            if (v < 0.0) v = 0.0 else if (v > 0.9999) v = 0.9999
-            val c = tex[(v * ts).toInt() * ts + (u * ts).toInt().coerceAtMost(ts - 1)]
-            val shade = 0.6 + 0.4 * sqrt(z)                        // darker towards the rim: reads as a sphere
-            val rim = 1.0 - z
-            val glow = rim * rim * rim * 0.6                        // thin atmosphere on the edge
-            val r = (((c shr 16) and 255) * shade).let { it + (90 - it) * glow }
-            val g = (((c shr 8) and 255) * shade).let { it + (160 - it) * glow }
-            val b = ((c and 255) * shade).let { it + (255 - it) * glow }
-            var a = 255
-            if (r2 > 0.99) a = (255 * ((1.0 - r2) / 0.01)).toInt().coerceIn(0, 255)   // smooth edge
-            out[j * size + i] = (a shl 24) or (r.toInt().coerceIn(0, 255) shl 16) or (g.toInt().coerceIn(0, 255) shl 8) or b.toInt().coerceIn(0, 255)
-        }
-    }
-    val bmp = android.graphics.Bitmap.createBitmap(out, size, size, android.graphics.Bitmap.Config.ARGB_8888)
-    return bmp.asImageBitmap()
 }

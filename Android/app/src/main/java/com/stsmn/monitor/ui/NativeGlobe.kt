@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -158,9 +159,11 @@ fun NativeGlobe(
             update = { v -> texture?.let { v.setTexture(it) } },
         )
 
-        // Touch layer (above the GPU view).
+        // Touch layer (above the GPU view): double-tap flies closer, drag spins, pinch zooms.
         Box(
             Modifier.fillMaxSize().pointerInput(Unit) {
+                detectTapGestures(onDoubleTap = { glide = Glide(cam.lat, cam.lon, (cam.scale * 1.5f).coerceAtMost(DIVE_SCALE + 0.1f)) })
+            }.pointerInput(Unit) {
                 var lastEvent = 0L
                 detectTransformGestures { _, pan, zoom, _ ->
                     glide = null
@@ -207,6 +210,10 @@ fun NativeGlobe(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Box(Modifier.size(16.dp).clip(CircleShape).background(markerColor(d.state)).border(2.dp, Color.White, CircleShape))
+                        if (!moving) Text(
+                            d.label, fontSize = 9.sp, color = Color.White, maxLines = 1, softWrap = false,
+                            modifier = Modifier.background(Color(0x99000000), RoundedCornerShape(4.dp)).padding(horizontal = 3.dp),
+                        )
                     }
                 }
             }
@@ -236,10 +243,13 @@ fun NativeGlobe(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (!moving) Text("Drag to spin · pinch to zoom", fontSize = 11.sp, color = Color(0xCCFFFFFF))
+                if (!moving) Text("Drag to spin · pinch or double-tap to zoom", fontSize = 11.sp, color = Color(0xCCFFFFFF))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     OutlinedButton(onClick = { glide = Glide(HOME_LAT, HOME_LON, 1f) }) { Text("India", maxLines = 1, softWrap = false) }
-                    Button(onClick = { glide = Glide(cam.lat, cam.lon, DIVE_SCALE + 0.1f) }) { Text("Zoom in", maxLines = 1, softWrap = false) }
+                    Button(onClick = {
+                        val site = devices.firstOrNull { it.hasLocation }
+                        glide = if (site != null) Glide(site.lat!!, site.lng!!, DIVE_SCALE + 0.1f) else Glide(cam.lat, cam.lon, DIVE_SCALE + 0.1f)
+                    }) { Text(if (devices.any { it.hasLocation }) "Fly to site" else "Zoom in", maxLines = 1, softWrap = false) }
                 }
             }
         }

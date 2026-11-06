@@ -70,13 +70,13 @@ fun EarthScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(Modifier.size(44.dp).clip(CircleShape).clickable { showList = true }, contentAlignment = Alignment.Center) {
-                Text("📋", fontSize = 18.sp)
+                Text("List", fontSize = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
             }
             if (flat) {
                 Box(
                     Modifier.size(44.dp).clip(CircleShape).clickable { onSelect(null); target = null },
                     contentAlignment = Alignment.Center,
-                ) { Text("🌍", fontSize = 18.sp) }
+                ) { Text("Globe", fontSize = 11.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) }
             }
         }
 

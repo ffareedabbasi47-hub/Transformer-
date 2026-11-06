@@ -180,7 +180,9 @@ fun MapScreen(
     onSelect: (String?) -> Unit,
     onOpenSettings: () -> Unit,
     initialDeepZoom: Boolean = false,
-    onNoTiles: () -> Unit = {},
+    startLat: Double? = null,
+    startLng: Double? = null,
+    startZoom: Double? = null,
 ) {
     val ctx = LocalContext.current
     val hasInternet by rememberHasInternet()
@@ -197,20 +199,11 @@ fun MapScreen(
         while (true) {
             val r = TileProbe.run(ctx.packageName)
             probe = r
-            MapDiag.probe = MapDiag.probeText(r)
             if (r.any) break
             delay(15_000)
         }
     }
     LaunchedEffect(probe) { if (probe?.choice() == TileProbe.Choice.STREETS) satellite = false }   // Esri blocked: use street pictures
-    val noTilesCallback by androidx.compose.runtime.rememberUpdatedState(onNoTiles)
-    LaunchedEffect(probe) {
-        if (probe?.any == false) {
-            delay(3500)
-            android.widget.Toast.makeText(ctx, "No internet: showing the offline globe", android.widget.Toast.LENGTH_LONG).show()
-            noTilesCallback()
-        }
-    }
     androidx.compose.runtime.LaunchedEffect(satellite, mapView) {
         mapView?.setTileSource(if (satellite) ESRI_SATELLITE else TileSourceFactory.MAPNIK)
         mapView?.invalidate()
@@ -272,10 +265,20 @@ fun MapScreen(
             initialDeepDone = true
         }
     }
+    // Coming from the 3D Earth: start exactly where the globe was looking.
+    val hasStart = startLat != null && startLng != null
+    var startDone by remember { mutableStateOf(false) }
+    DisposableEffectKey(mapReady, startDone) {
+        if (mapReady && hasStart && !startDone) {
+            mapView.controller.setZoom(startZoom ?: 5.0)
+            mapView.controller.setCenter(GeoPoint(startLat!!, startLng!!))
+            startDone = true
+        }
+    }
     // Zoom to the whole fleet once, when the first positions are known (only if not deep zooming).
     var fitted by remember { mutableStateOf(false) }
     DisposableEffectKey(mapReady, devices.count { it.hasLocation }, fitted) {
-        if (mapReady && !fitted && selectedId == null && !initialDeepZoom && devices.any { it.hasLocation }) {
+        if (mapReady && !fitted && selectedId == null && !hasStart && !initialDeepZoom && devices.any { it.hasLocation }) {
             fitAll(mapView, devices); fitted = true
         }
     }

@@ -204,7 +204,7 @@ jobs:
             echo "| Realtime server tests + npm audit | $R_SERVER |"
             echo "| ESP32 risk-engine host tests | $R_FW |"
             echo
-            echo "Not covered by CI: physical-phone WebView/3D globe, ESP32 hardware, release minification run, globe browser smoke test (tests/globe)."
+            echo "Not covered by CI: physical-phone behaviour (3D Earth, map tiles), ESP32 hardware, release minification run."
           } >> "$GITHUB_STEP_SUMMARY"
           for r in "$R_APK" "$R_UNIT" "$R_SERVER" "$R_FW"; do
             if [ "$r" != "success" ]; then echo "::error::At least one required check is $r - do not treat this build as verified"; exit 1; fi

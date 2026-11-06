@@ -28,7 +28,6 @@ Only with a teacher present, USB/power-bank power, 3.7 V battery as the "line", 
 5. Stop the server: viewer phones show "Reconnecting…", markers STALE; restart server: they recover by themselves.
 6. Wrong viewer key in Settings: banner "key rejected", no data shown.
 
-## 3D globe tests
-- `Android/app/src/test/.../GlobeTest.kt` (JVM, runs in CI): globe JSON validation, ID/coordinate rules, lifecycle state machine (start, timeout, crash, retry, notices, duplicate suppression).
-- `tests/globe/globe_smoke.js` (headless Chromium, run manually): 23 checks on the real page (markers add/update/remove, hostile IDs, selection, Show all incl. identical/dateline, repeated style switching, stray error vs fatal, offline tiles, no WebGL). Command: `NODE_PATH=<playwright dir> CHROMIUM=<path> node tests/globe/globe_smoke.js`.
-- NOT automated: a real phone's WebView/GPU, real tile servers, renderer-crash behaviour. Use the manual checklist in README.
+## 3D Earth tests
+- `Android/app/src/test/.../GlobeMathTest.kt` (JVM, runs in CI): sphere projection/unprojection round trip, hidden far side, Mercator rows, drag direction and latitude clamp, dateline wrap.
+- Rendering and imagery download are verified only on a phone (not in CI).

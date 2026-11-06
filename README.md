@@ -58,7 +58,7 @@ One transformer on an Uttar Pradesh map. Setup, internet/tile note and test stat
 See `docs/SECURITY_AUDIT.md` (checklist, what was fixed, what is still open).
 
 ## Map tab: one Earth
-One screen, nothing to choose. It opens on a real 3D satellite Earth centred on India (MapLibre GL JS 5.7.1, BSD-3, bundled in `Android/app/src/main/assets/globe/`): zoom anywhere, **Satellite / Streets**, **Tilt 3D** terrain, **Show all**. If this phone cannot draw the 3D view, or the 3D page does not prove it is drawing within 10 s, the same screen silently uses the native satellite map (osmdroid + Esri imagery) with the same markers and buttons; the app remembers that for next time (tap the 🌍 button on the left edge to try 3D again). The 📋 button on the left edge opens the list of every transformer over the map. Before showing pictures the app checks which servers (Esri, OpenStreetMap) this phone can really reach and picks Satellite or Streets accordingly; with no internet it shows a banner and the markers. Tap a transformer for live telemetry and **Open Street View** (Google Maps app, no API key).
+One screen, nothing to choose. It opens on a native 3D Earth (real Esri satellite imagery wrapped on a sphere and drawn by the app itself, no WebView or WebGL) centred on India: drag to rotate, pinch or tap **Zoom in** to dive into the satellite map at that spot, tap a transformer marker to open it directly. 🌍 on the left edge returns to the globe, 📋 opens the list of every transformer. The globe picture (about 1.5 MB) is downloaded once on first start and then cached, so it needs internet only the first time. The flat map offers **Satellite / Streets** and **Show all**; before showing pictures the app checks which servers (Esri, OpenStreetMap) this phone can reach. Tap a transformer for live telemetry and **Open Street View** (Google Maps app, no API key).
 
 ### Manual phone checklist for the 3D Map
 1. Map tab opens on the satellite Earth over India (or the native satellite map if 3D cannot draw on the phone).
@@ -66,4 +66,3 @@ One screen, nothing to choose. It opens on a real 3D satellite Earth centred on 
 3. Tap a transformer marker to view live telemetry; tap Open Street View.
 4. Switch to another tab and back; send the app to background and back.
 5. Turn mobile data off: a "No internet" notice appears; Home/History/Health keep working.
-6. Tap the credit line at the bottom-right to toggle developer diagnostics; Logcat tag `StsmnGlobe`.

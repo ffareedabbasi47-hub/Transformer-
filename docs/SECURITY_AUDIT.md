@@ -75,3 +75,6 @@ Verified: the page was run in headless Chromium (markers drawn, hostile ID rejec
 | Network | The app does NOT bind its process to the ESP32 Wi-Fi (`WifiNetworkBinder` only opens ESP32 connections through that network), so WebView tiles use Android's default internet route. Not verified on a physical phone |
 | Diagnostics | Logcat tag `StsmnGlobe`; tap the credit line on the globe to show the developer line (tiles ok/failed, JS errors, network). Hidden by default |
 | Still open | HTTP cleartext is not yet restricted to 192.168.4.1 (needs your decision: breaking if the ESP32 IP changes). Satellite tiles need internet; no offline satellite cache exists |
+
+
+> Update: the WebView/MapLibre 3D globe described in the two globe addenda above has been removed. The 3D Earth is now native (no WebView, no JavaScript bridge); it only downloads public Esri imagery tiles over HTTPS.

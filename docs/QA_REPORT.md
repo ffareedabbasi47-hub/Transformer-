@@ -9,9 +9,9 @@ Original files are in git history (commit before this change) and a backup copy 
 | Real ESP32 build (Arduino IDE / arduino-cli with ESP32 core 2.x or 3.x) | **NOT RUN**: no ESP32 toolchain in the environment. The firmware is **not verified to compile for the ESP32.** |
 | Sketch syntax/type check against HOST MOCKS (`tests/firmware/compile_sketch.sh`, g++ gnu++11/17/2a, mock core 2 and 3) | PASS. This checks C++ syntax, declarations and our own API usage only; the mocks are not the real core. |
 | Single-file sketch regenerated and syntax-checked the same way | PASS |
-| `tests/risk_engine_test.cpp` (risk engine, 17 checks) | PASS |
-| `tests/protection_logic_test.cpp` (relay arming gate) | PASS |
-| `tests/firmware/sensor_actuator_test.cpp` (real `sensors.h`/`actuators.h` on a mock Arduino, 24 checks) | PASS |
+| `tests/risk_engine_test.cpp` (risk engine, 18 checks) | PASS |
+| `tests/protection_logic_test.cpp` (relay arming gate, 12 checks) | PASS |
+| `tests/firmware/sensor_actuator_test.cpp` (real `sensors.h`/`actuators.h` on a mock Arduino, 25 checks) | PASS |
 | Regression value: new tests run against the ORIGINAL headers | 3 sensor/actuator checks + 1 risk check FAIL there, i.e. the tests detect the bugs fixed below |
 | Real hardware (sensors, relay, Wi-Fi, watchdog, timing, heap/stack) | **HARDWARE NOT VERIFIED** |
 

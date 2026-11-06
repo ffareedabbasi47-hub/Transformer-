@@ -133,7 +133,8 @@ private fun GlobeSession(
             },
             noticeCb = { kind, detail ->
                 Log.w(TAG, "notice kind=$kind detail=$detail")
-                if (kind == "ENV") MapDiag.env = detail          // phone info for the diagnostics line, not a real notice
+                if (kind == "ENV") MapDiag.env = detail
+                else if (kind == "DIAG") MapDiag.env2 = detail          // phone info for the diagnostics line, not a real notice
                 else state = GlobeLifecycle.onNotice(state, GlobeLifecycle.parseNotice(kind))
             },
         )
@@ -237,7 +238,7 @@ private fun GlobeSession(
     var noServer by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { val r = TileProbe.run(ctx.packageName); MapDiag.probe = MapDiag.probeText(r); noServer = !r.any }
     val painted = GlobeNotice.PAINTED in state.notices
-    MapDiag.web = "3D page: ready=${state.isReady} painted=$painted notices=${state.notices.joinToString(",") { it.name }.ifEmpty { "-" }} failure=${state.failure?.name ?: "-"} ${MapDiag.env}"
+    MapDiag.web = "3D page: ready=${state.isReady} painted=$painted notices=${state.notices.joinToString(",") { it.name }.ifEmpty { "-" }} failure=${state.failure?.name ?: "-"} ${MapDiag.env} ${MapDiag.env2}"
     val giveUp = noServer || !painted && noPaint || GlobeNotice.TILES_FAILED in state.notices || GlobeNotice.RENDER_BLANK in state.notices || state.failure != null
     val useOffline by rememberUpdatedState(onUseFlatMap)
     LaunchedEffect(painted) { if (painted) prefs.edit().putBoolean("earth_failed", false).apply() }

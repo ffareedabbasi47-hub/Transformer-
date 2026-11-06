@@ -107,6 +107,22 @@ constexpr int EMERGENCY_EXIT  = 60;   // hysteresis
 constexpr int FLOOR_SENSOR_FAULT_RISK = 45;  // a dead protection sensor = WARNING
 constexpr int FLOOR_CRITICAL_RISK     = 90;  // any critical condition = >= 90
 
+// ---------- Relay arming / fail-safe (see protection_logic.h) -----------------
+// The supply is NEVER allowed until every protection sensor (temperature, current, voltage) has been valid
+// for RELAY_ARM_STABLE_MS after the boot self-check. If any of them stays invalid for SENSOR_FAULT_CUTOFF_MS
+// the supply is cut and needs a fresh stable-valid period to come back. 0 disables the cut-off on sensor
+// fault (NOT recommended: protection would be blind while the load stays connected).
+constexpr uint32_t RELAY_ARM_STABLE_MS     = 2000;
+constexpr uint32_t SENSOR_FAULT_CUTOFF_MS  = 10000;
+
+// ---------- Tasks / watchdog -------------------------------------------------
+// Protection (sensors, risk, relay, LEDs) runs in its own FreeRTOS task so a slow or stalled HTTP client can
+// never delay it. The task feeds the task watchdog; if it ever hangs the ESP32 resets and the relay returns to cutoff.
+constexpr uint32_t WDT_TIMEOUT_S            = 8;
+constexpr uint32_t PROTECTION_TASK_STACK    = 6144;
+constexpr int      PROTECTION_TASK_PRIORITY = 3;   // above the Arduino loop task (1)
+constexpr uint32_t PROTECTION_LOOP_MS       = 10;  // sleep between protection-task iterations
+
 // Critical conditions (each must hold for the given time -> EMERGENCY)
 constexpr uint32_t CRIT_TEMP_HOLD_MS    = 3000;
 constexpr uint32_t CRIT_CURRENT_HOLD_MS = 1500;

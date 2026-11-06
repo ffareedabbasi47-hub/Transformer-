@@ -11,6 +11,9 @@ class Actuators {
  public:
   // Call FIRST in setup(): put the relay into cutoff before anything else.
   void begin() {
+    // Latch the CUT level into the output register BEFORE the pin becomes an output, so the relay never
+    // sees a pulse of the "energised" level during boot (relevant for active-low modules).
+    digitalWrite(PIN_RELAY, RELAY_ACTIVE_LOW ? HIGH : LOW);
     pinMode(PIN_RELAY, OUTPUT);
     setRelayAllowed(false);
     pinMode(PIN_LED_GREEN, OUTPUT);

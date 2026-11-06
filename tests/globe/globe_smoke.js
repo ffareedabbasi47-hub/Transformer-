@@ -19,7 +19,7 @@ async function page(browser, bridgeSrc, opts = {}) {
   const log = { ready: 0, fatal: [], notice: [], select: [], errors: [] };
   await p.exposeFunction('__ready', () => log.ready++);
   await p.exposeFunction('__fatal', (k, d) => log.fatal.push(k));
-  await p.exposeFunction('__notice', (k, d) => log.notice.push(k));
+  await p.exposeFunction('__notice', (k, d) => { log.notice.push(k); if (k === 'DIAG' && process.env.SHOW_DIAG) console.log('DIAG:', d); });
   await p.exposeFunction('__select', id => log.select.push(id));
   await p.addInitScript(bridgeSrc);
   p.on('pageerror', e => log.errors.push(e.message));
@@ -130,7 +130,7 @@ srv.listen(8765, async () => {
       return green / n;
     }, shot);
     check('tiles arrive and are drawn on the globe (>5% of screen shows tile colour)', px > 0.05, 'green share ' + px.toFixed(3));
-    check('working tiles: READY once, no fatal, only the PAINTED proof', log.ready === 1 && log.fatal.length === 0 && log.notice.filter(n => n !== 'ENV').join() === 'PAINTED', JSON.stringify(log));
+    check('working tiles: READY once, no fatal, only the PAINTED proof', log.ready === 1 && log.fatal.length === 0 && log.notice.filter(n => n !== 'ENV' && n !== 'DIAG').join() === 'PAINTED', JSON.stringify(log));
     await p.close();
 
     // 11. everything drawn is black (broken GPU / blank render): the probe must say RENDER_BLANK so the app can switch to the offline globe

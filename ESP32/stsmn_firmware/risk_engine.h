@@ -77,7 +77,8 @@ class RiskEngine {
 
     bool tempCrit = tempCritTimer_.update(in.tempValid && in.tempC >= TEMP_CRIT_C, now, CRIT_TEMP_HOLD_MS);
     bool curCrit  = currentCritTimer_.update(in.currentValid && fabsf(in.currentA) >= CURRENT_CRIT_A, now, CRIT_CURRENT_HOLD_MS);
-    bool smokeHeat = smokeHeatTimer_.update(in.smoke && in.tempValid && in.tempC >= TEMP_WARN_C, now, CRIT_SMOKE_HEAT_HOLD_MS);
+    // Smoke with an unknown temperature is treated as smoke WITH heat (conservative: a blind sensor must not hide a fire).
+    bool smokeHeat = smokeHeatTimer_.update(in.smoke && (!in.tempValid || in.tempC >= TEMP_WARN_C), now, CRIT_SMOKE_HEAT_HOLD_MS);
     r.critical = in.flame || tempCrit || curCrit || smokeHeat;
 
     int risk = r.parts.base;

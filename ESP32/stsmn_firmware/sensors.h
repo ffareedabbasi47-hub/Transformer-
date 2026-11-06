@@ -28,7 +28,9 @@ class SensorHub {
   void begin() {
     analogReadResolution(12);
     analogSetAttenuation(ADC_11db);  // ~0-3.1V usable range
-    pinMode(PIN_FLAME_DO, INPUT);
+    // Pull towards the 'no flame' level so an unplugged flame module cannot raise a false EMERGENCY
+    // (a disconnected flame module CANNOT be detected: digital output only, see README limitations).
+    pinMode(PIN_FLAME_DO, FLAME_ACTIVE_LOW ? INPUT_PULLUP : INPUT_PULLDOWN);
 
     ds_.begin();
     ds_.setResolution(10);
@@ -69,6 +71,7 @@ class SensorHub {
       bool ok = tempPlausible(t, !tempAvg_.hasData());
       if (ok) tempAvg_.push(t);
       tempFilter_.update(ok);
+      if (!tempFilter_.valid()) tempAvg_.reset();   // never mix old values into a recovered reading
     }
   }
 
@@ -86,6 +89,7 @@ class SensorHub {
       currentAvg_.push(amps);
     }
     currentFilter_.update(curOk);
+    if (!currentFilter_.valid()) currentAvg_.reset();
     float a = currentAvg_.value();
     r_.currentA = (a < ACS_DEADBAND_A) ? 0.0f : a;
     r_.currentValid = currentFilter_.valid() && currentAvg_.hasData();
@@ -95,6 +99,7 @@ class SensorHub {
     bool vOk = vMv <= VOLT_ADC_MAX_MV;  // above = ADC saturated: input too high
     if (vOk) voltAvg_.push(vMv / 1000.0f * VOLT_MODULE_RATIO * VOLT_CAL_FACTOR);
     voltageFilter_.update(vOk);
+    if (!voltageFilter_.valid()) voltAvg_.reset();
     r_.voltageV = voltAvg_.value();
     r_.voltageValid = voltageFilter_.valid() && voltAvg_.hasData();
 

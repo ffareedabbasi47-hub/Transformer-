@@ -10,6 +10,7 @@ object MapDiag {
     var probe by mutableStateOf("servers: checking…")
     var web by mutableStateOf("3D page: starting")
     var env by mutableStateOf("")
+    var env2 by mutableStateOf("")
 
     fun probeText(r: com.stsmn.monitor.domain.TileProbe.Result) =
         "servers: satellite ${if (r.esri) "OK" else "NO"}, streets ${if (r.osm) "OK" else "NO"}"

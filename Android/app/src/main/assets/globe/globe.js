@@ -128,6 +128,13 @@
         n++; if (px[3] === 0 || px[0] + px[1] + px[2] < 24) dark++;
       });
       probeDone = true;
+      try {                                                    // layout facts: tells us why a drawn globe may not be visible
+        var cv = map.getCanvas(), cs = getComputedStyle(cv), mr = map.getContainer().getBoundingClientRect(), cr = cv.getBoundingClientRect();
+        gl.readPixels(Math.floor(w / 2), Math.floor(h / 2), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        notice('DIAG', 'win ' + innerWidth + 'x' + innerHeight + ' dpr ' + devicePixelRatio + ' map ' + Math.round(mr.width) + 'x' + Math.round(mr.height) +
+          '@' + Math.round(mr.top) + ' cv ' + cv.width + 'x' + cv.height + '@' + Math.round(cr.top) + ' ' + cs.display + '/' + cs.visibility + '/' + cs.opacity +
+          ' px ' + px[0] + ',' + px[1] + ',' + px[2] + ',' + px[3] + ' css ' + document.styleSheets.length + ' z ' + map.getZoom().toFixed(1));
+      } catch (e) {}
       if (dark === n) { dbgOn = true; lastErr = 'blank render'; notice('RENDER_BLANK', 'all sampled pixels dark'); }
       else notice('PAINTED', 'drawing');   // proof for the app that this phone really draws the globe
     } catch (e) { probeDone = true; }

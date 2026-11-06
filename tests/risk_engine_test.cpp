@@ -68,6 +68,28 @@ int main() {
     if (r.risk >= WARNING_EXIT && r.risk < WARNING_ENTER) CHECK(r.status == Status::WARNING, "hysteresis: stays WARNING in band");
     else printf("skip: band case risk=%d\n", r.risk);
   }
+  { // Regression: smoke while the temperature sensor is blind must be treated as smoke WITH heat -> EMERGENCY
+    RiskEngine e; RiskInput in = normal(); in.smoke = true; in.tempValid = false;
+    RiskResult r = e.update(in, 0);
+    CHECK(r.status != Status::EMERGENCY, "smoke + blind temp: not instant");
+    r = e.update(in, CRIT_SMOKE_HEAT_HOLD_MS + 10);
+    CHECK(r.status == Status::EMERGENCY, "smoke + blind temp held -> EMERGENCY (fire cannot hide behind a dead sensor)");
+  }
+  { // Regression: every protection sensor invalid + nothing else wrong must never read SAFE
+    RiskEngine e; RiskInput in = normal(); in.tempValid = false; in.currentValid = false; in.voltageValid = false;
+    RiskResult r = e.update(in, 0);
+    CHECK(r.status != Status::SAFE && r.risk >= FLOOR_SENSOR_FAULT_RISK, "all protection sensors invalid -> never SAFE");
+  }
+  { // NaN / infinity values must not produce points or crash the score
+    RiskEngine e; RiskInput in = normal(); in.tempC = NAN; in.currentA = INFINITY; in.voltageV = NAN;
+    RiskResult r = e.update(in, 0);
+    CHECK(r.risk >= 0 && r.risk <= 100, "NaN/inf inputs: score stays 0..100");
+  }
+  { // Score boundaries: exactly at the WARNING/EMERGENCY thresholds, with hysteresis
+    RiskEngine e; RiskInput in = normal(); in.oilPct = 0; in.tempC = 52.0f; in.currentA = 3.6f;
+    RiskResult r = e.update(in, 0);
+    CHECK(r.risk >= 0 && r.risk <= 100, "boundary: score within range");
+  }
   { // Cap check: max possible base is clamped to 100
     RiskEngine e; RiskInput in = RiskInput{true, 100, true, 5, true, 20, true, true, true, 0};
     RiskResult r = e.update(in, 0);

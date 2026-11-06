@@ -168,6 +168,18 @@ jobs:
         run: |
           g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware risk_engine_test.cpp -o risk_test
           ./risk_test
+          g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware protection_logic_test.cpp -o prot_test
+          ./prot_test
+          g++ -std=c++17 -Wall -Wno-unused-variable -Ifirmware/mock -I../ESP32/stsmn_firmware firmware/sensor_actuator_test.cpp -o sensor_test
+          ./sensor_test
+      - name: Syntax-check the sketch against host mocks (NOT the ESP32 core)
+        working-directory: ${{ env.ROOT_DIR }}
+        run: sh tests/firmware/compile_sketch.sh
+      - name: Single-file sketch is up to date
+        working-directory: ${{ env.ROOT_DIR }}
+        run: |
+          python3 tools/make_single_ino.py
+          git diff --exit-code ESP32/stsmn_single/stsmn_single.ino || { echo "::error::ESP32/stsmn_single is stale: run python3 tools/make_single_ino.py and commit"; exit 1; }
 
   # One honest verdict. The APK job can be green while a test job is red; this job makes that visible
   # and fails, so a green APK build is never mistaken for a fully verified release.

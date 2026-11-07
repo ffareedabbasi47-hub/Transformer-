@@ -24,7 +24,7 @@ import androidx.compose.ui.unit.sp
 /** Mockup screen 1: shown for ~1.3 s on launch. Pure UI, no data access. */
 @Composable
 fun SplashScreen() {
-    val gold = AccentChoice.GOLD.color
+    val gold = AppTheme.GOLD.palette.accent
     Box(
         Modifier.fillMaxSize().background(Color(0xFF090909)),
         contentAlignment = Alignment.Center,

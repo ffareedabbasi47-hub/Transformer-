@@ -35,56 +35,60 @@ fun alertColor(l: AlertLevel): Color = when (l) {
     AlertLevel.CRITICAL -> StsmnColors.Emergency
 }
 
-private fun darkScheme(p: UiPrefs) = darkColorScheme(
-    primary = p.accent.color,
-    onPrimary = Color(0xFF14110A),
-    secondary = Color(0xFFB8C0C8),                    // muted platinum
-    tertiary = Color(0xFF9C78C9),                     // amethyst
-    background = p.surface.base,
+private fun darkScheme(pal: Palette) = darkColorScheme(
+    primary = pal.accent,
+    onPrimary = pal.onAccent,
+    secondary = Color(0xFFB8C0C8),
+    tertiary = Color(0xFF9C78C9),
+    background = pal.base,
     onBackground = Color(0xFFF1EEE5),
-    surface = p.surface.raised,
+    surface = pal.card,
     onSurface = Color(0xFFF1EEE5),
-    surfaceVariant = p.surface.high,
-    onSurfaceVariant = Color(0xFFA7A39B),
-    outline = p.surface.outline,
-    outlineVariant = p.surface.outline.copy(alpha = 0.6f),
+    surfaceVariant = androidx.compose.ui.graphics.lerp(pal.card, Color.White, 0.06f),
+    onSurfaceVariant = Color(0xFFB0ACB8),
+    outline = pal.outline,
+    outlineVariant = pal.outline.copy(alpha = 0.6f),
     error = Color(0xFFD16B70),
 )
 
-// "Ivory & platinum" light theme: warm paper background, the same accent family darkened for contrast.
-private fun lightScheme(p: UiPrefs) = lightColorScheme(
-    primary = accentForLight(p.accent.color),
-    onPrimary = Color.White,
+private fun lightScheme(pal: Palette) = lightColorScheme(
+    primary = pal.accent,
+    onPrimary = pal.onAccent,
     secondary = Color(0xFF5E6770),
-    background = Color(0xFFF4F1EA),
-    onBackground = Color(0xFF17140F),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF17140F),
-    surfaceVariant = Color(0xFFEAE5D9),
-    onSurfaceVariant = Color(0xFF5E5A52),
-    outline = Color(0xFFD8D2C4),
-    outlineVariant = Color(0xFFE6E1D5),
+    background = pal.base,
+    onBackground = Color(0xFF1B1530),
+    surface = pal.card,
+    onSurface = Color(0xFF1B1530),
+    surfaceVariant = androidx.compose.ui.graphics.lerp(pal.base, Color.Black, 0.05f),
+    onSurfaceVariant = Color(0xFF5E5A70),
+    outline = pal.outline,
+    outlineVariant = pal.outline.copy(alpha = 0.6f),
     error = Color(0xFFB0444A),
 )
 
+/** Resolves the chosen theme. "System" follows Settings > Display (Light / Dark / System). */
+private fun resolvePalette(theme: AppTheme, mode: ThemeMode, systemDark: Boolean): Palette =
+    if (theme != AppTheme.SYSTEM) theme.palette else when (mode) {
+        ThemeMode.LIGHT -> AppTheme.IVORY.palette
+        ThemeMode.DARK -> AppTheme.SYSTEM.palette
+        ThemeMode.SYSTEM -> if (systemDark) AppTheme.SYSTEM.palette else AppTheme.IVORY.palette
+    }
+
 @Composable
 fun StsmnTheme(mode: ThemeMode, content: @Composable () -> Unit) {
-    val dark = when (mode) {
-        ThemeMode.SYSTEM -> isSystemInDarkTheme()
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK -> true
-    }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val store = LocalUiPrefsStore.current
     val prefs = store?.current ?: UiPrefs()
+    val pal = resolvePalette(prefs.theme, mode, isSystemInDarkTheme())
     val reduce = prefs.reduceMotion || systemAnimationsOff(ctx)
     val base = androidx.compose.ui.platform.LocalDensity.current
     androidx.compose.runtime.CompositionLocalProvider(
+        LocalPalette provides pal,
         LocalCardRadius provides prefs.corners.radius,
         LocalReduceMotion provides reduce,
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(base.density, base.fontScale * prefs.textSize.factor),
     ) {
-        MaterialTheme(colorScheme = if (dark) darkScheme(prefs) else lightScheme(prefs), typography = StsmnTypography, content = content)
+        MaterialTheme(colorScheme = if (pal.light) lightScheme(pal) else darkScheme(pal), typography = StsmnTypography, content = content)
     }
 }
 

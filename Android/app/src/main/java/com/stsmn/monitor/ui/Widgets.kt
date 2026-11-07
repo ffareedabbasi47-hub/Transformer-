@@ -75,18 +75,15 @@ fun Modifier.panel(radius: androidx.compose.ui.unit.Dp = 16.dp, alpha: Float = 0
     return this.clip(shape).background(cs.surface.copy(alpha = alpha), shape).border(1.dp, cs.outline, shape)
 }
 
-/** App-wide backdrop: flat deep space with one very faint cool light from the top edge (dark theme only). */
+/** App-wide backdrop: the theme's top tint fading into its dark (or ivory) base by about half the screen height. */
 @Composable
 fun GlassBackground(content: @Composable () -> Unit) {
-    val bg = MaterialTheme.colorScheme.background
-    val dark = bg.luminance() < 0.5f
-    val accent = MaterialTheme.colorScheme.primary
-    Box(Modifier.fillMaxSize().background(bg)) {
-        if (dark) Canvas(Modifier.fillMaxSize()) {
-            drawRect(Brush.verticalGradient(listOf(accent.copy(alpha = 0.07f), Color.Transparent), endY = size.height * 0.45f))
-        }
-        content()
-    }
+    val pal = LocalPalette.current
+    Box(
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(0f to pal.gradTop, 0.55f to pal.base, 1f to pal.base),
+        ),
+    ) { content() }
 }
 
 /** Round icon badge used on tiles. [glyph] is an emoji so no icon library is needed. */

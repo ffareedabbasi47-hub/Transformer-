@@ -7,6 +7,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.background
@@ -271,7 +272,7 @@ fun SettingsScreen(
         // ---------------- Display ----------------
         SectionLabel("Display")
         AppCard {
-            Text("Theme", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 6.dp))
+            Text("Brightness (used by the \"System\" theme)", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 6.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 ThemeMode.values().forEach { mode ->
                     FilterChip(
@@ -287,52 +288,59 @@ fun SettingsScreen(
         val uiStore = LocalUiPrefsStore.current
         if (uiStore != null) {
             val ui = uiStore.current
-            SectionLabel("Appearance")
-            AppCard {
-                Text("Accent colour", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    AccentChoice.values().forEach { a ->
-                        val on = ui.accent == a
-                        Column(
-                            Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { uiStore.update { it.copy(accent = a) } }.padding(vertical = 6.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
+            val accent = MaterialTheme.colorScheme.primary
+            SectionLabel("Text size & scaling")
+            Text("Adjust the text size of the whole app for comfortable reading:", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextSizeChoice.values().forEach { c ->
+                    val on = ui.textSize == c
+                    Column(
+                        Modifier.weight(1f).clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surface)
+                            .border(if (on) 2.dp else 1.dp, if (on) accent else MaterialTheme.colorScheme.outline, RoundedCornerShape(12.dp))
+                            .clickable { uiStore.update { it.copy(textSize = c) } }.padding(vertical = 8.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(c.label, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = if (on) accent else MaterialTheme.colorScheme.onSurface, maxLines = 1)
+                        Text("(${c.factor}x)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                    }
+                }
+            }
+
+            SectionLabel("App theme & colour palette")
+            Text("Choose your favourite colour style (${AppTheme.values().size} themes):", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            AppTheme.values().toList().chunked(2).forEach { pair ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    pair.forEach { t ->
+                        val on = ui.theme == t
+                        Row(
+                            Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(14.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .border(if (on) 2.dp else 1.dp, if (on) accent else MaterialTheme.colorScheme.outline, RoundedCornerShape(14.dp))
+                                .clickable { uiStore.update { it.copy(theme = t) } }.padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
                         ) {
-                            Box(
-                                Modifier.size(40.dp).clip(CircleShape).background(a.color)
-                                    .border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline, CircleShape),
-                                contentAlignment = Alignment.Center,
-                            ) { if (on) Text("✓", color = Color(0xFF14110A), fontWeight = FontWeight.ExtraBold) }
-                            Text(a.label, fontSize = 10.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2,
-                                color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(top = 4.dp))
+                            Box(Modifier.size(18.dp).clip(CircleShape).background(t.palette.accent).border(1.dp, MaterialTheme.colorScheme.outline, CircleShape))
+                            Text(t.label, fontSize = 13.sp, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, maxLines = 1, softWrap = false)
                         }
                     }
                 }
-                Text("Background", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SurfaceChoice.values().forEach { c ->
-                        FilterChip(selected = ui.surface == c, onClick = { uiStore.update { it.copy(surface = c) } }, label = { Text(c.label) })
-                    }
-                }
-                Text("Corners", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CornerChoice.values().forEach { c ->
-                        FilterChip(selected = ui.corners == c, onClick = { uiStore.update { it.copy(corners = c) } }, label = { Text(c.label) })
-                    }
-                }
-                Text("Text size", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    TextSizeChoice.values().forEach { c ->
-                        FilterChip(selected = ui.textSize == c, onClick = { uiStore.update { it.copy(textSize = c) } }, label = { Text(c.label) })
-                    }
-                }
-                SwitchRow("Reduce motion (fewer animations)", ui.reduceMotion) { v -> uiStore.update { it.copy(reduceMotion = v) } }
-                OutlinedButton(onClick = { uiStore.update { UiPrefs() } }, modifier = Modifier.padding(top = 6.dp)) { Text("Reset appearance") }
-                Text(
-                    "Appearance only changes how the app looks. Light / Dark above is combined with these choices.",
-                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
-                )
             }
+            Text("Corners", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 6.dp))
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CornerChoice.values().forEach { c ->
+                    FilterChip(selected = ui.corners == c, onClick = { uiStore.update { it.copy(corners = c) } }, label = { Text(c.label) })
+                }
+            }
+            AppCard { SwitchRow("Reduce motion (fewer animations)", ui.reduceMotion) { v -> uiStore.update { it.copy(reduceMotion = v) } } }
+            OutlinedButton(
+                onClick = { uiStore.update { UiPrefs() } }, modifier = Modifier.fillMaxWidth(),
+                border = androidx.compose.foundation.BorderStroke(1.dp, accent),
+            ) { Text("Reset to STSMN defaults", color = accent) }
+            Text(
+                "\"System\" theme follows Light / Dark / System under Display. Appearance only changes how the app looks.",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
 
         // ---------------- Diagnostics ----------------

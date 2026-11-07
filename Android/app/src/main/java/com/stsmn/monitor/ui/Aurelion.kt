@@ -17,7 +17,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -31,32 +30,43 @@ import androidx.compose.ui.unit.sp
  * own SharedPreferences file ("stsmn_ui"), separate from AppSettings.
  */
 
-/** Brand accent. Gold is the signature; the others are alternatives chosen in Settings > Appearance. */
-enum class AccentChoice(val label: String, val color: Color) {
-    GOLD("Champagne gold", Color(0xFFC6A76A)),
-    PLATINUM("Platinum", Color(0xFFB8C0C8)),
-    EMERALD("Emerald", Color(0xFF4C9B78)),
-    AMETHYST("Amethyst", Color(0xFF9C78C9)),
+/** One complete colour style: accent, a page gradient (top tint fading into the dark base), card and outline colours. */
+class Palette(
+    val accent: Color, val gradTop: Color, val base: Color, val card: Color, val outline: Color,
+    val light: Boolean = false, val onAccent: Color = Color(0xFF101010),
+)
+
+/** The 12 selectable themes (Settings > Appearance). "System" follows Light/Dark/System in Settings > Display. */
+enum class AppTheme(val label: String, val palette: Palette) {
+    EMERALD("Emerald Dark", Palette(Color(0xFF0DB77F), Color(0xFF0B4F3D), Color(0xFF050D0B), Color(0xFF0B1512), Color(0xFF1F302A))),
+    SAGE("Sage & Grey", Palette(Color(0xFF85A88C), Color(0xFF3C5142), Color(0xFF121817), Color(0xFF161C19), Color(0xFF2B3731))),
+    CLAUDE("Claude", Palette(Color(0xFFA688FB), Color(0xFF3C2676), Color(0xFF080612), Color(0xFF0E0A1C), Color(0xFF2A2145))),
+    CYBERPUNK("Cyberpunk", Palette(Color(0xFF00EEFF), Color(0xFF0A3550), Color(0xFF04070F), Color(0xFF0A1019), Color(0xFF173246))),
+    GOLD("Obsidian Gold", Palette(Color(0xFFF39C0A), Color(0xFF5F3D05), Color(0xFF0B0905), Color(0xFF131009), Color(0xFF3A2D14))),
+    OCEAN("Deep Ocean", Palette(Color(0xFF37BCF7), Color(0xFF114F73), Color(0xFF030D17), Color(0xFF07161F), Color(0xFF16364A))),
+    SUNSET("Sunset", Palette(Color(0xFFFC6F84), Color(0xFF6B2433), Color(0xFF12070B), Color(0xFF1A0C11), Color(0xFF45222B))),
+    NORDIC("Nordic Frost", Palette(Color(0xFF88BFD0), Color(0xFF3B5261), Color(0xFF131921), Color(0xFF171E27), Color(0xFF2E3B48))),
+    MOCHA("Mocha", Palette(Color(0xFFD3A270), Color(0xFF5A3D2B), Color(0xFF100B08), Color(0xFF1A130E), Color(0xFF3F3026))),
+    ROYAL("Royal", Palette(Color(0xFFC082FC), Color(0xFF4F2A76), Color(0xFF0D0619), Color(0xFF130B21), Color(0xFF35224F))),
+    IVORY("Clean Ivory", Palette(Color(0xFF6C26DB), Color(0xFFD8C9FC), Color(0xFFF4F3FC), Color(0xFFFFFFFF), Color(0xFFDDD6F3), light = true, onAccent = Color.White)),
+    SYSTEM("System", Palette(Color(0xFFA688FB), Color(0xFF2A2A44), Color(0xFF0E0E14), Color(0xFF15151D), Color(0xFF2B2B3A)));
+
+    companion object { val DEFAULT = GOLD }
 }
 
-/** Background depth: three obsidian / graphite families. [base] is the page, [raised] cards, [high] inputs and chips. */
-enum class SurfaceChoice(val label: String, val base: Color, val raised: Color, val high: Color, val outline: Color) {
-    OBSIDIAN("Obsidian", Color(0xFF090909), Color(0xFF111315), Color(0xFF191B1E), Color(0xFF25282D)),
-    GRAPHITE("Graphite", Color(0xFF111315), Color(0xFF191B1E), Color(0xFF25282D), Color(0xFF30343A)),
-    AMOLED("True black", Color(0xFF000000), Color(0xFF0A0B0C), Color(0xFF141517), Color(0xFF1F2124)),
-}
+/** The palette actually in use (after resolving "System"); read by the page background. */
+val LocalPalette = compositionLocalOf { AppTheme.DEFAULT.palette }
 
 enum class CornerChoice(val label: String, val radius: Dp) { SOFT("Soft", 20.dp), CRISP("Crisp", 10.dp) }
 
 enum class TextSizeChoice(val label: String, val factor: Float) {
-    COMPACT("Compact", 0.92f), STANDARD("Standard", 1.0f), LARGE("Large", 1.14f)
+    SMALL("Small", 0.85f), MEDIUM("Medium", 1.0f), LARGE("Large", 1.18f), HUGE("Huge", 1.35f)
 }
 
 data class UiPrefs(
-    val accent: AccentChoice = AccentChoice.GOLD,
-    val surface: SurfaceChoice = SurfaceChoice.OBSIDIAN,
+    val theme: AppTheme = AppTheme.DEFAULT,
     val corners: CornerChoice = CornerChoice.SOFT,
-    val textSize: TextSizeChoice = TextSizeChoice.STANDARD,
+    val textSize: TextSizeChoice = TextSizeChoice.MEDIUM,
     val reduceMotion: Boolean = false,
 )
 
@@ -71,7 +81,7 @@ class UiPrefsStore(context: Context) {
         current = n
         runCatching {
             prefs.edit()
-                .putString("accent", n.accent.name).putString("surface", n.surface.name).putString("corners", n.corners.name)
+                .putString("theme", n.theme.name).putString("corners", n.corners.name)
                 .putString("textSize", n.textSize.name).putBoolean("reduceMotion", n.reduceMotion).apply()
         }
     }
@@ -80,8 +90,7 @@ class UiPrefsStore(context: Context) {
         val d = UiPrefs()
         return runCatching {
             UiPrefs(
-                accent = enumOr(prefs.getString("accent", null), d.accent),
-                surface = enumOr(prefs.getString("surface", null), d.surface),
+                theme = enumOr(prefs.getString("theme", null), d.theme),
                 corners = enumOr(prefs.getString("corners", null), d.corners),
                 textSize = enumOr(prefs.getString("textSize", null), d.textSize),
                 reduceMotion = prefs.getBoolean("reduceMotion", false),
@@ -102,8 +111,6 @@ fun systemAnimationsOff(context: Context): Boolean = runCatching {
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 }.getOrDefault(false)
 
-/** Accent darkened enough to read on the light (ivory) theme. */
-fun accentForLight(c: Color): Color = lerp(c, Color.Black, 0.38f)
 
 /** Typography families. System fonts for now; swap these three to bundled Manrope / Space Grotesk / JetBrains Mono later. */
 object AurelionType {

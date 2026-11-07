@@ -72,7 +72,6 @@ fun SettingsScreen(
     var phoneText by rememberSaveable { mutableStateOf(settings.alertPhone) }
     var waKeyText by rememberSaveable { mutableStateOf(settings.whatsappKey) }
     var contactErr by rememberSaveable { mutableStateOf<String?>(null) }
-    val ctx = androidx.compose.ui.platform.LocalContext.current
     var host by rememberSaveable { mutableStateOf(settings.deviceHost) }
     var deviceName by rememberSaveable { mutableStateOf(settings.deviceName) }
     var hostError by rememberSaveable { mutableStateOf(false) }
@@ -168,25 +167,12 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
             )
             Text(
-                "Without a key, WhatsApp opens with the message ready and you press send (notification button + red button on the dashboard). " +
-                    "With a free key from callmebot.com (WhatsApp section) the app sends it by itself while it is open and the phone has internet. " +
-                    "That service then sees the number and the alert text.",
+                "WhatsApp is sent automatically by the app (no button) while it is open and the phone has internet, using the free " +
+                    "callmebot.com service. One-time setup there: get your key for this number, then paste it above. " +
+                    "That service then sees the number and the alert text. Without a key only the SMS from the ESP32 is sent.",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
             )
-            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { contactErr = onSaveContact(phoneText, waKeyText) }, modifier = Modifier.weight(1f)) { Text("Save number") }
-                OutlinedButton(
-                    onClick = {
-                        val p = com.stsmn.monitor.domain.AlertContact.normalize(phoneText)
-                        if (p == null) contactErr = "Enter a valid number first."
-                        else try {
-                            ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(
-                                com.stsmn.monitor.domain.AlertContact.waMeUrl(p, "STSMN test message: WhatsApp alerts will arrive here."))))
-                        } catch (e: Exception) { contactErr = "WhatsApp is not installed." }
-                    },
-                    modifier = Modifier.weight(1f),
-                ) { Text("Test WhatsApp") }
-            }
+            Button(onClick = { contactErr = onSaveContact(phoneText, waKeyText) }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) { Text("Save number") }
             contactErr?.let { Text(it, color = StsmnColors.Emergency, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
             contactStatus?.let { Text(it, fontSize = 13.sp, modifier = Modifier.padding(top = 8.dp)) }
             whatsappStatus?.let { Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }

@@ -70,6 +70,10 @@ constexpr uint32_t COMM_TASK_STACK     = 6144;     // GPS + SMS task (low priori
 // Logical meaning is fixed: relay=true -> supply allowed, relay=false -> cutoff.
 // Wire the load through COM + NO so that a dead/unpowered ESP32 = cutoff.
 constexpr bool RELAY_ACTIVE_LOW = true;    // most 1-channel modules are active-low
+// 5V relay modules driven from the ESP32's 3.3V: a plain HIGH is NOT high enough for many active-low modules, the relay
+// then stays ON even when the firmware says "cut". With this set (and ACTIVE_LOW) the cut state releases the pin
+// (high-impedance, the module's own pull-up switches it OFF) and the ON state drives LOW. Works with 3.3V and 5V modules.
+constexpr bool RELAY_OPEN_DRAIN_OFF = true;
 constexpr bool FLAME_ACTIVE_LOW = true;    // most flame modules pull LOW on flame
 constexpr bool BUZZER_ACTIVE_HIGH = true;
 

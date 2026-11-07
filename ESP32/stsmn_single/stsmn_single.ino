@@ -102,6 +102,10 @@ constexpr uint32_t COMM_TASK_STACK     = 6144;     // GPS + SMS task (low priori
 // Logical meaning is fixed: relay=true -> supply allowed, relay=false -> cutoff.
 // Wire the load through COM + NO so that a dead/unpowered ESP32 = cutoff.
 constexpr bool RELAY_ACTIVE_LOW = true;    // most 1-channel modules are active-low
+// 5V relay modules driven from the ESP32's 3.3V: a plain HIGH is NOT high enough for many active-low modules, the relay
+// then stays ON even when the firmware says "cut". With this set (and ACTIVE_LOW) the cut state releases the pin
+// (high-impedance, the module's own pull-up switches it OFF) and the ON state drives LOW. Works with 3.3V and 5V modules.
+constexpr bool RELAY_OPEN_DRAIN_OFF = true;
 constexpr bool FLAME_ACTIVE_LOW = true;    // most flame modules pull LOW on flame
 constexpr bool BUZZER_ACTIVE_HIGH = true;
 
@@ -672,11 +676,15 @@ class Actuators {
  public:
   // Call FIRST in setup(): put the relay into cutoff before anything else.
   void begin() {
-    // Latch the CUT level into the output register BEFORE the pin becomes an output, so the relay never
-    // sees a pulse of the "energised" level during boot (relevant for active-low modules).
-    digitalWrite(PIN_RELAY, RELAY_ACTIVE_LOW ? HIGH : LOW);
-    pinMode(PIN_RELAY, OUTPUT);
-    setRelayAllowed(false);
+    if (OPEN_DRAIN) {
+      pinMode(PIN_RELAY, INPUT);   // released = cutoff (the module's pull-up keeps the relay OFF; same as a dead ESP32)
+    } else {
+      // Latch the CUT level into the output register BEFORE the pin becomes an output, so the relay never
+      // sees a pulse of the "energised" level during boot (relevant for active-low modules).
+      digitalWrite(PIN_RELAY, RELAY_ACTIVE_LOW ? HIGH : LOW);
+      pinMode(PIN_RELAY, OUTPUT);
+    }
+    relayAllowed_ = false;
     pinMode(PIN_LED_GREEN, OUTPUT);
     pinMode(PIN_LED_YELLOW, OUTPUT);
     pinMode(PIN_LED_RED, OUTPUT);
@@ -686,15 +694,21 @@ class Actuators {
   }
 
   void setRelayAllowed(bool allow) {
+    if (OPEN_DRAIN) {
+      if (allow && !relayAllowed_) { pinMode(PIN_RELAY, OUTPUT); digitalWrite(PIN_RELAY, LOW); }   // coil energised
+      else if (!allow) pinMode(PIN_RELAY, INPUT);                                                  // released = cutoff
+    } else {
+      const int onLevel  = RELAY_ACTIVE_LOW ? LOW : HIGH;   // coil energized = supply allowed
+      const int offLevel = RELAY_ACTIVE_LOW ? HIGH : LOW;
+      digitalWrite(PIN_RELAY, allow ? onLevel : offLevel);
+    }
     relayAllowed_ = allow;
-    const int onLevel  = RELAY_ACTIVE_LOW ? LOW : HIGH;   // coil energized = supply allowed
-    const int offLevel = RELAY_ACTIVE_LOW ? HIGH : LOW;
-    digitalWrite(PIN_RELAY, allow ? onLevel : offLevel);
   }
   bool relayAllowed() const { return relayAllowed_; }
 
   // True if the relay pin no longer reads back the level we commanded.
   bool relayMismatch() const {
+    if (OPEN_DRAIN) return relayAllowed_ && digitalRead(PIN_RELAY) != LOW;   // a released pin has no level to compare
     const int onLevel  = RELAY_ACTIVE_LOW ? LOW : HIGH;
     const int offLevel = RELAY_ACTIVE_LOW ? HIGH : LOW;
     return digitalRead(PIN_RELAY) != (relayAllowed_ ? onLevel : offLevel);
@@ -710,6 +724,7 @@ class Actuators {
   }
 
  private:
+  static constexpr bool OPEN_DRAIN = RELAY_ACTIVE_LOW && RELAY_OPEN_DRAIN_OFF;
   void setBuzzer(bool on) { digitalWrite(PIN_BUZZER, (on == BUZZER_ACTIVE_HIGH) ? HIGH : LOW); }
   void allLeds(bool on) {
     digitalWrite(PIN_LED_GREEN, on); digitalWrite(PIN_LED_YELLOW, on); digitalWrite(PIN_LED_RED, on);

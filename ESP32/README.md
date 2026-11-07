@@ -79,3 +79,8 @@ carries `mq2Mv` / `mq2BaseMv`.
 ## Smoke
 MQ-2 smoke now raises the status to at least WARNING at once, and EMERGENCY (supply cut) if it lasts `CRIT_SMOKE_HOLD_MS` (3 s),
 with or without heat. The clean-air baseline follows slow drift; the trigger is `MQ2_DELTA_ENTER_MV` (120 mV) above it.
+
+## Relay does not switch off?
+5V relay modules driven from the ESP32's 3.3V often stay ON when the pin is set HIGH ("cut"). `RELAY_OPEN_DRAIN_OFF = true` (config.h) fixes that:
+cut = pin released (the module's own pull-up turns the relay OFF), on = pin driven LOW. Check by hand: at boot the relay module's LED is OFF;
+~5 s later (all fitted sensors valid) it turns ON; in EMERGENCY it turns OFF again. Wire the load to COM + NO. If your module is active-HIGH, set `RELAY_ACTIVE_LOW = false`.

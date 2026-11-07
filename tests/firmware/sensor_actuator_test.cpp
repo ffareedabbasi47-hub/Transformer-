@@ -80,12 +80,22 @@ int main() {
     CHECK(hw().pinMode_[PIN_FLAME_DO] == INPUT_PULLUP, "flame input pulled to 'no flame' (unplugged module = no false alarm)");
   }
   { reset(); Actuators a; a.begin();
-    CHECK(hw().firstWriteBeforeMode[PIN_RELAY] == 1, "relay: cut level latched BEFORE the pin becomes an output (no boot pulse)");
-    CHECK(hw().level[PIN_RELAY] == (RELAY_ACTIVE_LOW ? HIGH : LOW) && !a.relayAllowed(), "relay: cut after begin()");
-    a.setRelayAllowed(true);
-    CHECK(hw().level[PIN_RELAY] == (RELAY_ACTIVE_LOW ? LOW : HIGH) && !a.relayMismatch(), "relay: allowed maps to the configured polarity");
-    a.setRelayAllowed(false);
-    CHECK(hw().level[PIN_RELAY] == (RELAY_ACTIVE_LOW ? HIGH : LOW), "relay: cut again");
+    if (RELAY_ACTIVE_LOW && RELAY_OPEN_DRAIN_OFF) {
+      CHECK(hw().pinMode_[PIN_RELAY] == INPUT && !a.relayAllowed(), "relay: cut after begin() = pin released (high-impedance)");
+      a.setRelayAllowed(true);
+      CHECK(hw().pinMode_[PIN_RELAY] == OUTPUT && hw().level[PIN_RELAY] == LOW && !a.relayMismatch(), "relay: allowed = pin driven LOW");
+      a.setRelayAllowed(true);
+      CHECK(hw().pinMode_[PIN_RELAY] == OUTPUT && hw().level[PIN_RELAY] == LOW, "relay: repeated 'allowed' calls keep it on");
+      a.setRelayAllowed(false);
+      CHECK(hw().pinMode_[PIN_RELAY] == INPUT && !a.relayAllowed() && !a.relayMismatch(), "relay: cut again = released");
+    } else {
+      CHECK(hw().firstWriteBeforeMode[PIN_RELAY] == 1, "relay: cut level latched BEFORE the pin becomes an output (no boot pulse)");
+      CHECK(hw().level[PIN_RELAY] == (RELAY_ACTIVE_LOW ? HIGH : LOW) && !a.relayAllowed(), "relay: cut after begin()");
+      a.setRelayAllowed(true);
+      CHECK(hw().level[PIN_RELAY] == (RELAY_ACTIVE_LOW ? LOW : HIGH) && !a.relayMismatch(), "relay: allowed maps to the configured polarity");
+      a.setRelayAllowed(false);
+      CHECK(hw().level[PIN_RELAY] == (RELAY_ACTIVE_LOW ? HIGH : LOW), "relay: cut again");
+    }
   }
   printf(failures ? "\n%d FAILED\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;

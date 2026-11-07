@@ -13,6 +13,7 @@ import com.stsmn.monitor.data.WifiNetworkBinder
 import com.stsmn.monitor.data.FetchResult
 import com.stsmn.monitor.data.WhatsAppSender
 import com.stsmn.monitor.domain.AlertContact
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -75,12 +76,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     val localId = st?.deviceId?.removePrefix("STSMN-")?.uppercase()
                     val phone = cfg.alertPhone
                     val text = if (st != null && id == localId) AlertContact.message(st) else "STSMN ALERT $id: EMERGENCY. Risk ${v.first ?: "?"}/100."
-                    notifier.emergency(id, v.first, v.second, if (phone.isNotEmpty()) AlertContact.waMeUrl(phone, text) else null)
+                    notifier.emergency(id, v.first, v.second)
                     // Fully automatic WhatsApp (only if a CallMeBot key was saved) - never blocks anything else.
-                    if (phone.isNotEmpty() && cfg.whatsappKey.isNotEmpty()) launch {
-                        val err = whatsApp.send(phone, text, cfg.whatsappKey)
-                        _whatsappStatus.value = if (err == null) "WhatsApp alert sent for $id" else "WhatsApp alert NOT sent: $err (use the notification button)"
-                    }
+                    if (phone.isNotEmpty() && cfg.whatsappKey.isNotEmpty()) launch { sendWhatsAppWithRetry(id, phone, text, cfg.whatsappKey) }
                 }
                 emergencyIds = now.keys
             }
@@ -119,7 +117,24 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (phone.isEmpty()) { _contactStatus.value = "Alert number removed from the app. Removing it on the ESP32 too..." }
         else _contactStatus.value = "Saved in the app: ${AlertContact.mask(phone)}. Sending to the ESP32..."
         syncContactToDevice(phone)
+        val key = whatsappKey.trim()
+        if (phone.isNotEmpty() && key.isNotEmpty()) viewModelScope.launch {
+            val err = whatsApp.send(phone, "STSMN: automatic WhatsApp alerts are connected to this number.", key)
+            _whatsappStatus.value = if (err == null) "WhatsApp is connected: a confirmation message was sent." else "WhatsApp key saved, but the confirmation was not sent: $err"
+        }
         return null
+    }
+
+    /** Automatic WhatsApp: no buttons. Retries every 30 s (up to 6 times) while the emergency lasts and there is no internet yet. */
+    private suspend fun sendWhatsAppWithRetry(id: String, phone: String, text: String, key: String) {
+        repeat(6) {
+            val err = whatsApp.send(phone, text, key)
+            if (err == null) { _whatsappStatus.value = "WhatsApp alert sent automatically ($id)"; return }
+            _whatsappStatus.value = "WhatsApp alert not sent yet: $err. Retrying..."
+            if (id !in emergencyIds) return
+            delay(30_000L)
+        }
+        _whatsappStatus.value = "WhatsApp alert could not be sent (check internet and the key)."
     }
 
     private fun syncContactToDevice(phone: String) {

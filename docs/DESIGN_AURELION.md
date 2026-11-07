@@ -13,7 +13,7 @@ Background #090909 / raised #111315 / high #191B1E / outline #25282D; gold #C6A7
 text #F1EEE5 / #A7A39B; Safe #4C9B78, Warning #D6A34F, Emergency #D16B70. Light theme = ivory (#F4F1EA) with the accent darkened for contrast.
 
 ## User-selectable (Settings > Appearance)
-Accent colour (gold, platinum, emerald, amethyst) · Background (Obsidian, Graphite, True black) · Corners (Soft, Crisp) · Text size (Compact, Standard, Large) ·
+12 colour themes (Emerald Dark, Sage & Grey, Claude, Cyberpunk, Obsidian Gold, Deep Ocean, Sunset, Nordic Frost, Mocha, Royal, Clean Ivory, System) · Text size (Small 0.85x, Medium 1.0x, Large 1.18x, Huge 1.35x) · Corners · Reduce motion · Reset.
 Reduce motion · Reset. Light/Dark/System stays in Display. All choices apply immediately and are remembered.
 
 ## Not done / limits

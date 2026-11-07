@@ -27,8 +27,8 @@ Points = max x strength %, so a weak signal gives few points, a strong one the f
 
 ## 3. Floors (a score alone must never hide a danger)
 - any smoke or flame signal (>= 15 %) ........ at least **55** (WARNING)
-- temperature / current / voltage >= 50 % of its range ... at least **45** (WARNING)
-- a FITTED protection sensor is dead .......... at least **45** (WARNING)
+- temperature / current / voltage >= 50 % of its range ... at least **55** (WARNING)
+- a FITTED protection sensor is dead .......... at least **55** (WARNING)
 - any critical condition ...................... at least **90** (EMERGENCY)
 
 ## 4. Critical conditions = EMERGENCY (alarm + buzzer + supply cut + SMS), no waiting for the score
@@ -39,7 +39,7 @@ Points = max x strength %, so a weak signal gives few points, a strong one the f
 - temperature >= 70 C for 3 s; current >= 4.5 A for 1.5 s
 
 ## 5. Status and relay
-- SAFE -> WARNING at score >= 40, back to SAFE below 30 (hysteresis, no flapping).
+- SAFE -> WARNING at score >= 55, back to SAFE below 45 (hysteresis, no flapping).
 - WARNING -> EMERGENCY at score >= 80 or any critical condition. EMERGENCY is left only after 10 s of safe readings.
 - Relay: supply is allowed only when armed (boot check + all FITTED sensors valid for 2 s). EMERGENCY **always** cuts it and disarms.
   A sensor fault lasting 10 s also cuts it. The phone/app can never switch the relay.

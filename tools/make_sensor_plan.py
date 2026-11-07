@@ -37,9 +37,9 @@ b.append("<h2>2. Score ka hisaab (0-100)</h2>" + table(
   ["Aag: Temperature", "15", "40 C tak", "70 C"],
   ["Current", "25", "2.0 A tak", "4.5 A"],
   ["Voltage", "15", "nominal +-15 % ke andar", "+-40 %"],
-  ["Level kam", "10", "50 % se upar", "30 % se neeche"]]) +
- "<p>Kamzor signal = kam points, tez signal = poore points. SAFE: 0-39, WARNING: 40+ (30 se neeche aake SAFE), EMERGENCY: 80+ ya koi critical shart.</p>"
- "<p><b>Floor (score chhupa nahi sakta):</b> dhua/aag ka koi signal (15 %+) = kam se kam 55 (WARNING). Temperature/current/voltage apni range ke aadhe se upar = kam se kam 45 (WARNING). Koi critical = 90+.</p>")
+  ["Level kam", "18", "50 % se upar", "30 % se neeche"]]) +
+ "<p>Kamzor signal = kam points, tez signal = poore points. SAFE: 0-54, WARNING: 55+ (45 se neeche aake SAFE), EMERGENCY: 80+ ya koi critical shart.</p>"
+ "<p><b>Floor (score chhupa nahi sakta):</b> dhua/aag ka koi signal (15 %+) = kam se kam 55 (WARNING). Temperature/current/voltage apni range ke aadhe se upar = kam se kam 55 (WARNING). Koi critical = 90+.</p>")
 
 b.append(sensor("3. Temperature - DS18B20 (GPIO 4)",
  "Transformer / body ka temperature.",

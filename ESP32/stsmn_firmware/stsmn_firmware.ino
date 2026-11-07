@@ -356,6 +356,10 @@ static void startWatchdog() {
 void setup() {
   actuators.begin();            // relay -> cutoff before anything else
   Serial.begin(115200);
+  // LED self-test (relay is still cut): green, yellow, red, buzzer-free. If one never lights, check its wiring/resistor/polarity.
+  digitalWrite(PIN_LED_GREEN, HIGH); delay(400); digitalWrite(PIN_LED_GREEN, LOW);
+  digitalWrite(PIN_LED_YELLOW, HIGH); delay(400); digitalWrite(PIN_LED_YELLOW, LOW);
+  digitalWrite(PIN_LED_RED, HIGH); delay(400); digitalWrite(PIN_LED_RED, LOW);
   Serial.println("\nSTSMN firmware " STSMN_FW_VERSION);
   Serial.printf("Reset reason: %s (BROWNOUT = power dip: use a power bank / separate 5V supply)\n", resetReasonName());
 

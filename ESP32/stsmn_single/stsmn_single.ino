@@ -177,7 +177,7 @@ constexpr int OIL_OK_PERCENT  = 50;
 // The points grow with the SIGNAL STRENGTH (weak signal = few points, strong signal = full points).
 constexpr int PTS_SMOKE = 50;
 constexpr int PTS_FLAME = 35, PTS_TEMP = 15;           // PTS_FLAME + PTS_TEMP = 50 (the "fire" half)
-constexpr int PTS_CURRENT = 25, PTS_VOLTAGE = 15, PTS_OIL = 10;
+constexpr int PTS_CURRENT = 25, PTS_VOLTAGE = 15, PTS_OIL = 18;
 static_assert(PTS_FLAME + PTS_TEMP == PTS_SMOKE, "fire half (flame + temperature) must equal the smoke half");
 
 constexpr float TEMP_WARN_C = 40.0f;   // 0 points below, ramps up
@@ -188,13 +188,13 @@ constexpr float VOLT_OK_BAND_PCT   = 15.0f;  // +/- % of nominal = no points
 constexpr float VOLT_FULL_BAND_PCT = 40.0f;  // +/- % of nominal = full points
 
 // ---------- Status state machine --------------------------------------------
-constexpr int WARNING_ENTER   = 40;   // PDF example: 55 = warning
-constexpr int WARNING_EXIT    = 30;   // hysteresis
+constexpr int WARNING_ENTER   = 55;   // yellow LED / WARNING from 55 (a dry demo level sensor alone = 18 points stays green)
+constexpr int WARNING_EXIT    = 45;   // hysteresis
 constexpr int EMERGENCY_ENTER = 80;   // PDF example: 90+ = emergency
 constexpr int EMERGENCY_EXIT  = 60;   // hysteresis
-constexpr int FLOOR_SENSOR_FAULT_RISK = 45;  // a dead protection sensor = WARNING
+constexpr int FLOOR_SENSOR_FAULT_RISK = 55;  // a dead protection sensor = WARNING
 constexpr int SENSOR_WARN_PCT         = 50;  // temperature / current / voltage in the upper half of its danger range ...
-constexpr int FLOOR_STRESS_RISK       = 45;  // ... = at least WARNING, even if the points do not add up
+constexpr int FLOOR_STRESS_RISK       = 55;  // ... = at least WARNING, even if the points do not add up
 constexpr int FLOOR_CRITICAL_RISK     = 90;  // any critical condition = >= 90
 constexpr int FLOOR_SMOKE_RISK        = 55;  // any smoke OR flame signal = at least WARNING (never silently "SAFE")
 
@@ -1388,6 +1388,10 @@ static void startWatchdog() {
 void setup() {
   actuators.begin();            // relay -> cutoff before anything else
   Serial.begin(115200);
+  // LED self-test (relay is still cut): green, yellow, red, buzzer-free. If one never lights, check its wiring/resistor/polarity.
+  digitalWrite(PIN_LED_GREEN, HIGH); delay(400); digitalWrite(PIN_LED_GREEN, LOW);
+  digitalWrite(PIN_LED_YELLOW, HIGH); delay(400); digitalWrite(PIN_LED_YELLOW, LOW);
+  digitalWrite(PIN_LED_RED, HIGH); delay(400); digitalWrite(PIN_LED_RED, LOW);
   Serial.println("\nSTSMN firmware " STSMN_FW_VERSION);
   Serial.printf("Reset reason: %s (BROWNOUT = power dip: use a power bank / separate 5V supply)\n", resetReasonName());
 

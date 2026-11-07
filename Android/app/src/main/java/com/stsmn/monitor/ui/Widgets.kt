@@ -140,14 +140,14 @@ fun StateToggle(label: String, on: Boolean?, onColor: Color, offColor: Color, mo
 
 /** Tiny line chart of the last readings. Null values break the line (never drawn as a fake 0). */
 @Composable
-fun Sparkline(values: List<Double?>, color: Color, modifier: Modifier = Modifier) {
+fun Sparkline(values: List<Double?>, color: Color, modifier: Modifier = Modifier, fixedMin: Double? = null, fixedMax: Double? = null) {
     Canvas(modifier.fillMaxWidth().height(44.dp)) {
         val pts = values.filterNotNull()
         if (values.size < 2 || pts.size < 2) {
             drawLine(color.copy(alpha = 0.3f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), 2.dp.toPx())
             return@Canvas
         }
-        var lo = pts.min(); var hi = pts.max()
+        var lo = fixedMin ?: pts.min(); var hi = fixedMax ?: pts.max()   // fixed range for percent charts (0..100)
         if (hi - lo < 1e-6) { lo -= 1.0; hi += 1.0 }
         val dx = size.width / (values.size - 1)
         val path = Path()

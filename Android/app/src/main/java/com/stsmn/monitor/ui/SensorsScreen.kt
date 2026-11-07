@@ -31,6 +31,7 @@ private data class SensorRow(
     val rangeText: String,
     val accent: Color,
     val trend: List<Double?> = emptyList(),
+    val percentChart: Boolean = false,   // chart is a 0..100 % signal strength: fixed scale so weak vs strong is visible
 )
 
 @Composable
@@ -45,9 +46,11 @@ fun SensorsScreen(live: LiveSnapshot) {
         SensorRow("Current (ACS712 5A)", fmtAmp(s.current), s.current != null,
             s.current?.let { rangeFraction(Math.abs(it), 0.0, AppConfig.CURRENT_MAX_A) }, "0 – 5 A", StsmnColors.Info, live.recent.map { it.current }),
         SensorRow("Smoke / gas (MQ-2)", signalText(s.smokePct, s.smoke, "DETECTED", "Normal"), true, s.smokePct?.let { it / 100f }, "Signal strength (0 – 100 %)",
-            if (s.smoke || (s.smokePct ?: 0) >= 15) StsmnColors.Warning else StsmnColors.Safe),
+            if (s.smoke || (s.smokePct ?: 0) >= 15) StsmnColors.Warning else StsmnColors.Safe,
+            pctTrend(live.recent) { it.smokePct }, percentChart = true),
         SensorRow("Flame sensor", signalText(s.flamePct, s.flame, "DETECTED", "None"), true, s.flamePct?.let { it / 100f }, "Signal strength (0 – 100 %)",
-            if (s.flame || (s.flamePct ?: 0) >= 15) StsmnColors.Emergency else StsmnColors.Safe),
+            if (s.flame || (s.flamePct ?: 0) >= 15) StsmnColors.Emergency else StsmnColors.Safe,
+            pctTrend(live.recent) { it.flamePct }, percentChart = true),
         SensorRow("Oil level (water demo)", fmtOil(s.oilLevel), s.oilLevel != null,
             s.oilLevel?.let { it / 100f },
             "Low below ${AppConfig.OIL_LOW_PERCENT} %",
@@ -78,6 +81,12 @@ fun SensorsScreen(live: LiveSnapshot) {
     }
 }
 
+/** Last readings of a 0..100 % signal; empty (= plain bar instead of a chart) when the firmware does not report it. */
+private fun pctTrend(recent: List<StsmnStatus>, pick: (StsmnStatus) -> Int?): List<Double?> {
+    val v = recent.map { pick(it)?.toDouble() }
+    return if (v.any { it != null }) v else emptyList()
+}
+
 private fun strengthWord(pct: Int): String = when {
     pct <= 0 -> "none"
     pct < 34 -> "weak"
@@ -103,9 +112,18 @@ private fun SensorCard(r: SensorRow, dimmed: Boolean) {
                 if (r.valid) Pill("VALID", StsmnColors.Safe) else Pill("UNAVAILABLE", StsmnColors.Warning)
             }
             Text(r.value, fontSize = 28.sp, fontWeight = FontWeight.Bold, color = if (r.valid) r.accent else StsmnColors.Stale)
-            if (r.trend.isNotEmpty()) Sparkline(r.trend, if (r.valid) r.accent else StsmnColors.Stale)
+            if (r.trend.isNotEmpty()) Sparkline(
+                r.trend, if (r.valid) r.accent else StsmnColors.Stale,
+                fixedMin = if (r.percentChart) 0.0 else null, fixedMax = if (r.percentChart) 100.0 else null,
+            )
             else if (r.fraction != null && r.valid) {
                 LinearProgressIndicator(progress = { r.fraction }, modifier = Modifier.fillMaxWidth(), color = r.accent)
+            }
+            if (r.percentChart && r.trend.isNotEmpty()) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text("0 %", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("100 %", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             Text(r.rangeText, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

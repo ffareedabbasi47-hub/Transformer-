@@ -55,9 +55,17 @@ class NmeaParser {
   // "4807.038" + 'N' -> 48.1173
   static bool coord(const char* v, char hemi, bool isLat, double& out) {
     if (!v || !*v) return false;
-    char* end = nullptr;
-    const double raw = strtod(v, &end);
-    if (end == v || raw < 0) return false;
+    // Own tiny decimal parser (no libc strtod: some editors' analyzers reject it). NMEA values are plain "ddmm.mmmm".
+    double raw = 0.0;
+    int nd = 0;
+    const char* q = v;
+    while (*q >= '0' && *q <= '9') { raw = raw * 10.0 + (*q - '0'); ++q; ++nd; }
+    if (*q == '.') {
+      ++q;
+      double scale = 0.1;
+      while (*q >= '0' && *q <= '9') { raw += (*q - '0') * scale; scale *= 0.1; ++q; ++nd; }
+    }
+    if (nd == 0) return false;
     const double deg = floor(raw / 100.0);
     const double min = raw - deg * 100.0;
     if (min >= 60.0) return false;

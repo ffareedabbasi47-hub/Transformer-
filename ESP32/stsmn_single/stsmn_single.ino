@@ -682,9 +682,17 @@ class NmeaParser {
   // "4807.038" + 'N' -> 48.1173
   static bool coord(const char* v, char hemi, bool isLat, double& out) {
     if (!v || !*v) return false;
-    char* end = nullptr;
-    const double raw = strtod(v, &end);
-    if (end == v || raw < 0) return false;
+    // Own tiny decimal parser (no libc strtod: some editors' analyzers reject it). NMEA values are plain "ddmm.mmmm".
+    double raw = 0.0;
+    int nd = 0;
+    const char* q = v;
+    while (*q >= '0' && *q <= '9') { raw = raw * 10.0 + (*q - '0'); ++q; ++nd; }
+    if (*q == '.') {
+      ++q;
+      double scale = 0.1;
+      while (*q >= '0' && *q <= '9') { raw += (*q - '0') * scale; scale *= 0.1; ++q; ++nd; }
+    }
+    if (nd == 0) return false;
     const double deg = floor(raw / 100.0);
     const double min = raw - deg * 100.0;
     if (min >= 60.0) return false;
@@ -912,10 +920,13 @@ class SimModule {
 
 // ===== main sketch =====
 // ---- Compile-time check of the Wi-Fi settings (a known default password must never ship) ------------------
-constexpr size_t cstrLen(const char* s, size_t i = 0) { return s[i] ? cstrLen(s, i + 1) : i; }
-constexpr bool cstrEq(const char* a, const char* b, size_t i = 0) {
-  return a[i] == b[i] && (a[i] == 0 || cstrEq(a, b, i + 1));
+// (No default arguments: the Arduino IDE / ArduinoDroid copy them into auto-generated prototypes -> "redefinition of default argument".)
+constexpr size_t cstrLenAt(const char* s, size_t i) { return s[i] ? cstrLenAt(s, i + 1) : i; }
+constexpr size_t cstrLen(const char* s) { return cstrLenAt(s, 0); }
+constexpr bool cstrEqAt(const char* a, const char* b, size_t i) {
+  return a[i] == b[i] && (a[i] == 0 || cstrEqAt(a, b, i + 1));
 }
+constexpr bool cstrEq(const char* a, const char* b) { return cstrEqAt(a, b, 0); }
 static_assert(cstrLen(WIFI_AP_PASSWORD) >= 8 && cstrLen(WIFI_AP_PASSWORD) <= 63,
               "WIFI_AP_PASSWORD must be 8..63 characters (WPA2)");
 static_assert(!cstrEq(WIFI_AP_PASSWORD, "CHANGE_ME_min8chars"),

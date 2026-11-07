@@ -38,10 +38,13 @@
 #endif
 
 // ---- Compile-time check of the Wi-Fi settings (a known default password must never ship) ------------------
-constexpr size_t cstrLen(const char* s, size_t i = 0) { return s[i] ? cstrLen(s, i + 1) : i; }
-constexpr bool cstrEq(const char* a, const char* b, size_t i = 0) {
-  return a[i] == b[i] && (a[i] == 0 || cstrEq(a, b, i + 1));
+// (No default arguments: the Arduino IDE / ArduinoDroid copy them into auto-generated prototypes -> "redefinition of default argument".)
+constexpr size_t cstrLenAt(const char* s, size_t i) { return s[i] ? cstrLenAt(s, i + 1) : i; }
+constexpr size_t cstrLen(const char* s) { return cstrLenAt(s, 0); }
+constexpr bool cstrEqAt(const char* a, const char* b, size_t i) {
+  return a[i] == b[i] && (a[i] == 0 || cstrEqAt(a, b, i + 1));
 }
+constexpr bool cstrEq(const char* a, const char* b) { return cstrEqAt(a, b, 0); }
 static_assert(cstrLen(WIFI_AP_PASSWORD) >= 8 && cstrLen(WIFI_AP_PASSWORD) <= 63,
               "WIFI_AP_PASSWORD must be 8..63 characters (WPA2)");
 static_assert(!cstrEq(WIFI_AP_PASSWORD, "CHANGE_ME_min8chars"),

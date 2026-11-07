@@ -24,26 +24,28 @@ import androidx.compose.ui.unit.sp
 /** Mockup screen 1: shown for ~1.3 s on launch. Pure UI, no data access. */
 @Composable
 fun SplashScreen() {
+    val gold = AccentChoice.GOLD.color
     Box(
-        Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF0B1B3A), Color(0xFF070E1C)))),
+        Modifier.fillMaxSize().background(Color(0xFF090909)),
         contentAlignment = Alignment.Center,
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Box(
-                Modifier.size(112.dp).clip(RoundedCornerShape(28.dp))
-                    .background(Color(0xFF1B63C9).copy(alpha = 0.25f))
-                    .border(2.dp, StsmnColors.Info, RoundedCornerShape(28.dp)),
+                Modifier.size(104.dp).clip(RoundedCornerShape(30.dp))
+                    .background(Color(0xFF111315))
+                    .border(1.dp, gold.copy(alpha = 0.7f), RoundedCornerShape(30.dp)),
                 contentAlignment = Alignment.Center,
-            ) { Text("⚡", fontSize = 56.sp) }
-            Text("STSMN", fontSize = 44.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, letterSpacing = 2.sp)
+            ) { Text("⚡", fontSize = 48.sp, color = gold) }
+            Text("STSMN", fontSize = 40.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFF1EEE5), letterSpacing = 6.sp)
+            Box(Modifier.size(width = 44.dp, height = 2.dp).background(gold))
             Text(
                 "Smart Transformer\nSafety & Monitoring Network",
-                fontSize = 15.sp, color = Color.White.copy(alpha = 0.85f), textAlign = TextAlign.Center,
+                fontSize = 14.sp, color = Color(0xFFA7A39B), textAlign = TextAlign.Center, letterSpacing = 0.4.sp,
             )
         }
         Text(
-            "Safer Transformers\nBrighter Tomorrow",
-            fontSize = 13.sp, color = Color.White.copy(alpha = 0.6f), textAlign = TextAlign.Center,
+            "AURELION  ·  Safer Transformers, Brighter Tomorrow",
+            fontSize = 11.sp, color = gold.copy(alpha = 0.8f), textAlign = TextAlign.Center, letterSpacing = 1.4.sp,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 48.dp),
         )
     }

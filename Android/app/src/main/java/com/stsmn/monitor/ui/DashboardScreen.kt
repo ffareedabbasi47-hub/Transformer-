@@ -55,7 +55,7 @@ fun DashboardScreen(
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("STSMN", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.onBackground)
+                Text("STSMN", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 4.sp, color = MaterialTheme.colorScheme.primary)
                 val id = s?.deviceId ?: "TR-001"
                 Text("$id · ${settings.deviceName}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -145,30 +145,35 @@ private fun HeroCard(live: LiveSnapshot, onConnect: () -> Unit) {
         s != null -> "Last known: ${s.status.name} · risk ${s.risk} (not live)"
         else -> "Waiting for a valid packet from the transformer node."
     }
+    val onCard = MaterialTheme.colorScheme.onSurface
+    val shape = RoundedCornerShape(LocalCardRadius.current + 4.dp)
     Box(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp))
-            .background(Brush.linearGradient(listOf(color.copy(alpha = 0.95f), color.copy(alpha = 0.45f), MaterialTheme.colorScheme.surface)))
-            .border(1.dp, Brush.linearGradient(listOf(Color.White.copy(alpha = 0.45f), Color.White.copy(alpha = 0.06f))), RoundedCornerShape(22.dp)),
+        Modifier.fillMaxWidth().clip(shape)
+            .background(MaterialTheme.colorScheme.surface)
+            // one soft status-coloured light from the top-left corner: the only "glow", and it is the status
+            .background(Brush.radialGradient(listOf(color.copy(alpha = 0.20f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(0f, 0f), radius = 700f))
+            .border(1.dp, color.copy(alpha = 0.45f), shape),
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Box(
-                    Modifier.clip(RoundedCornerShape(16.dp)).background(Color.Black.copy(alpha = 0.22f)).padding(horizontal = 12.dp, vertical = 8.dp),
-                ) { Text(glyph, fontSize = 26.sp, color = Color.White, fontWeight = FontWeight.Bold) }
+                    Modifier.clip(RoundedCornerShape(16.dp)).background(color.copy(alpha = 0.16f))
+                        .border(1.dp, color.copy(alpha = 0.4f), RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
+                ) { Text(glyph, fontSize = 26.sp, color = color, fontWeight = FontWeight.Bold) }
                 Column(Modifier.weight(1f)) {
-                    Text(title, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color.White, maxLines = 2)
+                    Text(title, style = MaterialTheme.typography.headlineSmall, color = color, maxLines = 2)
                     Text(
                         if (isLive) "Risk Score" else "Risk Score (last known)",
-                        fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f),
+                        fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, letterSpacing = 0.6.sp,
                     )
                     Text(
                         (if (s != null && (isLive || live.status != null)) "${s.risk}" else "--") + " / 100",
-                        fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                        style = AurelionType.number, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = onCard,
                     )
                 }
-                TransformerArt(Color.White.copy(alpha = 0.92f), Modifier.size(width = 72.dp, height = 66.dp))
+                TransformerArt(MaterialTheme.colorScheme.primary.copy(alpha = 0.9f), Modifier.size(width = 72.dp, height = 66.dp))
             }
-            Text(description, fontSize = 13.sp, color = Color.White.copy(alpha = 0.9f), modifier = Modifier.padding(top = 10.dp))
+            Text(description, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp))
             if (live.connection == ConnectionState.IDLE) {
                 Button(onClick = onConnect, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) { Text("Connect") }
             }

@@ -1,5 +1,16 @@
 package com.stsmn.monitor.ui
 
+import androidx.compose.runtime.remember
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -75,6 +86,9 @@ fun StsmnApp(vm: MainViewModel) {
         live, settings.siteLat, settings.siteLng, settings.siteSource == LocationSource.DEMO, fleet, nowElapsed,
     )
 
+    val uiCtx = androidx.compose.ui.platform.LocalContext.current
+    val uiStore = remember { UiPrefsStore(uiCtx) }
+    CompositionLocalProvider(LocalUiPrefsStore provides uiStore) {
     StsmnTheme(settings.themeMode) {
         if (showSplash) { SplashScreen(); return@StsmnTheme }
         val view = LocalView.current
@@ -103,28 +117,11 @@ fun StsmnApp(vm: MainViewModel) {
         Scaffold(
             containerColor = Color.Transparent,
             bottomBar = {
-                if (!fullNow) NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 0.dp,
-                ) {
-                    Tab.values().filter { it.icon != null }.forEach { t ->
-                        NavigationBarItem(
-                            selected = current == t || current.parent == t,
-                            onClick = { tab = t.ordinal },
-                            icon = { Icon(t.icon!!, contentDescription = t.label) },
-                            // Short one-line labels: never wrapped or cut off on small phones.
-                            label = { Text(t.label, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Clip, softWrap = false) },
-                            alwaysShowLabel = true,
-                            colors = NavigationBarItemDefaults.colors(
-                                indicatorColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                selectedTextColor = MaterialTheme.colorScheme.primary,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        )
-                    }
-                }
+                if (!fullNow) AurelionNavBar(
+                    tabs = Tab.values().filter { it.icon != null },
+                    isSelected = { t -> current == t || current.parent == t },
+                    onSelect = { t -> tab = t.ordinal },
+                )
             },
         ) { padding ->
             Column(Modifier.fillMaxSize().padding(padding)) {
@@ -169,5 +166,40 @@ fun StsmnApp(vm: MainViewModel) {
         }
         } // GlassBackground
     }
+    } // UiPrefs provider
 }
 
+
+/** Floating AURELION navigation bar: rounded titanium pill, the active destination gets an accent wash and a small gold marker. */
+@Composable
+private fun AurelionNavBar(tabs: List<Tab>, isSelected: (Tab) -> Boolean, onSelect: (Tab) -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val reduce = LocalReduceMotion.current
+    Row(
+        Modifier.navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth()
+            .panel(28.dp, 0.97f).padding(5.dp),
+        horizontalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        tabs.forEach { t ->
+            val sel = isSelected(t)
+            val bg by androidx.compose.animation.animateColorAsState(
+                if (sel) cs.primary.copy(alpha = 0.16f) else Color.Transparent,
+                androidx.compose.animation.core.tween(if (reduce) 0 else 220), label = "navBg",
+            )
+            val tint by androidx.compose.animation.animateColorAsState(
+                if (sel) cs.primary else cs.onSurfaceVariant,
+                androidx.compose.animation.core.tween(if (reduce) 0 else 220), label = "navTint",
+            )
+            Column(
+                Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(22.dp)).background(bg)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Tab) { onSelect(t) }.padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+            ) {
+                Icon(t.icon!!, contentDescription = t.label, tint = tint, modifier = Modifier.size(22.dp))
+                Text(t.label, fontSize = 10.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip, color = tint,
+                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium, letterSpacing = 0.3.sp)
+                Box(Modifier.padding(top = 2.dp).size(width = if (sel) 14.dp else 0.dp, height = 2.dp).background(cs.primary))
+            }
+        }
+    }
+}

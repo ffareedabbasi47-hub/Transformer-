@@ -1,5 +1,6 @@
 package com.stsmn.monitor.ui
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,12 +48,13 @@ fun UserScreen(settings: AppSettings, onSave: (name: String, role: String, schoo
         AppCard {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Box(
-                    Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
+                    Modifier.size(64.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         settings.profileName.firstOrNull()?.uppercase() ?: "?",
-                        fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary,
+                        fontSize = 28.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary,
                     )
                 }
                 Column(Modifier.weight(1f)) {

@@ -113,7 +113,11 @@ fun HistoryScreen(live: LiveSnapshot, events: List<EventRecord>, onClear: () -> 
                 Text("No events yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(vertical = 12.dp))
             }
         } else {
-            items(shown) { EventRow(it) }
+            val groups = shown.groupBy { dayLabel(it.timestampMs) }
+            groups.forEach { (label, list) ->
+                item { DayHeader(label, list.size) }
+                items(list) { EventRow(it) }
+            }
         }
         item { Spacer(Modifier.height(8.dp)) }
     }
@@ -157,9 +161,29 @@ private fun EventRow(e: EventRecord) {
                 }
             }
             Column(horizontalAlignment = Alignment.End) {
-                Text(fmtClock(e.timestampMs), fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(fmtClock(e.timestampMs), style = AurelionType.mono, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(e.deviceId, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+}
+
+private fun dayLabel(ms: Long): String {
+    val fmt = java.text.SimpleDateFormat("EEE, d MMM yyyy", java.util.Locale.getDefault())
+    val d = fmt.format(java.util.Date(ms))
+    val now = System.currentTimeMillis()
+    return when (d) {
+        fmt.format(java.util.Date(now)) -> "Today"
+        fmt.format(java.util.Date(now - 24L * 3600_000L)) -> "Yesterday"
+        else -> d
+    }
+}
+
+@Composable
+private fun DayHeader(label: String, count: Int) {
+    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(label.uppercase(), style = MaterialTheme.typography.labelSmall, fontSize = 11.sp, letterSpacing = 1.4.sp, color = MaterialTheme.colorScheme.primary)
+        Box(Modifier.weight(1f).padding(horizontal = 10.dp).height(1.dp).background(MaterialTheme.colorScheme.outline))
+        Text("$count", style = AurelionType.mono, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

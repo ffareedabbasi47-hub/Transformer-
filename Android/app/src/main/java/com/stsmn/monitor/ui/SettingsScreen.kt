@@ -2,6 +2,16 @@
 
 package com.stsmn.monitor.ui
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -271,6 +281,58 @@ fun SettingsScreen(
                 }
             }
             SwitchRow("Keep screen on (exhibition)", settings.keepScreenOn) { v -> onUpdate { it.copy(keepScreenOn = v) } }
+        }
+
+        // ---------------- Appearance (UI-only options, stored separately from the app settings) ----------------
+        val uiStore = LocalUiPrefsStore.current
+        if (uiStore != null) {
+            val ui = uiStore.current
+            SectionLabel("Appearance")
+            AppCard {
+                Text("Accent colour", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    AccentChoice.values().forEach { a ->
+                        val on = ui.accent == a
+                        Column(
+                            Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { uiStore.update { it.copy(accent = a) } }.padding(vertical = 6.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Box(
+                                Modifier.size(40.dp).clip(CircleShape).background(a.color)
+                                    .border(if (on) 3.dp else 1.dp, if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.outline, CircleShape),
+                                contentAlignment = Alignment.Center,
+                            ) { if (on) Text("✓", color = Color(0xFF14110A), fontWeight = FontWeight.ExtraBold) }
+                            Text(a.label, fontSize = 10.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center, maxLines = 2,
+                                color = if (on) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(top = 4.dp))
+                        }
+                    }
+                }
+                Text("Background", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    SurfaceChoice.values().forEach { c ->
+                        FilterChip(selected = ui.surface == c, onClick = { uiStore.update { it.copy(surface = c) } }, label = { Text(c.label) })
+                    }
+                }
+                Text("Corners", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CornerChoice.values().forEach { c ->
+                        FilterChip(selected = ui.corners == c, onClick = { uiStore.update { it.copy(corners = c) } }, label = { Text(c.label) })
+                    }
+                }
+                Text("Text size", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextSizeChoice.values().forEach { c ->
+                        FilterChip(selected = ui.textSize == c, onClick = { uiStore.update { it.copy(textSize = c) } }, label = { Text(c.label) })
+                    }
+                }
+                SwitchRow("Reduce motion (fewer animations)", ui.reduceMotion) { v -> uiStore.update { it.copy(reduceMotion = v) } }
+                OutlinedButton(onClick = { uiStore.update { UiPrefs() } }, modifier = Modifier.padding(top = 6.dp)) { Text("Reset appearance") }
+                Text(
+                    "Appearance only changes how the app looks. Light / Dark above is combined with these choices.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
+                )
+            }
         }
 
         // ---------------- Diagnostics ----------------

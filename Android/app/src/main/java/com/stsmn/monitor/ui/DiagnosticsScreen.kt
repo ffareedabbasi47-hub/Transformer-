@@ -81,10 +81,10 @@ fun DiagnosticsScreen(live: LiveSnapshot, fleet: FleetState, cloudEnabled: Boole
             }
         }
         AppCard {
-            InfoRow("Last packet", fmtAge(age))
-            InfoRow("Firmware", s?.fw ?: "—")
-            InfoRow("ESP32 uptime", s?.let { fmtUptime(it.uptimeMs) } ?: "—")
-            InfoRow("Packets / errors", "${live.packetsReceived} / ${live.parseErrors + live.networkErrors}")
+            TechRow("Last packet", fmtAge(age))
+            TechRow("Firmware", s?.fw ?: "—")
+            TechRow("ESP32 uptime", s?.let { fmtUptime(it.uptimeMs) } ?: "—")
+            TechRow("Packets / errors", "${live.packetsReceived} / ${live.parseErrors + live.networkErrors}")
             if (live.lastError != null) {
                 Text("Last error: ${live.lastError}", color = StsmnColors.Warning, fontSize = 13.sp, modifier = Modifier.padding(top = 6.dp))
             }

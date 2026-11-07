@@ -55,14 +55,16 @@ fun rememberElapsedNow(periodMs: Long = 1000L): State<Long> = produceState(initi
  */
 @Composable
 fun Modifier.glass(
-    shape: Shape = RoundedCornerShape(18.dp),
+    shape: Shape = RoundedCornerShape(LocalCardRadius.current),
     tint: Color = MaterialTheme.colorScheme.onSurface,
     strength: Float = 0.07f,
 ): Modifier {
     val cs = MaterialTheme.colorScheme
     val tinted = strength > 0.1f
     val fill = if (tinted) tint.copy(alpha = 0.10f).compositeOver(cs.surface) else cs.surface
-    return this.clip(shape).background(fill, shape).border(1.dp, if (tinted) tint.copy(alpha = 0.35f) else cs.outline, shape)
+    // Raised "titanium" feel: a faint light edge on top of a solid surface (dark theme only), plus a hairline border.
+    val sheen = if (cs.background.luminance() < 0.5f) Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.04f), Color.Transparent)) else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
+    return this.clip(shape).background(fill, shape).background(sheen, shape).border(1.dp, if (tinted) tint.copy(alpha = 0.35f) else cs.outline, shape)
 }
 
 /** Floating map/overlay panel: slightly see-through surface so the map stays visible, with a hairline border. */
@@ -99,7 +101,7 @@ fun GlyphBadge(glyph: String, color: Color, size: Int = 38) {
 /** Mockup-style glass tile: badge on the left, label + value on the right. */
 @Composable
 fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimmed: Boolean, modifier: Modifier = Modifier, sub: String? = null) {
-    Box(modifier.glass(RoundedCornerShape(18.dp))) {
+    Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp))) {
         Row(
             Modifier.padding(12.dp).alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,
@@ -108,7 +110,7 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
             GlyphBadge(glyph, accent)
             Column {
                 Text(label, fontSize = 11.sp, letterSpacing = 0.3.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                Text(value, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = accent, maxLines = 1)
+                Text(value, style = AurelionType.number, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = accent, maxLines = 1)
                 if (sub != null) Text(sub, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -119,7 +121,7 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
 @Composable
 fun StateToggle(label: String, on: Boolean?, onColor: Color, offColor: Color, modifier: Modifier = Modifier, dimmed: Boolean = false) {
     val color = when (on) { true -> onColor; false -> offColor; null -> StsmnColors.Stale }
-    Box(modifier.glass(RoundedCornerShape(18.dp))) {
+    Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp))) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp).alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,

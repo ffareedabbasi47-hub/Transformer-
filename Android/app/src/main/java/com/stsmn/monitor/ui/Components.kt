@@ -12,6 +12,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,7 +53,7 @@ fun AppCard(
     container: Color = Color.Unspecified,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(20.dp)
+    val shape = RoundedCornerShape(LocalCardRadius.current)
     val glassModifier = if (container == Color.Unspecified) modifier.fillMaxWidth().glass(shape)
     else modifier.fillMaxWidth().glass(shape, tint = container, strength = 0.14f)
     Column(glassModifier.padding(16.dp), content = content)
@@ -60,24 +61,26 @@ fun AppCard(
 
 @Composable
 fun ScreenTitle(title: String, subtitle: String? = null) {
-    Column(Modifier.padding(bottom = 4.dp)) {
-        Text(title, fontSize = 26.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+    Column(Modifier.padding(bottom = 6.dp)) {
+        Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
+        Box(Modifier.padding(top = 6.dp).size(width = 34.dp, height = 2.dp).background(MaterialTheme.colorScheme.primary))   // gold signature line
         if (subtitle != null) {
-            Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
         }
     }
 }
 
 @Composable
 fun SectionLabel(text: String) {
-    Text(
-        text.uppercase(Locale.US),
-        fontSize = 12.sp,
-        fontWeight = FontWeight.SemiBold,
-        letterSpacing = 1.2.sp,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
-    )
+    Row(Modifier.padding(top = 14.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(width = 12.dp, height = 2.dp).background(MaterialTheme.colorScheme.primary))
+        Text(
+            text.uppercase(Locale.US),
+            style = MaterialTheme.typography.labelSmall, fontSize = 11.sp, letterSpacing = 1.6.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
 }
 
 @Composable
@@ -85,10 +88,11 @@ fun Pill(text: String, color: Color, modifier: Modifier = Modifier) {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(50))
-            .background(color.copy(alpha = 0.16f))
+            .background(color.copy(alpha = 0.12f))
+            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(50))
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
-        Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, color = color, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, letterSpacing = 0.3.sp)
     }
 }
 
@@ -114,16 +118,17 @@ fun ConnectionChip(state: ConnectionState) {
     // The dot pulses only while data is really LIVE, so a static dot never looks "alive".
     val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
         initialValue = 0.35f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse), label = "pulseAlpha",
+        animationSpec = infiniteRepeatable(tween(if (LocalReduceMotion.current) 100000 else 900), RepeatMode.Reverse), label = "pulseAlpha",
     )
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
             .clip(RoundedCornerShape(50))
-            .background(color.copy(alpha = 0.16f))
+            .background(color.copy(alpha = 0.12f))
+            .border(1.dp, color.copy(alpha = 0.35f), RoundedCornerShape(50))
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
-        Box(Modifier.size(8.dp).alpha(if (state == ConnectionState.LIVE) pulse else 1f).clip(CircleShape).background(color))
+        Box(Modifier.size(8.dp).alpha(if (state == ConnectionState.LIVE && !LocalReduceMotion.current) pulse else 1f).clip(CircleShape).background(color))
         Text(label, color = color, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 6.dp))
     }
 }
@@ -153,7 +158,7 @@ fun RiskGauge(risk: Int?, color: Color, modifier: Modifier = Modifier) {
             }
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(risk?.toString() ?: "--", fontSize = 40.sp, fontWeight = FontWeight.Bold, color = color)
+            Text(risk?.toString() ?: "--", style = AurelionType.number, fontSize = 40.sp, fontWeight = FontWeight.Bold, color = color)
             Text("RISK / 100", fontSize = 11.sp, letterSpacing = 1.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -171,12 +176,13 @@ fun SensorTile(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(LocalCardRadius.current),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
     ) {
         Column(Modifier.padding(14.dp).alpha(if (dimmed) 0.45f else 1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(label, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent)
+            Text(value, style = AurelionType.number, fontSize = 22.sp, fontWeight = FontWeight.Bold, color = accent)
             Text(sub ?: " ", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -187,6 +193,15 @@ fun InfoRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween) {
         Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp)
         Text(value, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
+/** Diagnostic row: label in the body font, value in the monospace "instrument" style. */
+@Composable
+fun TechRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(label, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        Text(value, style = AurelionType.mono, color = MaterialTheme.colorScheme.onSurface)
     }
 }
 

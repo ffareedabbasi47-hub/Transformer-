@@ -20,6 +20,14 @@
 #include <freertos/semphr.h>
 #include <esp_timer.h>
 
+// ===== forward declarations (needed by the Arduino IDE's automatic prototypes) =====
+enum class Status : uint8_t;
+struct RiskInput;
+struct RiskBreakdown;
+struct RiskResult;
+struct SensorReadings;
+
+
 // ===== config.h =====
 // =============================================================================
 // STSMN firmware configuration  -  the ONE place for pins, thresholds, timing.

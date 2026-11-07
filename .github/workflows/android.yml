@@ -182,6 +182,9 @@ jobs:
         run: |
           python3 tools/make_single_ino.py
           git diff --exit-code ESP32/stsmn_single/stsmn_single.ino || { echo "::error::ESP32/stsmn_single is stale: run python3 tools/make_single_ino.py and commit"; exit 1; }
+      - name: Single-file sketch vs Arduino IDE automatic prototypes (simulated)
+        working-directory: ${{ env.ROOT_DIR }}
+        run: python3 tests/firmware/arduino_proto_check.py
 
   # One honest verdict. The APK job can be green while a test job is red; this job makes that visible
   # and fails, so a green APK build is never mistaken for a fully verified release.

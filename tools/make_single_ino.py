@@ -22,7 +22,17 @@ wifi = '''// ===== Wi-Fi settings: CHANGE THE PASSWORD BELOW (8 to 63 characters
 // Phone that receives the SMS alert, with country code (e.g. "+919876543210"). Leave the X placeholder to switch SMS off.
 #define ALERT_PHONE_NUMBER "+91XXXXXXXXXX"
 '''
-parts = [head, "// ===== config.h =====\n" + body("config.h"), wifi]
+# The Arduino IDE inserts auto-generated function prototypes near the TOP of a .ino file, before the sketch's own types are
+# defined. Forward declarations placed right after the #includes make those prototypes compile (verified by
+# tests/firmware/arduino_proto_check.py).
+forward = """// ===== forward declarations (needed by the Arduino IDE's automatic prototypes) =====
+enum class Status : uint8_t;
+struct RiskInput;
+struct RiskBreakdown;
+struct RiskResult;
+struct SensorReadings;
+"""
+parts = [head, forward, "// ===== config.h =====\n" + body("config.h"), wifi]
 for f in ["util.h", "risk_engine.h", "protection_logic.h", "sensors.h", "actuators.h", "gps_nmea.h", "sms_logic.h", "sim800.h"]:
     parts.append("// ===== %s =====\n%s" % (f, body(f)))
 parts.append("// ===== main sketch =====\n" + tail)

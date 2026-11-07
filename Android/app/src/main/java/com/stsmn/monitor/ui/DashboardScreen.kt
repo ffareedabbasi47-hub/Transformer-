@@ -30,6 +30,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stsmn.monitor.config.AppConfig
 import com.stsmn.monitor.data.AppSettings
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.ui.platform.LocalContext
+import com.stsmn.monitor.domain.AlertContact
 import com.stsmn.monitor.domain.CloudState
 import com.stsmn.monitor.domain.ConnectionState
 import com.stsmn.monitor.domain.FleetState
@@ -88,7 +91,21 @@ fun DashboardScreen(
             }
         }
 
+        // One tap = WhatsApp opens with the alert text ready for the saved number (also offered in the notification).
+        if (live.isLive && s != null && s.status == SystemStatus.EMERGENCY && settings.alertPhone.isNotEmpty()) {
+            val ctx = LocalContext.current
+            Button(
+                onClick = {
+                    val url = AlertContact.waMeUrl(settings.alertPhone, AlertContact.message(s))
+                    try { ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))) }
+                    catch (e: Exception) { /* WhatsApp not installed */ }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Send WhatsApp alert to ${AlertContact.mask(settings.alertPhone)}") }
+        }
+
         SensorGrid(s, dimmed = !live.isLive)
+        SignalCard(s, dimmed = !live.isLive)
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             StateToggle("Relay", s?.relay, StsmnColors.Safe, StsmnColors.Emergency, Modifier.weight(1f), dimmed = !live.isLive)
@@ -207,6 +224,41 @@ private fun SensorGrid(s: StsmnStatus?, dimmed: Boolean) {
                 "🛢️", "Oil level (demo)", if (s != null) fmtOil(oil) else na,
                 if (oilLow) StsmnColors.Warning else StsmnColors.Safe, dimmed, Modifier.weight(1f),
                 sub = if (s != null && oil != null) (if (oilLow) "Low" else "Normal") else null,
+            )
+        }
+    }
+}
+
+/** How strong each danger signal is right now (percent of its range), as reported by the ESP32. */
+@Composable
+private fun SignalCard(s: StsmnStatus?, dimmed: Boolean) {
+    if (s == null) return
+    val rows = listOf(
+        "Fire (flame)" to s.flamePct, "Smoke / gas" to s.smokePct, "Temperature" to s.tempPct,
+        "Current" to s.currentPct, "Voltage" to s.voltagePct,
+    )
+    if (rows.all { it.second == null }) return   // older firmware: nothing to show
+    AppCard {
+        Text("Signal strength", fontWeight = FontWeight.Bold)
+        Text(
+            if (dimmed) "Last known values - NOT live." else "Percent of the danger range. Weak signals are shown too.",
+            fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        rows.forEach { (label, pct) ->
+            val (word, color) = when {
+                pct == null -> "no data / not fitted" to StsmnColors.Stale
+                pct <= 0 -> "none" to StsmnColors.Safe
+                pct < 34 -> "weak" to StsmnColors.Warning
+                pct < 67 -> "medium" to StsmnColors.Warning
+                else -> "strong" to StsmnColors.Emergency
+            }
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(label, fontSize = 14.sp)
+                Text(if (pct == null) "-" else "$pct%  $word", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = color)
+            }
+            LinearProgressIndicator(
+                progress = { (pct ?: 0) / 100f },
+                color = color, modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
             )
         }
     }

@@ -57,6 +57,7 @@ class StsmnRepository(
     private var lastGps: LiveGps? = null
     private var lastGpsElapsedMs: Long? = null
     private var lastGpsPollMs = 0L
+    private var lastDevicePhone: String? = null
 
     private val _snapshot = MutableStateFlow(LiveSnapshot())
     val snapshot: StateFlow<LiveSnapshot> = _snapshot.asStateFlow()
@@ -135,10 +136,14 @@ class StsmnRepository(
         if (now - lastGpsPollMs < AppConfig.GPS_POLL_EVERY_MS) return
         lastGpsPollMs = now
         val r = client.fetchHealth(host)
-        if (r is FetchResult.Body) HealthParser.parseGps(r.text)?.let {
-            lastGps = it; lastGpsElapsedMs = SystemClock.elapsedRealtime()
+        if (r is FetchResult.Body) {
+            HealthParser.parseGps(r.text)?.let { lastGps = it; lastGpsElapsedMs = SystemClock.elapsedRealtime() }
+            lastDevicePhone = HealthParser.parseAlertPhone(r.text)
         }
     }
+
+    /** Saves the SMS number on the ESP32 (the only thing the app is allowed to write). Never touches relay or thresholds. */
+    suspend fun sendAlertPhone(phone: String): FetchResult = client.postContact(settings.value.deviceHost, phone)
 
     private fun handleBody(text: String) {
         when (val r = StatusParser.parse(text)) {
@@ -175,7 +180,7 @@ class StsmnRepository(
         lastValidElapsedMs = null
         anomalies = emptyList()
         recent.clear()
-        lastGps = null; lastGpsElapsedMs = null; lastGpsPollMs = 0L
+        lastGps = null; lastGpsElapsedMs = null; lastGpsPollMs = 0L; lastDevicePhone = null
         wasLive = false
         lastError = null
     }
@@ -212,6 +217,7 @@ class StsmnRepository(
             host = settings.value.deviceHost,
             recent = recent.toList(),
             gps = lastGps,
+            deviceAlertPhone = lastDevicePhone,
             gpsElapsedMs = lastGpsElapsedMs,
         )
     }

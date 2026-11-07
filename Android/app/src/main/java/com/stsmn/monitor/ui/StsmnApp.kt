@@ -74,6 +74,8 @@ fun StsmnApp(vm: MainViewModel) {
     val live by vm.live.collectAsStateWithLifecycle()
     val fleet by vm.fleet.collectAsStateWithLifecycle()
     val events by vm.events.collectAsStateWithLifecycle()
+    val contactStatus by vm.contactStatus.collectAsStateWithLifecycle()
+    val whatsappStatus by vm.whatsappStatus.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var fullscreen by rememberSaveable { mutableStateOf(false) }
@@ -159,6 +161,9 @@ fun StsmnApp(vm: MainViewModel) {
                         onDisconnect = vm::disconnect,
                         onClearHistory = vm::clearHistory,
                         onOpenProfile = { tab = Tab.USER.ordinal },
+                        contactStatus = contactStatus,
+                        whatsappStatus = whatsappStatus,
+                        onSaveContact = vm::saveAlertContact,
                     )
                 }
               }

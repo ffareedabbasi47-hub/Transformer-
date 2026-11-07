@@ -36,6 +36,14 @@ object StatusParser {
             val statusText = obj.str("status", 16)
             val status = SystemStatus.parse(statusText) ?: throw FieldError("Unknown status '$statusText'")
             val relay = obj.bool("relay")
+            // Optional strength block: anything missing / null / out of range is simply "not reported".
+            val pctObj = obj.optJSONObject("pct")
+            fun pct(key: String): Int? {
+                val v = pctObj?.opt(key)
+                if (v !is Number) return null
+                val d = v.toDouble()
+                return if (d.isNaN() || d < 0.0 || d > 100.0) null else d.roundToInt()
+            }
             val packet = StsmnStatus(
                 deviceId = obj.str("deviceId", 32),
                 fw = obj.str("fw", 16),
@@ -51,6 +59,8 @@ object StatusParser {
                 relay = relay,
                 alarm = obj.bool("alarm"),
                 seq = obj.long("seq", 0L, 9_000_000_000_000_000L),
+                smokePct = pct("smoke"), flamePct = pct("flame"), tempPct = pct("temp"),
+                currentPct = pct("current"), voltagePct = pct("voltage"),
             )
             val anomalies = buildList {
                 if (status == SystemStatus.EMERGENCY && relay) add("Relay fault: EMERGENCY but supply is still ON")

@@ -26,7 +26,7 @@ class AlertNotifier(context: Context) {
         }
     }
 
-    fun emergency(transformerId: String, risk: Int?, supplyCut: Boolean?) {
+    fun emergency(transformerId: String, risk: Int?, supplyCut: Boolean?, whatsappUrl: String? = null) {
         if (Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(app, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) return
@@ -46,6 +46,11 @@ class AlertNotifier(context: Context) {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
             .setContentIntent(open)
+            .apply {
+                if (whatsappUrl != null) addAction(0, "Send WhatsApp", PendingIntent.getActivity(
+                    app, 1, Intent(Intent.ACTION_VIEW, android.net.Uri.parse(whatsappUrl)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT))
+            }
             .build()
         try { NotificationManagerCompat.from(app).notify(transformerId.hashCode(), n) } catch (e: SecurityException) { /* permission revoked meanwhile */ }
     }

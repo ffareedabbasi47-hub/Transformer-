@@ -30,6 +30,12 @@ data class StsmnStatus(
     val relay: Boolean, // true = supply allowed, false = cutoff
     val alarm: Boolean,
     val seq: Long,
+    // Optional signal strength 0..100 per sensor (newer firmware). null = not reported / sensor not fitted.
+    val smokePct: Int? = null,
+    val flamePct: Int? = null,
+    val tempPct: Int? = null,
+    val currentPct: Int? = null,
+    val voltagePct: Int? = null,
 ) {
     fun invalidSensors(): List<String> = buildList {
         if (temperature == null) add("Temperature")
@@ -68,6 +74,7 @@ data class LiveSnapshot(
     val lastValidElapsedMs: Long? = null,     // SystemClock.elapsedRealtime() of the last valid packet (UI ticks age locally)
     val lastValidWallMs: Long? = null,        // wall-clock time of the last valid packet ("last seen")
     val packetsReceived: Long = 0,
+    val deviceAlertPhone: String? = null,     // masked SMS number the ESP32 reports ("" = none, null = unknown)
     val parseErrors: Long = 0,
     val networkErrors: Long = 0,
     val duplicatePackets: Long = 0,

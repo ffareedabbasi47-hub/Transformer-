@@ -2,6 +2,7 @@ package com.stsmn.monitor.data
 
 import android.content.Context
 import com.stsmn.monitor.config.AppConfig
+import com.stsmn.monitor.domain.AlertContact
 import com.stsmn.monitor.domain.CloudRules
 import com.stsmn.monitor.domain.LocationSource
 import com.stsmn.monitor.domain.SiteLocationRules
@@ -33,6 +34,9 @@ data class AppSettings(
     val profileName: String = "Fardeen",
     val profileRole: String = "Class 9 · Project owner",
     val profileSchool: String = "Government High School Ajrara",
+    // Who is alerted: SMS (sent by the ESP32's SIM module, number saved on the device) + WhatsApp. "" = nobody.
+    val alertPhone: String = "",
+    val whatsappKey: String = "",     // optional CallMeBot key = fully automatic WhatsApp (stored encrypted)
 )
 
 /** Settings in SharedPreferences, validated on every change. */
@@ -61,6 +65,8 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
         profileName = n.profileName.trim().take(AppConfig.MAX_TEXT_LENGTH),
         profileRole = n.profileRole.trim().take(AppConfig.MAX_TEXT_LENGTH),
         profileSchool = n.profileSchool.trim().take(AppConfig.MAX_TEXT_LENGTH),
+        alertPhone = n.alertPhone.trim().let { if (it.isEmpty()) "" else AlertContact.normalize(it) ?: old.alertPhone },
+        whatsappKey = CloudRules.cleanSecret(n.whatsappKey),
     )
 
     /** Both null = cleared on purpose; otherwise both must be valid, or the previous pair is kept. */
@@ -94,6 +100,8 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
                 profileName = prefs.getString("pName", d.profileName) ?: d.profileName,
                 profileRole = prefs.getString("pRole", d.profileRole) ?: d.profileRole,
                 profileSchool = prefs.getString("pSchool", d.profileSchool) ?: d.profileSchool,
+                alertPhone = prefs.getString("alertPhone", "") ?: "",
+                whatsappKey = readSecret("waKey"),
             ),
             d,
         )
@@ -131,9 +139,11 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
             .putString("siteSource", s.siteSource.name)
             .putBoolean("cloudOn", s.cloudEnabled).putString("srvUrl", s.serverUrl)
             .putString("cloudId", s.cloudDeviceId)
+            .putString("alertPhone", s.alertPhone)
             .putString("pName", s.profileName).putString("pRole", s.profileRole).putString("pSchool", s.profileSchool)
         writeSecret(editor, "viewerKey", s.viewerKey)
         writeSecret(editor, "devToken", s.deviceToken)
+        writeSecret(editor, "waKey", s.whatsappKey)
         editor.apply()
     }
 

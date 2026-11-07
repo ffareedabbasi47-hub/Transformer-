@@ -18,10 +18,14 @@ sealed interface FetchResult {
 /** Minimal HTTP client (built-in HttpURLConnection, no extra dependency). Every call has timeouts. */
 class EspClient(private val binder: WifiNetworkBinder) {
 
-    suspend fun fetchStatus(host: String): FetchResult = withContext(Dispatchers.IO) {
+    suspend fun fetchStatus(host: String): FetchResult = fetch(host, AppConfig.STATUS_PATH)
+
+    suspend fun fetchHealth(host: String): FetchResult = fetch(host, AppConfig.HEALTH_PATH)
+
+    private suspend fun fetch(host: String, path: String): FetchResult = withContext(Dispatchers.IO) {
         var conn: HttpURLConnection? = null
         try {
-            val url = URL("http", host, AppConfig.API_PORT, AppConfig.STATUS_PATH)
+            val url = URL("http", host, AppConfig.API_PORT, path)
             conn = binder.openConnection(url) as? HttpURLConnection
                 ?: return@withContext FetchResult.Failure("Unsupported connection type")
             conn.connectTimeout = AppConfig.CONNECT_TIMEOUT_MS

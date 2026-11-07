@@ -7,6 +7,8 @@ import com.stsmn.monitor.domain.ConnectionTracker
 import com.stsmn.monitor.domain.EventDetector
 import com.stsmn.monitor.domain.EventRecord
 import com.stsmn.monitor.domain.EventType
+import com.stsmn.monitor.domain.HealthParser
+import com.stsmn.monitor.domain.LiveGps
 import com.stsmn.monitor.domain.LiveSnapshot
 import com.stsmn.monitor.domain.ParseResult
 import com.stsmn.monitor.domain.StatusParser
@@ -52,6 +54,9 @@ class StsmnRepository(
     private var wasLive = false
     private var everLive = false
     private var activeHost: String? = null
+    private var lastGps: LiveGps? = null
+    private var lastGpsElapsedMs: Long? = null
+    private var lastGpsPollMs = 0L
 
     private val _snapshot = MutableStateFlow(LiveSnapshot())
     val snapshot: StateFlow<LiveSnapshot> = _snapshot.asStateFlow()
@@ -110,7 +115,10 @@ class StsmnRepository(
                 is FetchResult.Failure -> {
                     tracker.onFailure(); networkErrors++; lastError = result.message
                 }
-                is FetchResult.Body -> handleBody(result.text)
+                is FetchResult.Body -> {
+                    handleBody(result.text)
+                    pollGps(s.deviceHost)
+                }
             }
             publish()
 
@@ -118,6 +126,17 @@ class StsmnRepository(
             val wait = if (failures == 0) s.pollIntervalMs
             else (s.pollIntervalMs * (failures + 1)).coerceAtMost(AppConfig.MAX_BACKOFF_MS) // reconnect backoff
             delay(wait)
+        }
+    }
+
+    /** Optional extra: ask /api/health for the GPS fix. Any failure here is ignored; it never affects protection data. */
+    private suspend fun pollGps(host: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastGpsPollMs < AppConfig.GPS_POLL_EVERY_MS) return
+        lastGpsPollMs = now
+        val r = client.fetchHealth(host)
+        if (r is FetchResult.Body) HealthParser.parseGps(r.text)?.let {
+            lastGps = it; lastGpsElapsedMs = SystemClock.elapsedRealtime()
         }
     }
 
@@ -156,6 +175,7 @@ class StsmnRepository(
         lastValidElapsedMs = null
         anomalies = emptyList()
         recent.clear()
+        lastGps = null; lastGpsElapsedMs = null; lastGpsPollMs = 0L
         wasLive = false
         lastError = null
     }
@@ -191,6 +211,8 @@ class StsmnRepository(
             wifiBound = binder.isBound,
             host = settings.value.deviceHost,
             recent = recent.toList(),
+            gps = lastGps,
+            gpsElapsedMs = lastGpsElapsedMs,
         )
     }
 

@@ -22,6 +22,7 @@ data class MapDevice(
     val alarm: Boolean?,
     val ageMs: Long?,
     val isLocal: Boolean,
+    val locationLive: Boolean = false,   // true = position comes from the ESP32's own GPS right now
 ) {
     val label: String get() = TransformerLabel.from(id)
     val hasLocation: Boolean get() = lat != null && lng != null && SiteLocationRules.isValid(lat, lng)
@@ -59,12 +60,17 @@ object MapDevices {
             val prev = out[id]
             val keepServerView = prev != null && live.connection != ConnectionState.LIVE
             val age = live.lastValidElapsedMs?.let { (nowElapsedMs - it).coerceAtLeast(0L) }
+            val gps = live.gps?.takeIf {
+                val t = live.gpsElapsedMs
+                t != null && nowElapsedMs - t in 0..AppConfig.GPS_MAX_AGE_MS
+            }
             if (!keepServerView) out[id] = MapDevice(
-                id, prev?.name ?: id, siteLat ?: prev?.lat, siteLng ?: prev?.lng,
-                if (siteLat != null) siteIsDemo else prev?.demoLocation ?: false,
+                id, prev?.name ?: id,
+                gps?.lat ?: siteLat ?: prev?.lat, gps?.lng ?: siteLng ?: prev?.lng,
+                if (gps != null) false else if (siteLat != null) siteIsDemo else prev?.demoLocation ?: false,
                 MarkerStateMapper.from(live), st?.status, st?.risk,
                 st?.temperature, st?.voltage, st?.current, st?.oilLevel, st?.smoke, st?.flame, st?.relay, st?.alarm,
-                age, isLocal = true,
+                age, isLocal = true, locationLive = gps != null,
             )
         }
         return out.values.sortedWith(compareBy({ FleetParser.severity(it.state) }, { it.id }))

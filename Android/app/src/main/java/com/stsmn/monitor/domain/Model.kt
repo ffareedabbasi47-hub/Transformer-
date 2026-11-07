@@ -77,6 +77,8 @@ data class LiveSnapshot(
     val wifiBound: Boolean = false,
     val host: String = "",
     val recent: List<StsmnStatus> = emptyList(), // last valid packets (oldest first) for sparklines
+    val gps: LiveGps? = null,                    // last valid GPS fix from /api/health (null = none yet)
+    val gpsElapsedMs: Long? = null,              // SystemClock.elapsedRealtime() when that fix was received
 ) {
     val isLive: Boolean get() = connection == ConnectionState.LIVE
 }

@@ -62,7 +62,8 @@ fun TransformerSheet(d: MapDevice, expanded: Boolean, onToggle: () -> Unit, onCl
             TextButton(onClick = onClose) { Text("Close") }
         }
         Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (d.demoLocation) Pill("DEMO LOCATION", StsmnColors.Warning) else Pill("CONFIGURED COORDINATES", StsmnColors.Info)
+            if (d.locationLive) Pill("LIVE GPS", StsmnColors.Safe)
+            else if (d.demoLocation) Pill("DEMO LOCATION", StsmnColors.Warning) else Pill("CONFIGURED COORDINATES", StsmnColors.Info)
             Pill(if (d.isLive) "LIVE" else "NOT LIVE", if (d.isLive) StsmnColors.Safe else StsmnColors.Warning)
         }
         Text(

@@ -1,0 +1,43 @@
+name: ESP32 real compile
+
+on:
+  push:
+    paths: ['ESP32/**', 'tools/make_single_ino.py', '.github/workflows/esp32-compile.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  compile:
+    name: ESP32 core ${{ matrix.core }} / ${{ matrix.sketch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        core: ['3.3.5', '2.0.17']
+        sketch: [single, multi]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install arduino-cli
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/arduino/arduino-cli/master/install.sh | BINDIR=/usr/local/bin sh
+          arduino-cli config init
+          arduino-cli config add board_manager.additional_urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+          arduino-cli core update-index
+          arduino-cli core install esp32:esp32@${{ matrix.core }}
+          arduino-cli lib install OneWire DallasTemperature
+      - name: Prepare sketch (placeholder password only; no real secrets)
+        run: |
+          if [ "${{ matrix.sketch }}" = single ]; then
+            mkdir -p /tmp/sk/stsmn_single && cp ESP32/stsmn_single/stsmn_single.ino /tmp/sk/stsmn_single/
+            sed -i 's|^#define WIFI_AP_PASSWORD .*|#define WIFI_AP_PASSWORD "ci-compile-only-pass1"|' /tmp/sk/stsmn_single/stsmn_single.ino
+          else
+            cp -r ESP32/stsmn_firmware /tmp/sk-multi && mkdir -p /tmp/sk && mv /tmp/sk-multi /tmp/sk/stsmn_firmware
+            cp /tmp/sk/stsmn_firmware/secrets.h.example /tmp/sk/stsmn_firmware/secrets.h
+            sed -i 's|^#define WIFI_AP_PASSWORD .*|#define WIFI_AP_PASSWORD "ci-compile-only-pass1"|' /tmp/sk/stsmn_firmware/secrets.h
+          fi
+      - name: Compile
+        run: |
+          d=$(ls -d /tmp/sk/*)
+          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings default "$d" 2>&1 | tee /tmp/out.txt

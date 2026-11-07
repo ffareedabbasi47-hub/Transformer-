@@ -16,6 +16,9 @@
 #define INPUT 0x01
 #define OUTPUT 0x03
 #define INPUT_PULLUP 0x05
+#define OPEN_DRAIN 0x10   /* real ESP32 core defines this macro: sketch must not use the name */
+#define PULLUP 0x04
+#define PULLDOWN 0x08
 #define INPUT_PULLDOWN 0x09
 typedef enum { ADC_0db, ADC_2_5db, ADC_6db, ADC_11db } adc_attenuation_t;
 struct MockHw {

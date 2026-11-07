@@ -11,7 +11,7 @@ class Actuators {
  public:
   // Call FIRST in setup(): put the relay into cutoff before anything else.
   void begin() {
-    if (OPEN_DRAIN) {
+    if (RELAY_USES_RELEASE) {
       pinMode(PIN_RELAY, INPUT);   // released = cutoff (the module's pull-up keeps the relay OFF; same as a dead ESP32)
     } else {
       // Latch the CUT level into the output register BEFORE the pin becomes an output, so the relay never
@@ -29,7 +29,7 @@ class Actuators {
   }
 
   void setRelayAllowed(bool allow) {
-    if (OPEN_DRAIN) {
+    if (RELAY_USES_RELEASE) {
       if (allow && !relayAllowed_) { pinMode(PIN_RELAY, OUTPUT); digitalWrite(PIN_RELAY, LOW); }   // coil energised
       else if (!allow) pinMode(PIN_RELAY, INPUT);                                                  // released = cutoff
     } else {
@@ -43,7 +43,7 @@ class Actuators {
 
   // True if the relay pin no longer reads back the level we commanded.
   bool relayMismatch() const {
-    if (OPEN_DRAIN) return relayAllowed_ && digitalRead(PIN_RELAY) != LOW;   // a released pin has no level to compare
+    if (RELAY_USES_RELEASE) return relayAllowed_ && digitalRead(PIN_RELAY) != LOW;   // a released pin has no level to compare
     const int onLevel  = RELAY_ACTIVE_LOW ? LOW : HIGH;
     const int offLevel = RELAY_ACTIVE_LOW ? HIGH : LOW;
     return digitalRead(PIN_RELAY) != (relayAllowed_ ? onLevel : offLevel);
@@ -59,7 +59,7 @@ class Actuators {
   }
 
  private:
-  static constexpr bool OPEN_DRAIN = RELAY_ACTIVE_LOW && RELAY_OPEN_DRAIN_OFF;
+  static constexpr bool RELAY_USES_RELEASE = RELAY_ACTIVE_LOW && RELAY_OPEN_DRAIN_OFF;
   void setBuzzer(bool on) { digitalWrite(PIN_BUZZER, (on == BUZZER_ACTIVE_HIGH) ? HIGH : LOW); }
   void allLeds(bool on) {
     digitalWrite(PIN_LED_GREEN, on); digitalWrite(PIN_LED_YELLOW, on); digitalWrite(PIN_LED_RED, on);

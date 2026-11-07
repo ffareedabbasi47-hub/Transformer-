@@ -29,6 +29,9 @@ constexpr bool HAS_TEMP_SENSOR    = true;
 constexpr bool HAS_CURRENT_SENSOR = true;
 constexpr bool HAS_VOLTAGE_SENSOR = true;
 constexpr bool HAS_LEVEL_SENSOR   = true;
+// Flame strength (weak / strong) needs the module's AO pin wired to GPIO36. Without it only the digital
+// output (DO) is used: flame = on/off (always "strong"). Set true ONLY if AO is really connected.
+constexpr bool HAS_FLAME_ANALOG   = false;
 
 // ---------- Pins (ASSUMPTION: PDF gives no pins) -----------------------------
 // Analog inputs are all on ADC1 (GPIO32-39) because ADC2 cannot be used while
@@ -39,6 +42,7 @@ constexpr int PIN_VOLTAGE   = 35;  // module output; keep input <= 15V (see docs
 constexpr int PIN_MQ2_AO    = 32;  // THROUGH 10k/20k divider (module is 5V)
 constexpr int PIN_LEVEL     = 33;  // water-level sensor powered from 3.3V
 constexpr int PIN_FLAME_DO  = 25;  // digital output of flame module
+constexpr int PIN_FLAME_AO  = 36;  // OPTIONAL analog output of the flame module (power the module from 3.3V)
 constexpr int PIN_RELAY     = 26;
 constexpr int PIN_LED_GREEN = 18;
 constexpr int PIN_LED_YELLOW= 19;
@@ -110,6 +114,15 @@ constexpr int MQ2_DELTA_EXIT_MV  = 60;   // hysteresis
 // The clean-air baseline follows slow drift (heater warm-up, temperature, humidity) so it never has to be
 // perfect: ~2 minute time constant, and it never follows a rise bigger than half the enter threshold (= smoke).
 constexpr float MQ2_BASELINE_ALPHA = 0.002f;
+constexpr int MQ2_NOISE_MV      = 30;    // rise below this = noise (0 % smoke)
+constexpr int MQ2_FULL_DELTA_MV = 450;   // rise at/above this = 100 % smoke (strong signal)
+
+// ---------- Flame module analog output (only if HAS_FLAME_ANALOG) --------------------------
+// Most modules: AO voltage DROPS as the flame gets stronger. CALIBRATE both values on your module.
+constexpr int FLAME_AO_CLEAR_MV = 2900;  // reading with no flame (module powered from 3.3V)
+constexpr int FLAME_AO_FULL_MV  = 600;   // reading with a strong flame close by
+constexpr int FLAME_CRIT_PCT    = 40;    // flame signal >= this = real fire = EMERGENCY at once
+constexpr int SIGNAL_MIN_PCT    = 15;    // smoke or flame signal >= this counts as "present"
 
 // ---------- Water level (DEMO: water only, never transformer oil) ------------
 constexpr int LEVEL_DRY_MV  = 0;     // CALIBRATE: reading with dry sensor
@@ -119,8 +132,13 @@ constexpr int OIL_OK_PERCENT  = 50;
 
 // ---------- Risk scoring (PDF: 0-25,0-25,0-15,0-15,0-20,0-10) ----------------
 // ASSUMPTION: all numeric limits are DEMO values and must be calibrated.
-constexpr int PTS_TEMP = 25, PTS_CURRENT = 25, PTS_VOLTAGE = 15;
-constexpr int PTS_SMOKE = 15, PTS_FLAME = 20, PTS_OIL = 10;
+// FIRE and SMOKE are weighted equally: 50 points each. The fire side (50) is shared between the flame sensor
+// and the heat it makes (temperature), so a real fire = flame + heat, smoke = the other 50.
+// The points grow with the SIGNAL STRENGTH (weak signal = few points, strong signal = full points).
+constexpr int PTS_SMOKE = 50;
+constexpr int PTS_FLAME = 35, PTS_TEMP = 15;           // PTS_FLAME + PTS_TEMP = 50 (the "fire" half)
+constexpr int PTS_CURRENT = 25, PTS_VOLTAGE = 15, PTS_OIL = 10;
+static_assert(PTS_FLAME + PTS_TEMP == PTS_SMOKE, "fire half (flame + temperature) must equal the smoke half");
 
 constexpr float TEMP_WARN_C = 40.0f;   // 0 points below, ramps up
 constexpr float TEMP_CRIT_C = 70.0f;   // full points at/above
@@ -135,8 +153,10 @@ constexpr int WARNING_EXIT    = 30;   // hysteresis
 constexpr int EMERGENCY_ENTER = 80;   // PDF example: 90+ = emergency
 constexpr int EMERGENCY_EXIT  = 60;   // hysteresis
 constexpr int FLOOR_SENSOR_FAULT_RISK = 45;  // a dead protection sensor = WARNING
+constexpr int SENSOR_WARN_PCT         = 50;  // temperature / current / voltage in the upper half of its danger range ...
+constexpr int FLOOR_STRESS_RISK       = 45;  // ... = at least WARNING, even if the points do not add up
 constexpr int FLOOR_CRITICAL_RISK     = 90;  // any critical condition = >= 90
-constexpr int FLOOR_SMOKE_RISK        = 55;  // smoke at all = at least WARNING (never silently "SAFE")
+constexpr int FLOOR_SMOKE_RISK        = 55;  // any smoke OR flame signal = at least WARNING (never silently "SAFE")
 
 // ---------- Relay arming / fail-safe (see protection_logic.h) -----------------
 // The supply is NEVER allowed until every protection sensor (temperature, current, voltage) has been valid

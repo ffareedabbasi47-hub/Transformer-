@@ -14,7 +14,7 @@ def body(name):
 ino = (fw / "stsmn_firmware.ino").read_text().splitlines()
 first_local = next(i for i, l in enumerate(ino) if l.startswith('#include "config.h"'))
 after_includes = next(i for i, l in enumerate(ino) if l.startswith("// ---- Compile-time check"))
-head = "\n".join(ino[:first_local])
+head = "\n".join(ino[:first_local] + [l for l in ino[first_local:after_includes] if l.startswith("#include <")])
 tail = "\n".join(ino[after_includes:])
 wifi = '''// ===== Wi-Fi settings: CHANGE THE PASSWORD BELOW (8 to 63 characters). The sketch will not compile with the example one. =====
 #define WIFI_AP_SSID "STSMN-TR001"
@@ -30,6 +30,7 @@ enum class Status : uint8_t;
 struct RiskInput;
 struct RiskBreakdown;
 struct RiskResult;
+struct RiskPct;
 struct SensorReadings;
 """
 parts = [head, forward, "// ===== config.h =====\n" + body("config.h"), wifi]

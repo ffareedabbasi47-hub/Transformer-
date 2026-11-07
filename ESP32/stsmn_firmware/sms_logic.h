@@ -20,6 +20,36 @@ inline bool isValidPhone(const char* p) {
   return digits >= 8 && digits <= 15;
 }
 
+// Turns what a person types ("75050 45948", "+91-75050-45948", "917505045948") into "+<digits>".
+// 10 digits starting 6-9 are taken as an Indian mobile (+91). Returns false if the result is not a plausible number.
+inline bool normalizePhone(const char* in, char* out, size_t n) {
+  char d[24]; size_t k = 0; bool plus = false;
+  if (!in || n < 6) return false;
+  for (const char* c = in; *c; c++) {
+    if (*c == '+' && k == 0 && !plus) { plus = true; continue; }
+    if (*c >= '0' && *c <= '9') { if (k >= 18) return false; d[k++] = *c; continue; }
+    if (*c == ' ' || *c == '-' || *c == '(' || *c == ')') continue;
+    return false;
+  }
+  d[k] = 0;
+  if (!plus && k == 10 && d[0] >= '6' && d[0] <= '9') { char t[32]; snprintf(t, sizeof(t), "91%s", d); strcpy(d, t); k += 2; }
+  else if (!plus && k == 12 && d[0] == '9' && d[1] == '1') { /* already has the country code */ }
+  else if (!plus && k == 11 && d[0] == '0') { char t[32]; snprintf(t, sizeof(t), "91%s", d + 1); strcpy(d, t); k = strlen(d); }
+  if (!plus && !(k == 12 && d[0] == '9' && d[1] == '1')) return false;   // without "+" only the forms above are understood
+  if (k < 8 || k > 15) return false;
+  if ((size_t)snprintf(out, n, "+%s", d) >= n) return false;
+  return isValidPhone(out);
+}
+
+// "+917505045948" -> "+91*******48" (never the whole number over Wi-Fi; just enough for the person to recognise it).
+inline void maskPhone(const char* p, char* out, size_t n) {
+  size_t len = strlen(p);
+  if (n == 0) return;
+  if (len < 6 || len + 1 > n) { out[0] = 0; return; }
+  for (size_t i = 0; i < len; i++) out[i] = (i < 3 || i >= len - 2) ? p[i] : '*';
+  out[len] = 0;
+}
+
 // Plain-ASCII alert (one 160-character SMS). The position is included ONLY when the GPS has a real fix.
 // Returns false if it did not fit.
 inline bool buildAlertText(char* out, size_t n, const char* id, const char* status, int risk,

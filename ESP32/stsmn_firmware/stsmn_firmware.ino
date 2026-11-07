@@ -33,6 +33,7 @@
 #include "gps_nmea.h"
 #include "sms_logic.h"
 #include "sim800.h"
+#include <Preferences.h>
 #ifndef ALERT_PHONE_NUMBER
 #define ALERT_PHONE_NUMBER ""   // old secrets.h without a phone number: SMS stays off
 #endif
@@ -61,7 +62,9 @@ static TaskHandle_t protectionHandle = nullptr;
 static NmeaParser gps;
 static SimModule sim;
 static sms::SmsGate smsGate(SMS_ON_WARNING, SMS_MIN_INTERVAL_MS, SMS_REPEAT_MS);   // protection task only
-static const bool smsEnabled = sms::isValidPhone(ALERT_PHONE_NUMBER);
+static Preferences prefs;                 // alert phone number survives power-off (NVS flash)
+static char alertPhone[24] = "";          // guarded by stateMutex
+static volatile bool smsEnabled = false;  // true while alertPhone is a valid number
 struct CommState {                       // written by the comm task, read by /api/health (under stateMutex)
   bool gpsValid = false; double lat = 0, lng = 0; int sats = 0; uint32_t lastFixMs = 0;
   bool gsmReady = false, gsmRegistered = false; int gsmSignal = -1;
@@ -75,7 +78,7 @@ static volatile bool smsRetryFlag = false;
 // State shared between the protection task (writer) and the HTTP handlers (readers).
 // Guarded by stateMutex; the mutex is NEVER held while sending data over the network.
 static SemaphoreHandle_t stateMutex = nullptr;
-static char statusJson[384] = "";
+static char statusJson[640] = "";
 static SensorReadings lastReadings{};
 static bool relayArmed = false;
 static uint32_t seq = 0;
@@ -95,9 +98,11 @@ static void fmtFloat(char* out, size_t n, bool valid, float v, int decimals) {
 }
 
 // Builds into `out` (size n). Field names/types are the contract with the Android app: do not rename.
-static void buildStatusJson(char* out, size_t n, const SensorReadings& s, const RiskResult& r,
+static void buildStatusJson(char* out, size_t n, const SensorReadings& s, const RiskResult& r, const RiskPct& pc,
                             bool relay, bool alarm, uint32_t seqNo) {
-  char t[16], v[16], c[16], oil[16];
+  char t[16], v[16], c[16], oil[16], pT[8], pI[8], pV[8];
+  auto pctS = [](char* o, size_t sz, int p) { if (p < 0) snprintf(o, sz, "null"); else snprintf(o, sz, "%d", p); };
+  pctS(pT, sizeof(pT), pc.temp); pctS(pI, sizeof(pI), pc.current); pctS(pV, sizeof(pV), pc.voltage);
   fmtFloat(t, sizeof(t), s.tempValid, s.tempC, 1);
   fmtFloat(v, sizeof(v), s.voltageValid, s.voltageV, 2);
   fmtFloat(c, sizeof(c), s.currentValid, s.currentA, 2);
@@ -105,16 +110,32 @@ static void buildStatusJson(char* out, size_t n, const SensorReadings& s, const 
   const int written = snprintf(out, n,
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"temperature\":%s,\"voltage\":%s,"
     "\"current\":%s,\"smoke\":%s,\"flame\":%s,\"oilLevel\":%s,\"risk\":%d,"
-    "\"status\":\"%s\",\"relay\":%s,\"alarm\":%s,\"seq\":%lu}",
+    "\"status\":\"%s\",\"relay\":%s,\"alarm\":%s,\"seq\":%lu,"
+    "\"pct\":{\"temp\":%s,\"current\":%s,\"voltage\":%s,\"smoke\":%d,\"flame\":%d}}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), t, v, c,
     s.smoke ? "true" : "false", s.flame ? "true" : "false", oil, r.risk,
     statusName(r.status), relay ? "true" : "false", alarm ? "true" : "false",
-    (unsigned long)seqNo);
+    (unsigned long)seqNo, pT, pI, pV, pc.smoke, pc.flame);
   // Never serve a half-written JSON: on overflow the app gets an explicit invalid packet (-> STALE), not a wrong value.
   if (written < 0 || written >= (int)n) snprintf(out, n, "{\"error\":\"status buffer overflow\"}");
 }
 
-// ---- HTTP handlers (read-only; no control endpoints) -------------------------
+// ---- Alert phone number: set from the app, stored on the ESP32, SMS goes to this number --------------------
+static void setAlertPhone(const char* normalized) {
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  strlcpy(alertPhone, normalized, sizeof(alertPhone));
+  smsEnabled = sms::isValidPhone(alertPhone);
+  xSemaphoreGive(stateMutex);
+}
+static void loadAlertPhone() {
+  char stored[24] = "", norm[24] = "";
+  prefs.begin("stsmn", false);
+  if (prefs.isKey("phone")) prefs.getString("phone", stored, sizeof(stored));
+  else strlcpy(stored, ALERT_PHONE_NUMBER, sizeof(stored));        // first boot: the number compiled into the sketch (if any)
+  if (sms::normalizePhone(stored, norm, sizeof(norm))) setAlertPhone(norm);
+}
+
+// ---- HTTP handlers (read-only for sensors/relay; the ONLY thing that can be written is the SMS number) --- -------------------------
 static void sendJson(int code, const char* body) {
   server.sendHeader("Cache-Control", "no-store");
   server.sendHeader("X-Content-Type-Options", "nosniff");
@@ -139,14 +160,16 @@ static void handleHealth() {
   char latS[16], lngS[16];
   if (gpsFix) { snprintf(latS, sizeof(latS), "%.6f", cs.lat); snprintf(lngS, sizeof(lngS), "%.6f", cs.lng); }
   else { snprintf(latS, sizeof(latS), "null"); snprintf(lngS, sizeof(lngS), "null"); }
-  char buf[800];
+  char phoneMasked[24] = "";
+  xSemaphoreTake(stateMutex, portMAX_DELAY); sms::maskPhone(alertPhone, phoneMasked, sizeof(phoneMasked)); xSemaphoreGive(stateMutex);
+  char buf[860];
   snprintf(buf, sizeof(buf),
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"seq\":%lu,\"clients\":%d,"
     "\"mq2Ready\":%s,\"tempValid\":%s,\"currentValid\":%s,\"voltageValid\":%s,\"relayMismatch\":%s,"
     "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
     "\"gpsFix\":%s,\"gpsSats\":%d,\"lat\":%s,\"lng\":%s,"
     "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu,"
-    "\"mq2Mv\":%d,\"mq2BaseMv\":%d}",
+    "\"mq2Mv\":%d,\"mq2BaseMv\":%d,\"alertPhone\":\"%s\"}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), (unsigned long)sq,
     WiFi.softAPgetStationNum(),
     rd.mq2Ready ? "true" : "false", rd.tempValid ? "true" : "false",
@@ -157,14 +180,37 @@ static void handleHealth() {
     gpsFix ? "true" : "false", cs.sats, latS, lngS,
     cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
     smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed,
-    (int)rd.mq2Mv, (int)rd.mq2BaseMv);
+    (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked);
+  sendJson(200, buf);
+}
+
+// POST /api/contact   phone=<number>   (form field).  Empty phone = switch SMS off. Cannot touch the relay or any threshold.
+static void handleContactSet() {
+  if (!server.hasArg("phone")) { sendJson(400, "{\"error\":\"phone missing\"}"); return; }
+  const String raw = server.arg("phone");
+  if (raw.length() > 30) { sendJson(400, "{\"error\":\"phone too long\"}"); return; }
+  char norm[24] = "";
+  if (raw.length() == 0) {
+    setAlertPhone("");
+    prefs.putString("phone", "");
+    sendJson(200, "{\"ok\":true,\"smsEnabled\":false}");
+    return;
+  }
+  if (!sms::normalizePhone(raw.c_str(), norm, sizeof(norm))) { sendJson(400, "{\"error\":\"invalid phone number\"}"); return; }
+  setAlertPhone(norm);
+  prefs.putString("phone", norm);
+  char masked[24];
+  sms::maskPhone(norm, masked, sizeof(masked));
+  char buf[96];
+  snprintf(buf, sizeof(buf), "{\"ok\":true,\"smsEnabled\":true,\"alertPhone\":\"%s\"}", masked);
+  Serial.printf("Alert number saved: %s\n", masked);
   sendJson(200, buf);
 }
 
 static void handleNotFound() {
   const String uri = server.uri();
-  if (uri == "/api/status" || uri == "/api/health") {     // known path, wrong method
-    server.sendHeader("Allow", "GET");
+  if (uri == "/api/status" || uri == "/api/health" || uri == "/api/contact") {     // known path, wrong method
+    server.sendHeader("Allow", uri == "/api/contact" ? "POST" : "GET");
     sendJson(405, "{\"error\":\"method not allowed\"}");
   } else {
     sendJson(404, "{\"error\":\"not found\"}");
@@ -176,7 +222,7 @@ static void protectionCycle(uint32_t now) {
   SensorReadings rd = sensors.sample(now);
 
   RiskInput in{rd.tempValid, rd.tempC, rd.currentValid, rd.currentA, rd.voltageValid, rd.voltageV,
-               rd.smoke, rd.flame, rd.oilValid, rd.oilPct};
+               rd.smoke, rd.flame, rd.oilValid, rd.oilPct, rd.smokePct, rd.flamePct};
   lastRisk = riskEngine.update(in, now);
 
   // Supply allowed only when armed (boot check + stable valid sensors) and never in EMERGENCY.
@@ -195,7 +241,7 @@ static void protectionCycle(uint32_t now) {
 
   char json[sizeof(statusJson)];
   const uint32_t nextSeq = seq + 1;
-  buildStatusJson(json, sizeof(json), rd, lastRisk, actuators.relayAllowed(), alarmOn, nextSeq);
+  buildStatusJson(json, sizeof(json), rd, lastRisk, scorePercent(in), actuators.relayAllowed(), alarmOn, nextSeq);
 
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   seq = nextSeq;
@@ -205,12 +251,12 @@ static void protectionCycle(uint32_t now) {
   xSemaphoreGive(stateMutex);
 
   // Serial log makes the score explainable to judges (115200 baud).
-  Serial.printf("seq=%lu %s risk=%d [T%d I%d V%d S%d F%d O%d] relay=%d armed=%d crit=%d fault=%d ok(T%d I%d V%d) smoke=%d mq=%d/%d\n",
+  Serial.printf("seq=%lu %s risk=%d [T%d I%d V%d S%d F%d O%d] relay=%d armed=%d crit=%d fault=%d ok(T%d I%d V%d) smoke=%d%% flame=%d%% mq=%d/%d\n",
     (unsigned long)nextSeq, statusName(lastRisk.status), lastRisk.risk,
     lastRisk.parts.temp, lastRisk.parts.current, lastRisk.parts.voltage,
     lastRisk.parts.smoke, lastRisk.parts.flame, lastRisk.parts.oil,
     actuators.relayAllowed(), relayGate.armed(), lastRisk.critical, lastRisk.sensorFault,
-    rd.tempValid, rd.currentValid, rd.voltageValid, rd.smoke, (int)rd.mq2Mv, (int)rd.mq2BaseMv);
+    rd.tempValid, rd.currentValid, rd.voltageValid, rd.smokePct, rd.flamePct, (int)rd.mq2Mv, (int)rd.mq2BaseMv);
 }
 
 // Protection task: sensors + risk + relay + LEDs, independent of Wi-Fi/HTTP.
@@ -272,8 +318,10 @@ static void commTask(void*) {
       char text[161];
       const char* st = req.status == 2 ? "EMERGENCY" : (req.status == 1 ? "WARNING" : "SAFE");
       bool ok = false;
-      if (sim.ready() && sms::buildAlertText(text, sizeof(text), STSMN_DEVICE_ID, st, req.risk, req.tempValid, req.tempC, fixNow, la, lo))
-        ok = sim.sendSms(ALERT_PHONE_NUMBER, text);
+      char phone[24];
+      xSemaphoreTake(stateMutex, portMAX_DELAY); strlcpy(phone, alertPhone, sizeof(phone)); xSemaphoreGive(stateMutex);
+      if (sim.ready() && sms::isValidPhone(phone) && sms::buildAlertText(text, sizeof(text), STSMN_DEVICE_ID, st, req.risk, req.tempValid, req.tempC, fixNow, la, lo))
+        ok = sim.sendSms(phone, text);
       xSemaphoreTake(stateMutex, portMAX_DELAY); if (ok) comm.smsSent++; else comm.smsFailed++; xSemaphoreGive(stateMutex);
       if (!ok) smsRetryFlag = true;
       Serial.println(ok ? "SMS alert sent" : "SMS alert FAILED (will retry)");
@@ -298,6 +346,7 @@ void setup() {
   Serial.println("\nSTSMN firmware " STSMN_FW_VERSION);
 
   stateMutex = xSemaphoreCreateMutex();
+  loadAlertPhone();             // SMS number saved earlier (from the app) or the one in secrets.h
   sensors.begin();              // includes ACS712 zero calibration (relay is in cutoff = no load current)
 
   // First state is computed from real readings before anyone can request it.
@@ -313,11 +362,12 @@ void setup() {
 
   server.on("/api/status", HTTP_GET, handleStatus);
   server.on("/api/health", HTTP_GET, handleHealth);
+  server.on("/api/contact", HTTP_POST, handleContactSet);
   server.onNotFound(handleNotFound);
   server.begin();
 
   Serial2.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);     // GPS module
-  Serial.println(smsEnabled ? "SMS alerts: ON" : "SMS alerts: OFF (set ALERT_PHONE_NUMBER in secrets.h)");
+  Serial.println(smsEnabled ? "SMS alerts: ON" : "SMS alerts: OFF (save a number in the app: Settings > Alert number)");
   Serial.printf("Sensors fitted: temp=%d current=%d voltage=%d level=%d (config.h HAS_*; unfitted = ignored, shown as null)\n",
     HAS_TEMP_SENSOR, HAS_CURRENT_SENSOR, HAS_VOLTAGE_SENSOR, HAS_LEVEL_SENSOR);
   Serial.printf("Relay: ACTIVE_LOW=%d. At boot (cutoff) the relay module's LED must be OFF; it clicks ON ~5 s later when all fitted sensors are valid. If it is the other way round, flip RELAY_ACTIVE_LOW in config.h.\n", (int)RELAY_ACTIVE_LOW);

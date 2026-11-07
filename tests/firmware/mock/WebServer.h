@@ -13,4 +13,6 @@ class WebServer {
   void sendHeader(const char*, const char*) {}
   void send(int, const char*, const char*) {}
   String uri() { return String("/"); }
+  bool hasArg(const char*) { return false; }
+  String arg(const char*) { return String(""); }
 };

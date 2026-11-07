@@ -83,6 +83,31 @@ int main() {
     r = e.update(in, 8000);
     CHECK(r.status == Status::SAFE, "brief smoke that clears -> back to SAFE");
   }
+  { // Smoke and fire are weighted equally: 50 points each, growing with the signal strength
+    CHECK(PTS_SMOKE == 50 && PTS_FLAME + PTS_TEMP == 50, "smoke 50 points; fire half (flame + temperature) 50 points");
+    RiskInput in = normal(); in.smoke = true; in.smokePct = 100;
+    CHECK(scoreSensors(in).smoke == 50, "strong smoke = 50 points");
+    in.smokePct = 40; CHECK(scoreSensors(in).smoke == 20, "weak smoke (40 %) = 20 points");
+    RiskInput f = normal(); f.flame = true; f.flamePct = 100;
+    CHECK(scoreSensors(f).flame == PTS_FLAME, "strong flame = full flame points");
+    f.flame = false; f.flamePct = 20; CHECK(scoreSensors(f).flame == (int)lroundf(PTS_FLAME * 0.2f), "weak flame = few points");
+  }
+  { // Weak fire signal alone: WARNING (never silent), not yet an emergency
+    RiskEngine e; RiskInput in = normal(); in.flame = false; in.flamePct = 20;
+    RiskResult r = e.update(in, 0);
+    CHECK(r.status == Status::WARNING && !r.critical, "weak flame signal -> WARNING only");
+  }
+  { // Smoke + fire together (even weak): alarm + cutoff immediately
+    RiskEngine e; RiskInput in = normal(); in.smoke = true; in.smokePct = 30; in.flamePct = 20;
+    RiskResult r = e.update(in, 0);
+    CHECK(r.status == Status::EMERGENCY && r.critical && r.risk >= FLOOR_CRITICAL_RISK, "smoke + flame together -> EMERGENCY at once");
+  }
+  { // Percentages for the app
+    RiskInput in = normal(); in.tempC = 55.0f; in.smoke = true; in.smokePct = 60; in.flamePct = 0;
+    RiskPct p = scorePercent(in);
+    CHECK(p.temp == 50 && p.smoke == 60 && p.flame == 0, "pct: temp halfway = 50 %, smoke 60 %, flame 0 %");
+    in.voltageValid = false; CHECK(scorePercent(in).voltage == -1, "pct: invalid / unfitted sensor = -1 (null)");
+  }
   { // Regression: smoke while the temperature sensor is blind must be treated as smoke WITH heat -> EMERGENCY
     RiskEngine e; RiskInput in = normal(); in.smoke = true; in.tempValid = false;
     RiskResult r = e.update(in, 0);

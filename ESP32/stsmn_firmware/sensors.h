@@ -15,6 +15,7 @@ struct SensorReadings {
   bool flame;
   bool oilValid;     int oilPct;
   float mq2Mv;       float mq2BaseMv;   // diagnostics only (shown in /api/health + Serial)
+  int smokePct;      int flamePct;      // signal strength 0..100
 };
 
 class SensorHub {
@@ -121,12 +122,33 @@ class SensorHub {
       r_.smoke = smokeLatched_;
     }
     r_.mq2Mv = mqAvg; r_.mq2BaseMv = mq2Baseline_;
+    {
+      int sp = 0;
+      if (mq2Ready_) {
+        const float d = mqAvg - mq2Baseline_;
+        sp = (int)lroundf((d - MQ2_NOISE_MV) / (float)(MQ2_FULL_DELTA_MV - MQ2_NOISE_MV) * 100.0f);
+        if (sp < 0) sp = 0;
+        if (sp > 100) sp = 100;
+        if (smokeLatched_ && sp < 1) sp = 1;   // latched smoke always shows as present
+      }
+      r_.smokePct = sp;
+    }
     r_.mq2Ready = mq2Ready_;
 
     // --- Flame: digital input, debounced ---
     bool raw = digitalRead(PIN_FLAME_DO) == (FLAME_ACTIVE_LOW ? LOW : HIGH);
     if (raw) { if (flameCount_ < 100) flameCount_++; } else flameCount_ = 0;
-    r_.flame = flameCount_ >= FLAME_DEBOUNCE_CYCLES;
+    const bool flameDo = flameCount_ >= FLAME_DEBOUNCE_CYCLES;
+    int fp = flameDo ? 100 : 0;                        // digital output: on/off
+    if (HAS_FLAME_ANALOG) {                            // analog output: how strong (weak ... strong)
+      flameAoAvg_.push(readAvgMv(PIN_FLAME_AO, ADC_SAMPLES_PER_CYCLE));
+      int ap = (int)lroundf((FLAME_AO_CLEAR_MV - flameAoAvg_.value()) / (float)(FLAME_AO_CLEAR_MV - FLAME_AO_FULL_MV) * 100.0f);
+      if (ap < 0) ap = 0;
+      if (ap > 100) ap = 100;
+      if (ap > fp) fp = ap;
+    }
+    r_.flamePct = fp;
+    r_.flame = flameDo || fp >= FLAME_CRIT_PCT;
 
     // --- Water level (DEMO ONLY, water, never oil) ---
     float lv = readAvgMv(PIN_LEVEL, ADC_SAMPLES_PER_CYCLE);
@@ -159,6 +181,7 @@ class SensorHub {
   ValidityFilter tempFilter_, currentFilter_, voltageFilter_;
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
+  MovingAverage<4> flameAoAvg_;
   bool tempPending_ = false;
   uint32_t tempRequestedAt_ = 0, tempLastRequest_ = 0;
   float zeroAdcMv_ = 0;

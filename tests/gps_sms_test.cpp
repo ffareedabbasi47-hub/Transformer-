@@ -95,6 +95,23 @@ int main() {
   CHECK(!sms::parseCregRegistered("+CREG: 0,2\r\nOK")); CHECK(!sms::parseCregRegistered("+CREG: 0,3\r\nOK"));
   CHECK(!sms::parseCregRegistered("")); CHECK(!sms::parseCregRegistered(nullptr));
 
+  { // normalizePhone / maskPhone (the number typed in the app)
+    char o[24];
+    CHECK(sms::normalizePhone("7505045948", o, sizeof o) && !strcmp(o, "+917505045948"));
+    CHECK(sms::normalizePhone("75050 45948", o, sizeof o) && !strcmp(o, "+917505045948"));
+    CHECK(sms::normalizePhone("+91-75050-45948", o, sizeof o) && !strcmp(o, "+917505045948"));
+    CHECK(sms::normalizePhone("917505045948", o, sizeof o) && !strcmp(o, "+917505045948"));
+    CHECK(sms::normalizePhone("07505045948", o, sizeof o) && !strcmp(o, "+917505045948"));
+    CHECK(sms::normalizePhone("+14155550123", o, sizeof o) && !strcmp(o, "+14155550123"));
+    CHECK(!sms::normalizePhone("12345", o, sizeof o));
+    CHECK(!sms::normalizePhone("75050abc948", o, sizeof o));
+    CHECK(!sms::normalizePhone("5505045948", o, sizeof o));
+    CHECK(!sms::normalizePhone("+91750504594812345678", o, sizeof o));
+    CHECK(!sms::normalizePhone("", o, sizeof o) && !sms::normalizePhone(nullptr, o, sizeof o));
+    sms::maskPhone("+917505045948", o, sizeof o);
+    CHECK(!strcmp(o, "+91********48"));
+    char tiny[4]; sms::maskPhone("+917505045948", tiny, sizeof tiny); CHECK(tiny[0] == 0);
+  }
   printf("%d checks, %d failed\n", checks, fails);
   return fails ? 1 : 0;
 }

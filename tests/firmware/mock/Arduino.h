@@ -35,6 +35,8 @@ class String {
  public:
   String(const char* s = "") : s_(s) {}
   bool operator==(const char* o) const { return s_ == o; }
+  size_t length() const { return s_.size(); }
+  const char* c_str() const { return s_.c_str(); }
  private: std::string s_;
 };
 class IPAddress {

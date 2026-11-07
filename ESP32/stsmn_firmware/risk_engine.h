@@ -30,9 +30,14 @@ struct RiskInput {
   bool smoke;
   bool flame;
   bool oilValid;     int oilPct;
+  int smokePct;      int flamePct;     // signal strength 0..100 (0 = boolean-only caller: smoke/flame then count as 100)
 };
 
 struct RiskBreakdown { int temp, current, voltage, smoke, flame, oil, base; };
+
+// Strength of the smoke / flame signal, 0..100. Callers that only know on/off (smokePct/flamePct left 0) count as 100.
+inline int effSmokePct(const RiskInput& in) { return in.smokePct > 0 ? (in.smokePct > 100 ? 100 : in.smokePct) : (in.smoke ? 100 : 0); }
+inline int effFlamePct(const RiskInput& in) { return in.flamePct > 0 ? (in.flamePct > 100 ? 100 : in.flamePct) : (in.flame ? 100 : 0); }
 
 struct RiskResult {
   int risk;            // final 0..100 (after floors)
@@ -57,14 +62,27 @@ inline RiskBreakdown scoreSensors(const RiskInput& in) {
     float devPct = fabsf(in.voltageV - NOMINAL_VOLTAGE_V) / NOMINAL_VOLTAGE_V * 100.0f;
     p.voltage = (int)lroundf(rampPoints(devPct, VOLT_OK_BAND_PCT, VOLT_FULL_BAND_PCT, PTS_VOLTAGE));
   }
-  if (in.smoke) p.smoke = PTS_SMOKE;
-  if (in.flame) p.flame = PTS_FLAME;
+  p.smoke = (int)lroundf(PTS_SMOKE * effSmokePct(in) / 100.0f);
+  p.flame = (int)lroundf(PTS_FLAME * effFlamePct(in) / 100.0f);
   if (in.oilValid) {
     // Low level: full points at/below OIL_LOW_PERCENT, none at/above OIL_OK_PERCENT.
     p.oil = (int)lroundf(PTS_OIL - rampPoints((float)in.oilPct, (float)OIL_LOW_PERCENT, (float)OIL_OK_PERCENT, (float)PTS_OIL));
   }
   int sum = p.temp + p.current + p.voltage + p.smoke + p.flame + p.oil;
   p.base = sum < 0 ? 0 : (sum > 100 ? 100 : sum);
+  return p;
+}
+
+// "How much of the danger range is used", 0..100 per sensor, -1 = no valid reading / not fitted. For the app.
+struct RiskPct { int temp, current, voltage, smoke, flame; };
+inline int rampPct(float x, float lo, float hi) { return (int)lroundf(rampPoints(x, lo, hi, 100.0f)); }
+inline RiskPct scorePercent(const RiskInput& in) {
+  RiskPct p;
+  p.temp    = in.tempValid    ? rampPct(in.tempC, TEMP_WARN_C, TEMP_CRIT_C) : -1;
+  p.current = in.currentValid ? rampPct(fabsf(in.currentA), CURRENT_WARN_A, CURRENT_CRIT_A) : -1;
+  p.voltage = in.voltageValid ? rampPct(fabsf(in.voltageV - NOMINAL_VOLTAGE_V) / NOMINAL_VOLTAGE_V * 100.0f, VOLT_OK_BAND_PCT, VOLT_FULL_BAND_PCT) : -1;
+  p.smoke   = effSmokePct(in);
+  p.flame   = effFlamePct(in);
   return p;
 }
 
@@ -82,11 +100,18 @@ class RiskEngine {
     // Smoke with an unknown temperature is treated as smoke WITH heat (conservative: a blind sensor must not hide a fire).
     bool smokeHeat = smokeHeatTimer_.update(in.smoke && (!in.tempValid || in.tempC >= TEMP_WARN_C), now, CRIT_SMOKE_HEAT_HOLD_MS);
     bool smokeAlone = smokeTimer_.update(in.smoke, now, CRIT_SMOKE_HOLD_MS);   // real smoke that does not go away
-    r.critical = in.flame || tempCrit || curCrit || smokeHeat || smokeAlone;
+    // Smoke AND fire together (even weak signals) = fire in progress: alarm + supply cut at once.
+    const bool smokeSignal = in.smoke || effSmokePct(in) >= SIGNAL_MIN_PCT;
+    const bool flameSignal = in.flame || effFlamePct(in) >= SIGNAL_MIN_PCT;
+    const bool smokeAndFire = smokeSignal && flameSignal;
+    r.critical = in.flame || tempCrit || curCrit || smokeHeat || smokeAlone || smokeAndFire;
 
     int risk = r.parts.base;
     if (r.sensorFault && risk < FLOOR_SENSOR_FAULT_RISK) risk = FLOOR_SENSOR_FAULT_RISK;
-    if (in.smoke && risk < FLOOR_SMOKE_RISK) risk = FLOOR_SMOKE_RISK;
+    const RiskPct pc = scorePercent(in);
+    const bool stressed = pc.temp >= SENSOR_WARN_PCT || pc.current >= SENSOR_WARN_PCT || pc.voltage >= SENSOR_WARN_PCT;
+    if (stressed && risk < FLOOR_STRESS_RISK) risk = FLOOR_STRESS_RISK;
+    if ((smokeSignal || flameSignal) && risk < FLOOR_SMOKE_RISK) risk = FLOOR_SMOKE_RISK;
     if (r.critical && risk < FLOOR_CRITICAL_RISK) risk = FLOOR_CRITICAL_RISK;
     r.risk = risk;
 

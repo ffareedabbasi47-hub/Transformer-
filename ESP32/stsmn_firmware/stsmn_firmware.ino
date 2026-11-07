@@ -139,13 +139,14 @@ static void handleHealth() {
   char latS[16], lngS[16];
   if (gpsFix) { snprintf(latS, sizeof(latS), "%.6f", cs.lat); snprintf(lngS, sizeof(lngS), "%.6f", cs.lng); }
   else { snprintf(latS, sizeof(latS), "null"); snprintf(lngS, sizeof(lngS), "null"); }
-  char buf[640];
+  char buf[800];
   snprintf(buf, sizeof(buf),
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"seq\":%lu,\"clients\":%d,"
     "\"mq2Ready\":%s,\"tempValid\":%s,\"currentValid\":%s,\"voltageValid\":%s,\"relayMismatch\":%s,"
     "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
     "\"gpsFix\":%s,\"gpsSats\":%d,\"lat\":%s,\"lng\":%s,"
-    "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu}",
+    "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu,"
+    "\"mq2Mv\":%d,\"mq2BaseMv\":%d}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), (unsigned long)sq,
     WiFi.softAPgetStationNum(),
     rd.mq2Ready ? "true" : "false", rd.tempValid ? "true" : "false",
@@ -155,7 +156,8 @@ static void handleHealth() {
     (unsigned long)(protectionHandle ? uxTaskGetStackHighWaterMark(protectionHandle) * sizeof(StackType_t) : 0),
     gpsFix ? "true" : "false", cs.sats, latS, lngS,
     cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
-    smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed);
+    smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed,
+    (int)rd.mq2Mv, (int)rd.mq2BaseMv);
   sendJson(200, buf);
 }
 
@@ -203,11 +205,12 @@ static void protectionCycle(uint32_t now) {
   xSemaphoreGive(stateMutex);
 
   // Serial log makes the score explainable to judges (115200 baud).
-  Serial.printf("seq=%lu %s risk=%d [T%d I%d V%d S%d F%d O%d] relay=%d armed=%d crit=%d fault=%d\n",
+  Serial.printf("seq=%lu %s risk=%d [T%d I%d V%d S%d F%d O%d] relay=%d armed=%d crit=%d fault=%d ok(T%d I%d V%d) smoke=%d mq=%d/%d\n",
     (unsigned long)nextSeq, statusName(lastRisk.status), lastRisk.risk,
     lastRisk.parts.temp, lastRisk.parts.current, lastRisk.parts.voltage,
     lastRisk.parts.smoke, lastRisk.parts.flame, lastRisk.parts.oil,
-    actuators.relayAllowed(), relayGate.armed(), lastRisk.critical, lastRisk.sensorFault);
+    actuators.relayAllowed(), relayGate.armed(), lastRisk.critical, lastRisk.sensorFault,
+    rd.tempValid, rd.currentValid, rd.voltageValid, rd.smoke, (int)rd.mq2Mv, (int)rd.mq2BaseMv);
 }
 
 // Protection task: sensors + risk + relay + LEDs, independent of Wi-Fi/HTTP.
@@ -315,6 +318,9 @@ void setup() {
 
   Serial2.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);     // GPS module
   Serial.println(smsEnabled ? "SMS alerts: ON" : "SMS alerts: OFF (set ALERT_PHONE_NUMBER in secrets.h)");
+  Serial.printf("Sensors fitted: temp=%d current=%d voltage=%d level=%d (config.h HAS_*; unfitted = ignored, shown as null)\n",
+    HAS_TEMP_SENSOR, HAS_CURRENT_SENSOR, HAS_VOLTAGE_SENSOR, HAS_LEVEL_SENSOR);
+  Serial.printf("Relay: ACTIVE_LOW=%d. At boot (cutoff) the relay module's LED must be OFF; it clicks ON ~5 s later when all fitted sensors are valid. If it is the other way round, flip RELAY_ACTIVE_LOW in config.h.\n", (int)RELAY_ACTIVE_LOW);
   xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0);
 
   startWatchdog();

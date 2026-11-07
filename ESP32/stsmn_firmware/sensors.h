@@ -14,6 +14,7 @@ struct SensorReadings {
   bool smoke;        bool mq2Ready;
   bool flame;
   bool oilValid;     int oilPct;
+  float mq2Mv;       float mq2BaseMv;   // diagnostics only (shown in /api/health + Serial)
 };
 
 class SensorHub {
@@ -78,7 +79,7 @@ class SensorHub {
   // One protection cycle (every SENSOR_CYCLE_MS).
   const SensorReadings& sample(uint32_t now) {
     // --- Temperature (value comes from the averaged valid readings) ---
-    r_.tempValid = tempFilter_.valid() && tempAvg_.hasData();
+    r_.tempValid = HAS_TEMP_SENSOR && tempFilter_.valid() && tempAvg_.hasData();
     r_.tempC = tempAvg_.value();
 
     // --- Current: ADC mV -> amps using the calibrated zero offset ---
@@ -92,7 +93,7 @@ class SensorHub {
     if (!currentFilter_.valid()) currentAvg_.reset();
     float a = currentAvg_.value();
     r_.currentA = (a < ACS_DEADBAND_A) ? 0.0f : a;
-    r_.currentValid = currentFilter_.valid() && currentAvg_.hasData();
+    r_.currentValid = HAS_CURRENT_SENSOR && currentFilter_.valid() && currentAvg_.hasData();
 
     // --- Voltage: ADC mV -> volts using module ratio and calibration factor ---
     float vMv = readAvgMv(PIN_VOLTAGE, ADC_SAMPLES_PER_CYCLE);
@@ -101,23 +102,25 @@ class SensorHub {
     voltageFilter_.update(vOk);
     if (!voltageFilter_.valid()) voltAvg_.reset();
     r_.voltageV = voltAvg_.value();
-    r_.voltageValid = voltageFilter_.valid() && voltAvg_.hasData();
+    r_.voltageValid = HAS_VOLTAGE_SENSOR && voltageFilter_.valid() && voltAvg_.hasData();
 
     // --- MQ-2: demo indicator, relative to a clean-air baseline ---
     float mq = readAvgMv(PIN_MQ2_AO, ADC_SAMPLES_PER_CYCLE);
     mq2Avg_.push(mq);
+    const float mqAvg = mq2Avg_.value();
     if (!mq2Ready_) {
-      if ((uint32_t)(now - mq2Start_) >= MQ2_WARMUP_MS) {
-        mq2Baseline_ = mq2Avg_.value();
-        mq2Ready_ = true;
-      }
+      mq2Baseline_ = mqAvg;                              // while the heater warms up the baseline simply follows it
+      if ((uint32_t)(now - mq2Start_) >= MQ2_WARMUP_MS) mq2Ready_ = true;
       r_.smoke = false;  // never report smoke from a cold sensor
     } else {
-      float delta = mq2Avg_.value() - mq2Baseline_;
+      float delta = mqAvg - mq2Baseline_;
       if (!smokeLatched_ && delta >= MQ2_DELTA_ENTER_MV) smokeLatched_ = true;
       else if (smokeLatched_ && delta <= MQ2_DELTA_EXIT_MV) smokeLatched_ = false;
+      // Clean air: let the baseline follow slow drift. Never while smoke is present or rising.
+      if (!smokeLatched_ && delta < MQ2_DELTA_ENTER_MV * 0.5f) mq2Baseline_ += (mqAvg - mq2Baseline_) * MQ2_BASELINE_ALPHA;
       r_.smoke = smokeLatched_;
     }
+    r_.mq2Mv = mqAvg; r_.mq2BaseMv = mq2Baseline_;
     r_.mq2Ready = mq2Ready_;
 
     // --- Flame: digital input, debounced ---
@@ -133,7 +136,7 @@ class SensorHub {
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     r_.oilPct = (int)lroundf(pct);
-    r_.oilValid = true;
+    r_.oilValid = HAS_LEVEL_SENSOR;
 
     return r_;
   }

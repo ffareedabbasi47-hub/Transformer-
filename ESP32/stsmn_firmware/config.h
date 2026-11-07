@@ -20,6 +20,16 @@ constexpr int WIFI_AP_MAX_CLIENTS = 3;
 constexpr uint8_t WIFI_AP_IP[4] = {192, 168, 4, 1};
 constexpr int HTTP_PORT = 80;
 
+// ---------- Which sensors are actually FITTED on your board ------------------------
+// A sensor that is not connected cannot be read: its pin just floats and gives random numbers. Set it to
+// false and the firmware treats it as "not fitted": it is reported as null (the app shows "-"), adds no
+// risk points and is NEVER counted as a fault (a missing sensor must not hold the status at WARNING).
+// Leave true for everything that IS wired. (Smoke, flame, GPS and SIM have their own checks.)
+constexpr bool HAS_TEMP_SENSOR    = true;
+constexpr bool HAS_CURRENT_SENSOR = true;
+constexpr bool HAS_VOLTAGE_SENSOR = true;
+constexpr bool HAS_LEVEL_SENSOR   = true;
+
 // ---------- Pins (ASSUMPTION: PDF gives no pins) -----------------------------
 // Analog inputs are all on ADC1 (GPIO32-39) because ADC2 cannot be used while
 // Wi-Fi is on. Strapping pins (0,2,5,12,15) are avoided.
@@ -95,8 +105,11 @@ constexpr int   VOLT_ADC_MAX_MV   = 3100;  // above this the ESP32 ADC saturates
 constexpr float NOMINAL_VOLTAGE_V = 3.7f;
 
 // ---------- MQ-2 (relative threshold, demo indicator only) -------------------
-constexpr int MQ2_DELTA_ENTER_MV = 300;  // above clean-air baseline -> smoke
-constexpr int MQ2_DELTA_EXIT_MV  = 180;  // hysteresis
+constexpr int MQ2_DELTA_ENTER_MV = 120;  // above clean-air baseline -> smoke (at the ADC pin, after the 10k/20k divider)
+constexpr int MQ2_DELTA_EXIT_MV  = 60;   // hysteresis
+// The clean-air baseline follows slow drift (heater warm-up, temperature, humidity) so it never has to be
+// perfect: ~2 minute time constant, and it never follows a rise bigger than half the enter threshold (= smoke).
+constexpr float MQ2_BASELINE_ALPHA = 0.002f;
 
 // ---------- Water level (DEMO: water only, never transformer oil) ------------
 constexpr int LEVEL_DRY_MV  = 0;     // CALIBRATE: reading with dry sensor
@@ -123,6 +136,7 @@ constexpr int EMERGENCY_ENTER = 80;   // PDF example: 90+ = emergency
 constexpr int EMERGENCY_EXIT  = 60;   // hysteresis
 constexpr int FLOOR_SENSOR_FAULT_RISK = 45;  // a dead protection sensor = WARNING
 constexpr int FLOOR_CRITICAL_RISK     = 90;  // any critical condition = >= 90
+constexpr int FLOOR_SMOKE_RISK        = 55;  // smoke at all = at least WARNING (never silently "SAFE")
 
 // ---------- Relay arming / fail-safe (see protection_logic.h) -----------------
 // The supply is NEVER allowed until every protection sensor (temperature, current, voltage) has been valid
@@ -144,4 +158,5 @@ constexpr uint32_t PROTECTION_LOOP_MS       = 10;  // sleep between protection-t
 constexpr uint32_t CRIT_TEMP_HOLD_MS    = 3000;
 constexpr uint32_t CRIT_CURRENT_HOLD_MS = 1500;
 constexpr uint32_t CRIT_SMOKE_HEAT_HOLD_MS = 2000; // smoke while temp >= TEMP_WARN_C
+constexpr uint32_t CRIT_SMOKE_HOLD_MS      = 3000; // smoke by itself, held this long -> EMERGENCY + supply cut
 // Flame (debounced) is critical immediately.

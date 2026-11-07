@@ -73,16 +73,20 @@ class RiskEngine {
   RiskResult update(const RiskInput& in, uint32_t now) {
     RiskResult r;
     r.parts = scoreSensors(in);
-    r.sensorFault = !(in.tempValid && in.currentValid && in.voltageValid);
+    // Only sensors that are FITTED (config.h HAS_*) can be a fault; an unplugged-by-design sensor is not one.
+    r.sensorFault = (HAS_TEMP_SENSOR && !in.tempValid) || (HAS_CURRENT_SENSOR && !in.currentValid) ||
+                    (HAS_VOLTAGE_SENSOR && !in.voltageValid);
 
     bool tempCrit = tempCritTimer_.update(in.tempValid && in.tempC >= TEMP_CRIT_C, now, CRIT_TEMP_HOLD_MS);
     bool curCrit  = currentCritTimer_.update(in.currentValid && fabsf(in.currentA) >= CURRENT_CRIT_A, now, CRIT_CURRENT_HOLD_MS);
     // Smoke with an unknown temperature is treated as smoke WITH heat (conservative: a blind sensor must not hide a fire).
     bool smokeHeat = smokeHeatTimer_.update(in.smoke && (!in.tempValid || in.tempC >= TEMP_WARN_C), now, CRIT_SMOKE_HEAT_HOLD_MS);
-    r.critical = in.flame || tempCrit || curCrit || smokeHeat;
+    bool smokeAlone = smokeTimer_.update(in.smoke, now, CRIT_SMOKE_HOLD_MS);   // real smoke that does not go away
+    r.critical = in.flame || tempCrit || curCrit || smokeHeat || smokeAlone;
 
     int risk = r.parts.base;
     if (r.sensorFault && risk < FLOOR_SENSOR_FAULT_RISK) risk = FLOOR_SENSOR_FAULT_RISK;
+    if (in.smoke && risk < FLOOR_SMOKE_RISK) risk = FLOOR_SMOKE_RISK;
     if (r.critical && risk < FLOOR_CRITICAL_RISK) risk = FLOOR_CRITICAL_RISK;
     r.risk = risk;
 
@@ -117,5 +121,5 @@ class RiskEngine {
   Status status_ = Status::SAFE;
   bool recovering_ = false;
   uint32_t recoveryStart_ = 0;
-  HoldTimer tempCritTimer_, currentCritTimer_, smokeHeatTimer_;
+  HoldTimer tempCritTimer_, currentCritTimer_, smokeHeatTimer_, smokeTimer_;
 };

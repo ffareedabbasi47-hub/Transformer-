@@ -50,6 +50,16 @@ constexpr int WIFI_AP_MAX_CLIENTS = 3;
 constexpr uint8_t WIFI_AP_IP[4] = {192, 168, 4, 1};
 constexpr int HTTP_PORT = 80;
 
+// ---------- Which sensors are actually FITTED on your board ------------------------
+// A sensor that is not connected cannot be read: its pin just floats and gives random numbers. Set it to
+// false and the firmware treats it as "not fitted": it is reported as null (the app shows "-"), adds no
+// risk points and is NEVER counted as a fault (a missing sensor must not hold the status at WARNING).
+// Leave true for everything that IS wired. (Smoke, flame, GPS and SIM have their own checks.)
+constexpr bool HAS_TEMP_SENSOR    = true;
+constexpr bool HAS_CURRENT_SENSOR = true;
+constexpr bool HAS_VOLTAGE_SENSOR = true;
+constexpr bool HAS_LEVEL_SENSOR   = true;
+
 // ---------- Pins (ASSUMPTION: PDF gives no pins) -----------------------------
 // Analog inputs are all on ADC1 (GPIO32-39) because ADC2 cannot be used while
 // Wi-Fi is on. Strapping pins (0,2,5,12,15) are avoided.
@@ -125,8 +135,11 @@ constexpr int   VOLT_ADC_MAX_MV   = 3100;  // above this the ESP32 ADC saturates
 constexpr float NOMINAL_VOLTAGE_V = 3.7f;
 
 // ---------- MQ-2 (relative threshold, demo indicator only) -------------------
-constexpr int MQ2_DELTA_ENTER_MV = 300;  // above clean-air baseline -> smoke
-constexpr int MQ2_DELTA_EXIT_MV  = 180;  // hysteresis
+constexpr int MQ2_DELTA_ENTER_MV = 120;  // above clean-air baseline -> smoke (at the ADC pin, after the 10k/20k divider)
+constexpr int MQ2_DELTA_EXIT_MV  = 60;   // hysteresis
+// The clean-air baseline follows slow drift (heater warm-up, temperature, humidity) so it never has to be
+// perfect: ~2 minute time constant, and it never follows a rise bigger than half the enter threshold (= smoke).
+constexpr float MQ2_BASELINE_ALPHA = 0.002f;
 
 // ---------- Water level (DEMO: water only, never transformer oil) ------------
 constexpr int LEVEL_DRY_MV  = 0;     // CALIBRATE: reading with dry sensor
@@ -153,6 +166,7 @@ constexpr int EMERGENCY_ENTER = 80;   // PDF example: 90+ = emergency
 constexpr int EMERGENCY_EXIT  = 60;   // hysteresis
 constexpr int FLOOR_SENSOR_FAULT_RISK = 45;  // a dead protection sensor = WARNING
 constexpr int FLOOR_CRITICAL_RISK     = 90;  // any critical condition = >= 90
+constexpr int FLOOR_SMOKE_RISK        = 55;  // smoke at all = at least WARNING (never silently "SAFE")
 
 // ---------- Relay arming / fail-safe (see protection_logic.h) -----------------
 // The supply is NEVER allowed until every protection sensor (temperature, current, voltage) has been valid
@@ -174,6 +188,7 @@ constexpr uint32_t PROTECTION_LOOP_MS       = 10;  // sleep between protection-t
 constexpr uint32_t CRIT_TEMP_HOLD_MS    = 3000;
 constexpr uint32_t CRIT_CURRENT_HOLD_MS = 1500;
 constexpr uint32_t CRIT_SMOKE_HEAT_HOLD_MS = 2000; // smoke while temp >= TEMP_WARN_C
+constexpr uint32_t CRIT_SMOKE_HOLD_MS      = 3000; // smoke by itself, held this long -> EMERGENCY + supply cut
 // Flame (debounced) is critical immediately.
 
 // ===== Wi-Fi settings: CHANGE THE PASSWORD BELOW (8 to 63 characters). The sketch will not compile with the example one. =====
@@ -319,16 +334,20 @@ class RiskEngine {
   RiskResult update(const RiskInput& in, uint32_t now) {
     RiskResult r;
     r.parts = scoreSensors(in);
-    r.sensorFault = !(in.tempValid && in.currentValid && in.voltageValid);
+    // Only sensors that are FITTED (config.h HAS_*) can be a fault; an unplugged-by-design sensor is not one.
+    r.sensorFault = (HAS_TEMP_SENSOR && !in.tempValid) || (HAS_CURRENT_SENSOR && !in.currentValid) ||
+                    (HAS_VOLTAGE_SENSOR && !in.voltageValid);
 
     bool tempCrit = tempCritTimer_.update(in.tempValid && in.tempC >= TEMP_CRIT_C, now, CRIT_TEMP_HOLD_MS);
     bool curCrit  = currentCritTimer_.update(in.currentValid && fabsf(in.currentA) >= CURRENT_CRIT_A, now, CRIT_CURRENT_HOLD_MS);
     // Smoke with an unknown temperature is treated as smoke WITH heat (conservative: a blind sensor must not hide a fire).
     bool smokeHeat = smokeHeatTimer_.update(in.smoke && (!in.tempValid || in.tempC >= TEMP_WARN_C), now, CRIT_SMOKE_HEAT_HOLD_MS);
-    r.critical = in.flame || tempCrit || curCrit || smokeHeat;
+    bool smokeAlone = smokeTimer_.update(in.smoke, now, CRIT_SMOKE_HOLD_MS);   // real smoke that does not go away
+    r.critical = in.flame || tempCrit || curCrit || smokeHeat || smokeAlone;
 
     int risk = r.parts.base;
     if (r.sensorFault && risk < FLOOR_SENSOR_FAULT_RISK) risk = FLOOR_SENSOR_FAULT_RISK;
+    if (in.smoke && risk < FLOOR_SMOKE_RISK) risk = FLOOR_SMOKE_RISK;
     if (r.critical && risk < FLOOR_CRITICAL_RISK) risk = FLOOR_CRITICAL_RISK;
     r.risk = risk;
 
@@ -363,7 +382,7 @@ class RiskEngine {
   Status status_ = Status::SAFE;
   bool recovering_ = false;
   uint32_t recoveryStart_ = 0;
-  HoldTimer tempCritTimer_, currentCritTimer_, smokeHeatTimer_;
+  HoldTimer tempCritTimer_, currentCritTimer_, smokeHeatTimer_, smokeTimer_;
 };
 
 // ===== protection_logic.h =====
@@ -416,6 +435,7 @@ struct SensorReadings {
   bool smoke;        bool mq2Ready;
   bool flame;
   bool oilValid;     int oilPct;
+  float mq2Mv;       float mq2BaseMv;   // diagnostics only (shown in /api/health + Serial)
 };
 
 class SensorHub {
@@ -480,7 +500,7 @@ class SensorHub {
   // One protection cycle (every SENSOR_CYCLE_MS).
   const SensorReadings& sample(uint32_t now) {
     // --- Temperature (value comes from the averaged valid readings) ---
-    r_.tempValid = tempFilter_.valid() && tempAvg_.hasData();
+    r_.tempValid = HAS_TEMP_SENSOR && tempFilter_.valid() && tempAvg_.hasData();
     r_.tempC = tempAvg_.value();
 
     // --- Current: ADC mV -> amps using the calibrated zero offset ---
@@ -494,7 +514,7 @@ class SensorHub {
     if (!currentFilter_.valid()) currentAvg_.reset();
     float a = currentAvg_.value();
     r_.currentA = (a < ACS_DEADBAND_A) ? 0.0f : a;
-    r_.currentValid = currentFilter_.valid() && currentAvg_.hasData();
+    r_.currentValid = HAS_CURRENT_SENSOR && currentFilter_.valid() && currentAvg_.hasData();
 
     // --- Voltage: ADC mV -> volts using module ratio and calibration factor ---
     float vMv = readAvgMv(PIN_VOLTAGE, ADC_SAMPLES_PER_CYCLE);
@@ -503,23 +523,25 @@ class SensorHub {
     voltageFilter_.update(vOk);
     if (!voltageFilter_.valid()) voltAvg_.reset();
     r_.voltageV = voltAvg_.value();
-    r_.voltageValid = voltageFilter_.valid() && voltAvg_.hasData();
+    r_.voltageValid = HAS_VOLTAGE_SENSOR && voltageFilter_.valid() && voltAvg_.hasData();
 
     // --- MQ-2: demo indicator, relative to a clean-air baseline ---
     float mq = readAvgMv(PIN_MQ2_AO, ADC_SAMPLES_PER_CYCLE);
     mq2Avg_.push(mq);
+    const float mqAvg = mq2Avg_.value();
     if (!mq2Ready_) {
-      if ((uint32_t)(now - mq2Start_) >= MQ2_WARMUP_MS) {
-        mq2Baseline_ = mq2Avg_.value();
-        mq2Ready_ = true;
-      }
+      mq2Baseline_ = mqAvg;                              // while the heater warms up the baseline simply follows it
+      if ((uint32_t)(now - mq2Start_) >= MQ2_WARMUP_MS) mq2Ready_ = true;
       r_.smoke = false;  // never report smoke from a cold sensor
     } else {
-      float delta = mq2Avg_.value() - mq2Baseline_;
+      float delta = mqAvg - mq2Baseline_;
       if (!smokeLatched_ && delta >= MQ2_DELTA_ENTER_MV) smokeLatched_ = true;
       else if (smokeLatched_ && delta <= MQ2_DELTA_EXIT_MV) smokeLatched_ = false;
+      // Clean air: let the baseline follow slow drift. Never while smoke is present or rising.
+      if (!smokeLatched_ && delta < MQ2_DELTA_ENTER_MV * 0.5f) mq2Baseline_ += (mqAvg - mq2Baseline_) * MQ2_BASELINE_ALPHA;
       r_.smoke = smokeLatched_;
     }
+    r_.mq2Mv = mqAvg; r_.mq2BaseMv = mq2Baseline_;
     r_.mq2Ready = mq2Ready_;
 
     // --- Flame: digital input, debounced ---
@@ -535,7 +557,7 @@ class SensorHub {
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     r_.oilPct = (int)lroundf(pct);
-    r_.oilValid = true;
+    r_.oilValid = HAS_LEVEL_SENSOR;
 
     return r_;
   }
@@ -1021,13 +1043,14 @@ static void handleHealth() {
   char latS[16], lngS[16];
   if (gpsFix) { snprintf(latS, sizeof(latS), "%.6f", cs.lat); snprintf(lngS, sizeof(lngS), "%.6f", cs.lng); }
   else { snprintf(latS, sizeof(latS), "null"); snprintf(lngS, sizeof(lngS), "null"); }
-  char buf[640];
+  char buf[800];
   snprintf(buf, sizeof(buf),
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"seq\":%lu,\"clients\":%d,"
     "\"mq2Ready\":%s,\"tempValid\":%s,\"currentValid\":%s,\"voltageValid\":%s,\"relayMismatch\":%s,"
     "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
     "\"gpsFix\":%s,\"gpsSats\":%d,\"lat\":%s,\"lng\":%s,"
-    "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu}",
+    "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu,"
+    "\"mq2Mv\":%d,\"mq2BaseMv\":%d}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), (unsigned long)sq,
     WiFi.softAPgetStationNum(),
     rd.mq2Ready ? "true" : "false", rd.tempValid ? "true" : "false",
@@ -1037,7 +1060,8 @@ static void handleHealth() {
     (unsigned long)(protectionHandle ? uxTaskGetStackHighWaterMark(protectionHandle) * sizeof(StackType_t) : 0),
     gpsFix ? "true" : "false", cs.sats, latS, lngS,
     cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
-    smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed);
+    smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed,
+    (int)rd.mq2Mv, (int)rd.mq2BaseMv);
   sendJson(200, buf);
 }
 
@@ -1085,11 +1109,12 @@ static void protectionCycle(uint32_t now) {
   xSemaphoreGive(stateMutex);
 
   // Serial log makes the score explainable to judges (115200 baud).
-  Serial.printf("seq=%lu %s risk=%d [T%d I%d V%d S%d F%d O%d] relay=%d armed=%d crit=%d fault=%d\n",
+  Serial.printf("seq=%lu %s risk=%d [T%d I%d V%d S%d F%d O%d] relay=%d armed=%d crit=%d fault=%d ok(T%d I%d V%d) smoke=%d mq=%d/%d\n",
     (unsigned long)nextSeq, statusName(lastRisk.status), lastRisk.risk,
     lastRisk.parts.temp, lastRisk.parts.current, lastRisk.parts.voltage,
     lastRisk.parts.smoke, lastRisk.parts.flame, lastRisk.parts.oil,
-    actuators.relayAllowed(), relayGate.armed(), lastRisk.critical, lastRisk.sensorFault);
+    actuators.relayAllowed(), relayGate.armed(), lastRisk.critical, lastRisk.sensorFault,
+    rd.tempValid, rd.currentValid, rd.voltageValid, rd.smoke, (int)rd.mq2Mv, (int)rd.mq2BaseMv);
 }
 
 // Protection task: sensors + risk + relay + LEDs, independent of Wi-Fi/HTTP.
@@ -1197,6 +1222,9 @@ void setup() {
 
   Serial2.begin(GPS_BAUD, SERIAL_8N1, PIN_GPS_RX, PIN_GPS_TX);     // GPS module
   Serial.println(smsEnabled ? "SMS alerts: ON" : "SMS alerts: OFF (set ALERT_PHONE_NUMBER in secrets.h)");
+  Serial.printf("Sensors fitted: temp=%d current=%d voltage=%d level=%d (config.h HAS_*; unfitted = ignored, shown as null)\n",
+    HAS_TEMP_SENSOR, HAS_CURRENT_SENSOR, HAS_VOLTAGE_SENSOR, HAS_LEVEL_SENSOR);
+  Serial.printf("Relay: ACTIVE_LOW=%d. At boot (cutoff) the relay module's LED must be OFF; it clicks ON ~5 s later when all fitted sensors are valid. If it is the other way round, flip RELAY_ACTIVE_LOW in config.h.\n", (int)RELAY_ACTIVE_LOW);
   xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0);
 
   startWatchdog();

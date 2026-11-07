@@ -68,3 +68,14 @@ g++ -std=c++17 -I../ESP32/stsmn_firmware protection_logic_test.cpp -o prot_test 
 g++ -std=c++17 -Ifirmware/mock -I../ESP32/stsmn_firmware firmware/sensor_actuator_test.cpp -o sensor_test && ./sensor_test
 cd .. && sh tests/firmware/compile_sketch.sh        # syntax check against HOST MOCKS, not the ESP32 core
 ```
+
+## Sensors you have not wired (config.h `HAS_*`)
+A sensor that is not connected has a floating pin and reads random numbers. Set `HAS_TEMP_SENSOR`, `HAS_CURRENT_SENSOR`,
+`HAS_VOLTAGE_SENSOR` or `HAS_LEVEL_SENSOR` to `false` for anything you did not fit: it is reported as `null` (the app shows "-"),
+adds no risk points and is not a sensor fault, so it can no longer hold the status at WARNING (risk 45) or keep the relay from arming.
+The Serial log prints `ok(T I V)` for the sensors that are really valid, `mq=<now>/<baseline>` for the smoke sensor, and `/api/health`
+carries `mq2Mv` / `mq2BaseMv`.
+
+## Smoke
+MQ-2 smoke now raises the status to at least WARNING at once, and EMERGENCY (supply cut) if it lasts `CRIT_SMOKE_HOLD_MS` (3 s),
+with or without heat. The clean-air baseline follows slow drift; the trigger is `MQ2_DELTA_ENTER_MV` (120 mV) above it.

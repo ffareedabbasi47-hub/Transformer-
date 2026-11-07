@@ -68,6 +68,21 @@ int main() {
     if (r.risk >= WARNING_EXIT && r.risk < WARNING_ENTER) CHECK(r.status == Status::WARNING, "hysteresis: stays WARNING in band");
     else printf("skip: band case risk=%d\n", r.risk);
   }
+  { // Smoke by itself (cool, all sensors fine): never silently SAFE, and EMERGENCY + cutoff if it does not go away
+    RiskEngine e; RiskInput in = normal(); in.smoke = true;
+    RiskResult r = e.update(in, 0);
+    CHECK(r.status == Status::WARNING && r.risk >= FLOOR_SMOKE_RISK, "smoke alone -> WARNING immediately");
+    r = e.update(in, CRIT_SMOKE_HOLD_MS - 100);
+    CHECK(r.status == Status::WARNING, "smoke alone: not yet EMERGENCY before the hold time");
+    r = e.update(in, CRIT_SMOKE_HOLD_MS + 100);
+    CHECK(r.status == Status::EMERGENCY && r.critical, "smoke held -> EMERGENCY (supply is cut)");
+  }
+  { // A short puff that clears does not trip EMERGENCY
+    RiskEngine e; RiskInput in = normal(); in.smoke = true;
+    e.update(in, 0); in.smoke = false; RiskResult r = e.update(in, 1500);
+    r = e.update(in, 8000);
+    CHECK(r.status == Status::SAFE, "brief smoke that clears -> back to SAFE");
+  }
   { // Regression: smoke while the temperature sensor is blind must be treated as smoke WITH heat -> EMERGENCY
     RiskEngine e; RiskInput in = normal(); in.smoke = true; in.tempValid = false;
     RiskResult r = e.update(in, 0);

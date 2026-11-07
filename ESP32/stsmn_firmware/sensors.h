@@ -16,6 +16,7 @@ struct SensorReadings {
   bool oilValid;     int oilPct;
   float mq2Mv;       float mq2BaseMv;   // diagnostics only (shown in /api/health + Serial)
   int smokePct;      int flamePct;      // signal strength 0..100
+  bool tempSeen, currentSeen, voltageSeen;   // was this sensor ever valid since boot (false = not connected)
 };
 
 class SensorHub {
@@ -82,6 +83,8 @@ class SensorHub {
     // --- Temperature (value comes from the averaged valid readings) ---
     r_.tempValid = HAS_TEMP_SENSOR && tempFilter_.valid() && tempAvg_.hasData();
     r_.tempC = tempAvg_.value();
+    if (r_.tempValid) seenT_ = true;
+    r_.tempSeen = seenT_ || !AUTO_IGNORE_UNPLUGGED;
 
     // --- Current: ADC mV -> amps using the calibrated zero offset ---
     float adcMv = readAvgMv(PIN_ACS712, ADC_SAMPLES_PER_CYCLE);
@@ -95,6 +98,8 @@ class SensorHub {
     float a = currentAvg_.value();
     r_.currentA = (a < ACS_DEADBAND_A) ? 0.0f : a;
     r_.currentValid = HAS_CURRENT_SENSOR && currentFilter_.valid() && currentAvg_.hasData();
+    if (r_.currentValid) seenC_ = true;
+    r_.currentSeen = seenC_ || !AUTO_IGNORE_UNPLUGGED;
 
     // --- Voltage: ADC mV -> volts using module ratio and calibration factor ---
     float vMv = readAvgMv(PIN_VOLTAGE, ADC_SAMPLES_PER_CYCLE);
@@ -104,6 +109,8 @@ class SensorHub {
     if (!voltageFilter_.valid()) voltAvg_.reset();
     r_.voltageV = voltAvg_.value();
     r_.voltageValid = HAS_VOLTAGE_SENSOR && voltageFilter_.valid() && voltAvg_.hasData();
+    if (r_.voltageValid) seenV_ = true;
+    r_.voltageSeen = seenV_ || !AUTO_IGNORE_UNPLUGGED;
 
     // --- MQ-2: demo indicator, relative to a clean-air baseline ---
     float mq = readAvgMv(PIN_MQ2_AO, ADC_SAMPLES_PER_CYCLE);
@@ -190,5 +197,6 @@ class SensorHub {
   bool mq2Ready_ = false, smokeLatched_ = false;
   float mq2Baseline_ = 0;
   int flameCount_ = 0;
+  bool seenT_ = false, seenC_ = false, seenV_ = false;
   SensorReadings r_{};
 };

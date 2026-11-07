@@ -84,3 +84,7 @@ with or without heat. The clean-air baseline follows slow drift; the trigger is 
 5V relay modules driven from the ESP32's 3.3V often stay ON when the pin is set HIGH ("cut"). `RELAY_OPEN_DRAIN_OFF = true` (config.h) fixes that:
 cut = pin released (the module's own pull-up turns the relay OFF), on = pin driven LOW. Check by hand: at boot the relay module's LED is OFF;
 ~5 s later (all fitted sensors valid) it turns ON; in EMERGENCY it turns OFF again. Wire the load to COM + NO. If your module is active-HIGH, set `RELAY_ACTIVE_LOW = false`.
+
+## Auto-detect of unplugged sensors, restarts (v1.1.x)
+- `AUTO_IGNORE_UNPLUGGED=true` (config.h): a temperature / current / voltage sensor that has never given a valid reading since boot is treated as *not connected* (ignored, `null` in the app) - no 45 % floor, no yellow light, relay is allowed. If a sensor worked and then fails, that IS a fault (WARNING, supply cut after 10 s).
+- Repeated restarts are almost always a **power dip** (BROWNOUT): a phone OTG port cannot power ESP32 + Wi-Fi + relay + MQ-2 heater. Use a power bank / 5V 2A supply. `/api/health` shows `resetReason` and the Serial Monitor prints it at boot. Wi-Fi TX power is lowered to reduce current peaks; protection task stack raised to 10 KB.

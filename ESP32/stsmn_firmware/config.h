@@ -27,6 +27,9 @@ constexpr int HTTP_PORT = 80;
 // Leave true for everything that IS wired. (Smoke, flame, GPS and SIM have their own checks.)
 constexpr bool HAS_TEMP_SENSOR    = true;
 constexpr bool HAS_CURRENT_SENSOR = true;
+// A fitted sensor that has NEVER given a valid reading since boot is treated as 'not connected' (ignored, shown as null) instead of a
+// fault. Once it has worked, losing it IS a fault (WARNING + supply cut after SENSOR_FAULT_CUTOFF_MS). false = strict: every HAS_* sensor must work.
+constexpr bool AUTO_IGNORE_UNPLUGGED = true;
 constexpr bool HAS_VOLTAGE_SENSOR = true;
 constexpr bool HAS_LEVEL_SENSOR   = true;
 // Flame strength (weak / strong) needs the module's AO pin wired to GPIO36. Without it only the digital
@@ -174,7 +177,7 @@ constexpr uint32_t SENSOR_FAULT_CUTOFF_MS  = 10000;
 // Protection (sensors, risk, relay, LEDs) runs in its own FreeRTOS task so a slow or stalled HTTP client can
 // never delay it. The task feeds the task watchdog; if it ever hangs the ESP32 resets and the relay returns to cutoff.
 constexpr uint32_t WDT_TIMEOUT_S            = 8;
-constexpr uint32_t PROTECTION_TASK_STACK    = 6144;
+constexpr uint32_t PROTECTION_TASK_STACK    = 10240;
 constexpr int      PROTECTION_TASK_PRIORITY = 3;   // above the Arduino loop task (1)
 constexpr uint32_t PROTECTION_LOOP_MS       = 10;  // sleep between protection-task iterations
 

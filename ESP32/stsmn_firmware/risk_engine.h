@@ -88,12 +88,14 @@ inline RiskPct scorePercent(const RiskInput& in) {
 
 class RiskEngine {
  public:
+  // Runtime 'is this sensor connected at all' (a sensor never seen valid since boot is treated as not fitted). Default: all fitted.
+  void setFitted(bool temp, bool current, bool voltage) { fitT_ = temp; fitC_ = current; fitV_ = voltage; }
   RiskResult update(const RiskInput& in, uint32_t now) {
     RiskResult r;
     r.parts = scoreSensors(in);
     // Only sensors that are FITTED (config.h HAS_*) can be a fault; an unplugged-by-design sensor is not one.
-    r.sensorFault = (HAS_TEMP_SENSOR && !in.tempValid) || (HAS_CURRENT_SENSOR && !in.currentValid) ||
-                    (HAS_VOLTAGE_SENSOR && !in.voltageValid);
+    r.sensorFault = (fitT_ && HAS_TEMP_SENSOR && !in.tempValid) || (fitC_ && HAS_CURRENT_SENSOR && !in.currentValid) ||
+                    (fitV_ && HAS_VOLTAGE_SENSOR && !in.voltageValid);
 
     bool tempCrit = tempCritTimer_.update(in.tempValid && in.tempC >= TEMP_CRIT_C, now, CRIT_TEMP_HOLD_MS);
     bool curCrit  = currentCritTimer_.update(in.currentValid && fabsf(in.currentA) >= CURRENT_CRIT_A, now, CRIT_CURRENT_HOLD_MS);
@@ -142,6 +144,7 @@ class RiskEngine {
   Status status() const { return status_; }
 
  private:
+  bool fitT_ = true, fitC_ = true, fitV_ = true;
   void enterEmergency() { status_ = Status::EMERGENCY; recovering_ = false; }
   Status status_ = Status::SAFE;
   bool recovering_ = false;

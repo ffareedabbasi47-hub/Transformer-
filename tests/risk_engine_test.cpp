@@ -135,6 +135,16 @@ int main() {
     RiskResult r = e.update(in, 0);
     CHECK(r.risk <= 100 && r.parts.base <= 100, "score clamped to 100");
   }
+  { // Never-connected sensor (setFitted false) is not a fault; a connected one that is invalid still is.
+    RiskEngine e; RiskInput in = normal(); in.tempValid = false; in.voltageValid = false;
+    e.setFitted(false, true, false);
+    RiskResult r = e.update(in, 1000);
+    CHECK(!r.sensorFault && r.status == Status::SAFE, "unplugged sensors ignored -> SAFE, no 45% floor");
+    RiskEngine e2; RiskInput in2 = normal(); in2.currentValid = false;
+    e2.setFitted(false, true, false);
+    RiskResult r2 = e2.update(in2, 1000);
+    CHECK(r2.sensorFault && r2.risk >= FLOOR_SENSOR_FAULT_RISK, "lost connected sensor -> fault + floor");
+  }
   printf(failures ? "\n%d FAILED\n" : "\nALL PASSED\n", failures);
   return failures ? 1 : 0;
 }

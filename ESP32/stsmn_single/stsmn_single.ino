@@ -19,6 +19,7 @@
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #include <esp_timer.h>
+#include <esp_system.h>
 #include <Preferences.h>
 
 // ===== forward declarations (needed by the Arduino IDE's automatic prototypes) =====
@@ -59,6 +60,9 @@ constexpr int HTTP_PORT = 80;
 // Leave true for everything that IS wired. (Smoke, flame, GPS and SIM have their own checks.)
 constexpr bool HAS_TEMP_SENSOR    = true;
 constexpr bool HAS_CURRENT_SENSOR = true;
+// A fitted sensor that has NEVER given a valid reading since boot is treated as 'not connected' (ignored, shown as null) instead of a
+// fault. Once it has worked, losing it IS a fault (WARNING + supply cut after SENSOR_FAULT_CUTOFF_MS). false = strict: every HAS_* sensor must work.
+constexpr bool AUTO_IGNORE_UNPLUGGED = true;
 constexpr bool HAS_VOLTAGE_SENSOR = true;
 constexpr bool HAS_LEVEL_SENSOR   = true;
 // Flame strength (weak / strong) needs the module's AO pin wired to GPIO36. Without it only the digital
@@ -206,7 +210,7 @@ constexpr uint32_t SENSOR_FAULT_CUTOFF_MS  = 10000;
 // Protection (sensors, risk, relay, LEDs) runs in its own FreeRTOS task so a slow or stalled HTTP client can
 // never delay it. The task feeds the task watchdog; if it ever hangs the ESP32 resets and the relay returns to cutoff.
 constexpr uint32_t WDT_TIMEOUT_S            = 8;
-constexpr uint32_t PROTECTION_TASK_STACK    = 6144;
+constexpr uint32_t PROTECTION_TASK_STACK    = 10240;
 constexpr int      PROTECTION_TASK_PRIORITY = 3;   // above the Arduino loop task (1)
 constexpr uint32_t PROTECTION_LOOP_MS       = 10;  // sleep between protection-task iterations
 
@@ -375,12 +379,14 @@ inline RiskPct scorePercent(const RiskInput& in) {
 
 class RiskEngine {
  public:
+  // Runtime 'is this sensor connected at all' (a sensor never seen valid since boot is treated as not fitted). Default: all fitted.
+  void setFitted(bool temp, bool current, bool voltage) { fitT_ = temp; fitC_ = current; fitV_ = voltage; }
   RiskResult update(const RiskInput& in, uint32_t now) {
     RiskResult r;
     r.parts = scoreSensors(in);
     // Only sensors that are FITTED (config.h HAS_*) can be a fault; an unplugged-by-design sensor is not one.
-    r.sensorFault = (HAS_TEMP_SENSOR && !in.tempValid) || (HAS_CURRENT_SENSOR && !in.currentValid) ||
-                    (HAS_VOLTAGE_SENSOR && !in.voltageValid);
+    r.sensorFault = (fitT_ && HAS_TEMP_SENSOR && !in.tempValid) || (fitC_ && HAS_CURRENT_SENSOR && !in.currentValid) ||
+                    (fitV_ && HAS_VOLTAGE_SENSOR && !in.voltageValid);
 
     bool tempCrit = tempCritTimer_.update(in.tempValid && in.tempC >= TEMP_CRIT_C, now, CRIT_TEMP_HOLD_MS);
     bool curCrit  = currentCritTimer_.update(in.currentValid && fabsf(in.currentA) >= CURRENT_CRIT_A, now, CRIT_CURRENT_HOLD_MS);
@@ -429,6 +435,7 @@ class RiskEngine {
   Status status() const { return status_; }
 
  private:
+  bool fitT_ = true, fitC_ = true, fitV_ = true;
   void enterEmergency() { status_ = Status::EMERGENCY; recovering_ = false; }
   Status status_ = Status::SAFE;
   bool recovering_ = false;
@@ -488,6 +495,7 @@ struct SensorReadings {
   bool oilValid;     int oilPct;
   float mq2Mv;       float mq2BaseMv;   // diagnostics only (shown in /api/health + Serial)
   int smokePct;      int flamePct;      // signal strength 0..100
+  bool tempSeen, currentSeen, voltageSeen;   // was this sensor ever valid since boot (false = not connected)
 };
 
 class SensorHub {
@@ -554,6 +562,8 @@ class SensorHub {
     // --- Temperature (value comes from the averaged valid readings) ---
     r_.tempValid = HAS_TEMP_SENSOR && tempFilter_.valid() && tempAvg_.hasData();
     r_.tempC = tempAvg_.value();
+    if (r_.tempValid) seenT_ = true;
+    r_.tempSeen = seenT_ || !AUTO_IGNORE_UNPLUGGED;
 
     // --- Current: ADC mV -> amps using the calibrated zero offset ---
     float adcMv = readAvgMv(PIN_ACS712, ADC_SAMPLES_PER_CYCLE);
@@ -567,6 +577,8 @@ class SensorHub {
     float a = currentAvg_.value();
     r_.currentA = (a < ACS_DEADBAND_A) ? 0.0f : a;
     r_.currentValid = HAS_CURRENT_SENSOR && currentFilter_.valid() && currentAvg_.hasData();
+    if (r_.currentValid) seenC_ = true;
+    r_.currentSeen = seenC_ || !AUTO_IGNORE_UNPLUGGED;
 
     // --- Voltage: ADC mV -> volts using module ratio and calibration factor ---
     float vMv = readAvgMv(PIN_VOLTAGE, ADC_SAMPLES_PER_CYCLE);
@@ -576,6 +588,8 @@ class SensorHub {
     if (!voltageFilter_.valid()) voltAvg_.reset();
     r_.voltageV = voltAvg_.value();
     r_.voltageValid = HAS_VOLTAGE_SENSOR && voltageFilter_.valid() && voltAvg_.hasData();
+    if (r_.voltageValid) seenV_ = true;
+    r_.voltageSeen = seenV_ || !AUTO_IGNORE_UNPLUGGED;
 
     // --- MQ-2: demo indicator, relative to a clean-air baseline ---
     float mq = readAvgMv(PIN_MQ2_AO, ADC_SAMPLES_PER_CYCLE);
@@ -662,6 +676,7 @@ class SensorHub {
   bool mq2Ready_ = false, smokeLatched_ = false;
   float mq2Baseline_ = 0;
   int flameCount_ = 0;
+  bool seenT_ = false, seenC_ = false, seenV_ = false;
   SensorReadings r_{};
 };
 
@@ -1169,6 +1184,17 @@ static void handleStatus() {
   sendJson(200, snap);
 }
 
+static const char* resetReasonName() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: return "POWERON";
+    case ESP_RST_SW: return "SOFTWARE";
+    case ESP_RST_PANIC: return "PANIC";
+    case ESP_RST_INT_WDT: case ESP_RST_TASK_WDT: case ESP_RST_WDT: return "WATCHDOG";
+    case ESP_RST_BROWNOUT: return "BROWNOUT";
+    default: return "OTHER";
+  }
+}
+
 static void handleHealth() {
   SensorReadings rd; bool armed; uint32_t sq; CommState cs;
   xSemaphoreTake(stateMutex, portMAX_DELAY);
@@ -1180,14 +1206,14 @@ static void handleHealth() {
   else { snprintf(latS, sizeof(latS), "null"); snprintf(lngS, sizeof(lngS), "null"); }
   char phoneMasked[24] = "";
   xSemaphoreTake(stateMutex, portMAX_DELAY); sms::maskPhone(alertPhone, phoneMasked, sizeof(phoneMasked)); xSemaphoreGive(stateMutex);
-  char buf[860];
+  char buf[960];
   snprintf(buf, sizeof(buf),
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"seq\":%lu,\"clients\":%d,"
     "\"mq2Ready\":%s,\"tempValid\":%s,\"currentValid\":%s,\"voltageValid\":%s,\"relayMismatch\":%s,"
     "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
     "\"gpsFix\":%s,\"gpsSats\":%d,\"lat\":%s,\"lng\":%s,"
     "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu,"
-    "\"mq2Mv\":%d,\"mq2BaseMv\":%d,\"alertPhone\":\"%s\"}",
+    "\"mq2Mv\":%d,\"mq2BaseMv\":%d,\"alertPhone\":\"%s\",\"resetReason\":\"%s\"}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), (unsigned long)sq,
     WiFi.softAPgetStationNum(),
     rd.mq2Ready ? "true" : "false", rd.tempValid ? "true" : "false",
@@ -1198,7 +1224,7 @@ static void handleHealth() {
     gpsFix ? "true" : "false", cs.sats, latS, lngS,
     cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
     smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed,
-    (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked);
+    (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked, resetReasonName());
   sendJson(200, buf);
 }
 
@@ -1220,7 +1246,7 @@ static void handleContactSet() {
   char masked[24];
   sms::maskPhone(norm, masked, sizeof(masked));
   char buf[96];
-  snprintf(buf, sizeof(buf), "{\"ok\":true,\"smsEnabled\":true,\"alertPhone\":\"%s\"}", masked);
+  snprintf(buf, sizeof(buf), "{\"ok\":true,\"smsEnabled\":true,\"alertPhone\":\"%s\",\"resetReason\":\"%s\"}", masked);
   Serial.printf("Alert number saved: %s\n", masked);
   sendJson(200, buf);
 }
@@ -1241,6 +1267,7 @@ static void protectionCycle(uint32_t now) {
 
   RiskInput in{rd.tempValid, rd.tempC, rd.currentValid, rd.currentA, rd.voltageValid, rd.voltageV,
                rd.smoke, rd.flame, rd.oilValid, rd.oilPct, rd.smokePct, rd.flamePct};
+  riskEngine.setFitted(rd.tempSeen, rd.currentSeen, rd.voltageSeen);
   lastRisk = riskEngine.update(in, now);
 
   // Supply allowed only when armed (boot check + stable valid sensors) and never in EMERGENCY.
@@ -1362,6 +1389,7 @@ void setup() {
   actuators.begin();            // relay -> cutoff before anything else
   Serial.begin(115200);
   Serial.println("\nSTSMN firmware " STSMN_FW_VERSION);
+  Serial.printf("Reset reason: %s (BROWNOUT = power dip: use a power bank / separate 5V supply)\n", resetReasonName());
 
   stateMutex = xSemaphoreCreateMutex();
   loadAlertPhone();             // SMS number saved earlier (from the app) or the one in secrets.h
@@ -1372,6 +1400,8 @@ void setup() {
   protectionCycle(lastCycle);
 
   WiFi.mode(WIFI_AP);
+  WiFi.setTxPower(WIFI_POWER_11dBm);   // lower radio current peaks: a phone's OTG port cannot supply much
+
   IPAddress apIp(WIFI_AP_IP[0], WIFI_AP_IP[1], WIFI_AP_IP[2], WIFI_AP_IP[3]);
   WiFi.softAPConfig(apIp, apIp, IPAddress(255, 255, 255, 0));
   const bool apOk = WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL, 0, WIFI_AP_MAX_CLIENTS);

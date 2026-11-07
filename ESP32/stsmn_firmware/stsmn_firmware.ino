@@ -19,6 +19,7 @@
 #include <freertos/task.h>
 #include <freertos/semphr.h>
 #include <esp_timer.h>
+#include <esp_system.h>
 #include "config.h"
 #if __has_include("secrets.h")
 #include "secrets.h"
@@ -151,6 +152,17 @@ static void handleStatus() {
   sendJson(200, snap);
 }
 
+static const char* resetReasonName() {
+  switch (esp_reset_reason()) {
+    case ESP_RST_POWERON: return "POWERON";
+    case ESP_RST_SW: return "SOFTWARE";
+    case ESP_RST_PANIC: return "PANIC";
+    case ESP_RST_INT_WDT: case ESP_RST_TASK_WDT: case ESP_RST_WDT: return "WATCHDOG";
+    case ESP_RST_BROWNOUT: return "BROWNOUT";
+    default: return "OTHER";
+  }
+}
+
 static void handleHealth() {
   SensorReadings rd; bool armed; uint32_t sq; CommState cs;
   xSemaphoreTake(stateMutex, portMAX_DELAY);
@@ -162,14 +174,14 @@ static void handleHealth() {
   else { snprintf(latS, sizeof(latS), "null"); snprintf(lngS, sizeof(lngS), "null"); }
   char phoneMasked[24] = "";
   xSemaphoreTake(stateMutex, portMAX_DELAY); sms::maskPhone(alertPhone, phoneMasked, sizeof(phoneMasked)); xSemaphoreGive(stateMutex);
-  char buf[860];
+  char buf[960];
   snprintf(buf, sizeof(buf),
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"seq\":%lu,\"clients\":%d,"
     "\"mq2Ready\":%s,\"tempValid\":%s,\"currentValid\":%s,\"voltageValid\":%s,\"relayMismatch\":%s,"
     "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
     "\"gpsFix\":%s,\"gpsSats\":%d,\"lat\":%s,\"lng\":%s,"
     "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu,"
-    "\"mq2Mv\":%d,\"mq2BaseMv\":%d,\"alertPhone\":\"%s\"}",
+    "\"mq2Mv\":%d,\"mq2BaseMv\":%d,\"alertPhone\":\"%s\",\"resetReason\":\"%s\"}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), (unsigned long)sq,
     WiFi.softAPgetStationNum(),
     rd.mq2Ready ? "true" : "false", rd.tempValid ? "true" : "false",
@@ -180,7 +192,7 @@ static void handleHealth() {
     gpsFix ? "true" : "false", cs.sats, latS, lngS,
     cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
     smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed,
-    (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked);
+    (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked, resetReasonName());
   sendJson(200, buf);
 }
 
@@ -202,7 +214,7 @@ static void handleContactSet() {
   char masked[24];
   sms::maskPhone(norm, masked, sizeof(masked));
   char buf[96];
-  snprintf(buf, sizeof(buf), "{\"ok\":true,\"smsEnabled\":true,\"alertPhone\":\"%s\"}", masked);
+  snprintf(buf, sizeof(buf), "{\"ok\":true,\"smsEnabled\":true,\"alertPhone\":\"%s\",\"resetReason\":\"%s\"}", masked);
   Serial.printf("Alert number saved: %s\n", masked);
   sendJson(200, buf);
 }
@@ -223,6 +235,7 @@ static void protectionCycle(uint32_t now) {
 
   RiskInput in{rd.tempValid, rd.tempC, rd.currentValid, rd.currentA, rd.voltageValid, rd.voltageV,
                rd.smoke, rd.flame, rd.oilValid, rd.oilPct, rd.smokePct, rd.flamePct};
+  riskEngine.setFitted(rd.tempSeen, rd.currentSeen, rd.voltageSeen);
   lastRisk = riskEngine.update(in, now);
 
   // Supply allowed only when armed (boot check + stable valid sensors) and never in EMERGENCY.
@@ -344,6 +357,7 @@ void setup() {
   actuators.begin();            // relay -> cutoff before anything else
   Serial.begin(115200);
   Serial.println("\nSTSMN firmware " STSMN_FW_VERSION);
+  Serial.printf("Reset reason: %s (BROWNOUT = power dip: use a power bank / separate 5V supply)\n", resetReasonName());
 
   stateMutex = xSemaphoreCreateMutex();
   loadAlertPhone();             // SMS number saved earlier (from the app) or the one in secrets.h
@@ -354,6 +368,8 @@ void setup() {
   protectionCycle(lastCycle);
 
   WiFi.mode(WIFI_AP);
+  WiFi.setTxPower(WIFI_POWER_11dBm);   // lower radio current peaks: a phone's OTG port cannot supply much
+
   IPAddress apIp(WIFI_AP_IP[0], WIFI_AP_IP[1], WIFI_AP_IP[2], WIFI_AP_IP[3]);
   WiFi.softAPConfig(apIp, apIp, IPAddress(255, 255, 255, 0));
   const bool apOk = WiFi.softAP(WIFI_AP_SSID, WIFI_AP_PASSWORD, WIFI_AP_CHANNEL, 0, WIFI_AP_MAX_CLIENTS);

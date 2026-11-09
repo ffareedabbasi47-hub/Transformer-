@@ -174,6 +174,8 @@ jobs:
           ./prot_test
           g++ -std=c++17 -Wall -Wno-unused-variable -Ifirmware/mock -I../ESP32/stsmn_firmware firmware/sensor_actuator_test.cpp -o sensor_test
           ./sensor_test
+          g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware firmware/flame_detect_test.cpp -o flame_test
+          ./flame_test
       - name: Syntax-check the sketch against host mocks (NOT the ESP32 core)
         working-directory: ${{ env.ROOT_DIR }}
         run: sh tests/firmware/compile_sketch.sh

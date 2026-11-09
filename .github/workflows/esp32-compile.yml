@@ -37,7 +37,9 @@ jobs:
             cp /tmp/sk/stsmn_firmware/secrets.h.example /tmp/sk/stsmn_firmware/secrets.h
             sed -i 's|^#define WIFI_AP_PASSWORD .*|#define WIFI_AP_PASSWORD "ci-compile-only-pass1"|' /tmp/sk/stsmn_firmware/secrets.h
           fi
-      - name: Compile
+      - name: Compile (default partition = what ArduinoDroid uses unless Huge APP is chosen)
+        shell: bash          # bash with -eo pipefail: a compile error must FAIL the job (tee used to hide it)
         run: |
           d=$(ls -d /tmp/sk/*)
           arduino-cli compile --fqbn esp32:esp32:esp32 --warnings default "$d" 2>&1 | tee /tmp/out.txt
+          ! grep -E "warning: format|error:" /tmp/out.txt

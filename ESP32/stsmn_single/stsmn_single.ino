@@ -67,7 +67,7 @@ constexpr bool HAS_VOLTAGE_SENSOR = true;
 constexpr bool HAS_LEVEL_SENSOR   = true;
 // Flame strength (weak / strong) needs the module's AO pin wired to GPIO36. Without it only the digital
 // output (DO) is used: flame = on/off (always "strong"). Set true ONLY if AO is really connected.
-constexpr bool HAS_FLAME_ANALOG   = false;
+constexpr bool HAS_FLAME_ANALOG   = true;   // AO wired to GPIO36 (ADC1), DO wired to GPIO25
 
 // ---------- Pins (ASSUMPTION: PDF gives no pins) -----------------------------
 // Analog inputs are all on ADC1 (GPIO32-39) because ADC2 cannot be used while
@@ -157,10 +157,33 @@ constexpr float MQ2_BASELINE_ALPHA = 0.002f;
 constexpr int MQ2_NOISE_MV      = 30;    // rise below this = noise (0 % smoke)
 constexpr int MQ2_FULL_DELTA_MV = 450;   // rise at/above this = 100 % smoke (strong signal)
 
-// ---------- Flame module analog output (only if HAS_FLAME_ANALOG) --------------------------
-// Most modules: AO voltage DROPS as the flame gets stronger. CALIBRATE both values on your module.
-constexpr int FLAME_AO_CLEAR_MV = 2900;  // reading with no flame (module powered from 3.3V)
-constexpr int FLAME_AO_FULL_MV  = 600;   // reading with a strong flame close by
+// ---------- Flame module analog output (HAS_FLAME_ANALOG) - see flame_detect.h and docs/FLAME_AO_CALIBRATION.md ----------
+// The AO value is judged against a measured AMBIENT BASELINE, never against a fixed ADC level. Values marked
+// CALIBRATE are PLACEHOLDERS, not measurements: until you have measured your own module (guide above) the
+// firmware prints "FLAME: AO NOT CALIBRATED" at boot. Nothing here claims to be correct for your module.
+constexpr bool  FLAME_AO_CALIBRATED   = false;  // set true ONLY after doing the calibration guide
+constexpr bool  FLAME_AO_DROPS_WITH_FLAME = true; // most IR modules: AO voltage FALLS as flame IR rises. The firmware checks this
+                                                  // against DO at run time and falls back to DO-only if AO moves the other way.
+constexpr uint32_t FLAME_FAST_PERIOD_MS = 10;   // AO sampled ~100 Hz (flame flicker is a few Hz to ~20 Hz)
+constexpr float FLAME_FULL_DELTA_MV   = 1200.0f; // CALIBRATE: AO change from ambient to a strong controlled flame = 100 %
+constexpr float FLAME_MIN_DELTA_MV    = 60.0f;   // CALIBRATE: smallest AO change that may count (also >= FLAME_ENTER_SIGMAS * noise)
+constexpr float FLAME_NOISE_FLOOR_MV  = 6.0f;    // lowest noise (sigma) the detector assumes
+constexpr float FLAME_ENTER_SIGMAS    = 8.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
+constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
+constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
+constexpr float FLAME_FLICKER_FRAC    = 0.03f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr int   FLAME_MIN_REVERSALS   = 4;       // direction changes inside the ~0.64 s window (= flicker of roughly 3 Hz and up)
+constexpr float FLAME_RISE_FRAC       = 0.5f;    // "sudden rise" = deviation gains this x enter within FLAME_RISE_WINDOW_MS
+constexpr uint32_t FLAME_RISE_WINDOW_MS = 1000;
+constexpr uint32_t FLAME_CORROB_HOLD_MS = 3000;  // a sudden rise stays "recent" for this long
+constexpr uint32_t FLAME_CONFIRM_MS   = 500;     // strong + corroborated for this long = EMERGENCY (the only added delay)
+constexpr uint32_t FLAME_INIT_MS      = 3000;    // quiet time needed to learn the ambient baseline at boot
+constexpr uint32_t FLAME_INIT_GIVEUP_MS = 15000; // AO never became quiet (floating wire?) -> AO unusable, DO-only
+constexpr float FLAME_INIT_MAX_SIGMA_MV = 40.0f; // noisier than this at boot = AO not usable
+constexpr float FLAME_BASELINE_ALPHA  = 0.004f;  // baseline drift per cycle (~60 s time constant), only while quiet
+constexpr uint32_t FLAME_REBASE_MS    = 20000;   // a steady, non-flickering, DO-less change this long = new ambient (sun/lamp)
+constexpr uint32_t FLAME_DO_ONLY_HOLD_MS = 3000; // DO alone (AO quiet) this long = WARNING only, never EMERGENCY
+constexpr bool  FLAME_CALIBRATION_LOG = false;   // true: print AO / baseline / deviation / flicker once per second (calibration)
 constexpr int FLAME_CRIT_PCT    = 40;    // flame signal >= this = real fire = EMERGENCY at once
 constexpr int SIGNAL_MIN_PCT    = 15;    // smoke or flame signal >= this counts as "present"
 
@@ -479,6 +502,176 @@ class RelayGate {
   uint32_t healthySince_ = 0, faultSince_ = 0;
 };
 
+// ===== flame_detect.h =====
+// Flame detector for an IR flame module with analog (AO) + digital (DO) outputs.
+// Pure C++ (no Arduino): tested on a PC with synthetic signals in tests/firmware/flame_detect_test.cpp.
+//
+// What it does (and does not):
+//   * AO is the PRIMARY input. It is judged against a measured ambient BASELINE (learned at boot, then followed
+//     only slowly and only while the signal is quiet), never against a fixed ADC level.
+//   * A candidate must be above an enter threshold (>= noise based, hysteresis on exit) and must be CORROBORATED:
+//       - DO asserted (comparator, supporting evidence), or
+//       - flicker (fast direction changes of AO in a ~0.64 s window) that arrived with a sudden rise, or
+//       - already confirmed (sticky, so a flame that saturates the sensor and stops flickering is not dropped).
+//     An uncorroborated change (slow sun, lamp, reflection) is capped below the "signal present" level, and
+//     after FLAME_REBASE_MS it becomes the new baseline. It can never cause an EMERGENCY.
+//   * DO alone is NEVER an emergency while AO is usable (WARNING at most, after FLAME_DO_ONLY_HOLD_MS).
+//   * Fail-safe: if AO is unusable (noisy/floating at boot, or it moves against DO = polarity wrong) the caller
+//     falls back to the old DO-only behaviour, so a real flame is still detected.
+//   * Limit: a sensor cannot tell sunlight from flame by physics alone; this uses behaviour (suddenness, flicker,
+//     DO) and can be fooled (see docs/FLAME_AO_CALIBRATION.md).
+#include <stdint.h>
+#include <math.h>
+
+enum FlameEvent : uint8_t { FE_NONE = 0, FE_BASELINE_READY = 1, FE_AO_UNUSABLE_NOISY = 2, FE_POLARITY_BAD = 4, FE_REBASED = 8,
+                            FE_CRITICAL_ON = 16, FE_NEAR_ADC_CEILING = 32 };
+
+struct FlameOut {
+  int pct;            // 0..100 signal strength (only meaningful when aoUsable)
+  bool critical;      // confirmed flame -> EMERGENCY (only meaningful when aoUsable)
+  bool aoUsable;      // false: caller must use the legacy DO-only behaviour
+  uint8_t events;     // FlameEvent bits, set only in the cycle they happen
+  float mean, base, dev, noise, enter;   // diagnostics (mV)
+  int reversals; float p2p;
+  bool corroborated, flicker, rise;
+};
+
+class FlameDetector {
+ public:
+  static constexpr int N = 64;
+
+  // Fast path: call about every FLAME_FAST_PERIOD_MS with the AO reading in mV.
+  void feed(float mv) {
+    if (!hasFast_) { xf_ = mv; hasFast_ = true; } else xf_ += 0.5f * (mv - xf_);
+    buf_[idx_] = xf_;
+    idx_ = (idx_ + 1) % N;
+    if (count_ < N) count_++;
+  }
+
+  // Cycle path: call every SENSOR_CYCLE_MS. doOn = debounced DO asserted (comparator says flame).
+  FlameOut evaluate(uint32_t now, bool doOn) {
+    FlameOut o = {};
+    o.noise = noise_; o.base = base_;
+    const uint32_t dt = SENSOR_CYCLE_MS;
+    if (count_ < N / 2) { o.aoUsable = false; return o; }
+
+    // ---- window statistics ----
+    float mean = 0, mn = buf_[0], mx = buf_[0];
+    for (int i = 0; i < count_; i++) { float v = buf_[i]; mean += v; if (v < mn) mn = v; if (v > mx) mx = v; }
+    mean /= count_;
+    float var = 0;
+    for (int i = 0; i < count_; i++) { float d = buf_[i] - mean; var += d * d; }
+    const float sd = sqrtf(var / count_);
+    o.mean = mean; o.p2p = mx - mn;
+
+    // ---- baseline learning at boot (needs a quiet AO and no DO) ----
+    if (!baseReady_) {
+      if (initStart_ == 0) initStart_ = now ? now : 1;
+      if (doOn || sd > FLAME_INIT_MAX_SIGMA_MV) { initQuietSince_ = 0; }
+      else { if (initQuietSince_ == 0) initQuietSince_ = now ? now : 1; initSum_ += mean; initSd_ += sd; initN_++; }
+      if (initQuietSince_ != 0 && (uint32_t)(now - initQuietSince_) >= FLAME_INIT_MS && initN_ > 0) {
+        base_ = initSum_ / initN_;
+        noise_ = fmaxf(FLAME_NOISE_FLOOR_MV, initSd_ / initN_);
+        baseReady_ = true; o.events |= FE_BASELINE_READY;
+        if (base_ > 3050.0f) o.events |= FE_NEAR_ADC_CEILING;
+      } else {
+        if (initQuietSince_ == 0) { initSum_ = initSd_ = 0; initN_ = 0; }
+        if ((uint32_t)(now - initStart_) >= FLAME_INIT_GIVEUP_MS && sd > FLAME_INIT_MAX_SIGMA_MV) {
+          if (!dead_) o.events |= FE_AO_UNUSABLE_NOISY;
+          dead_ = true;
+        }
+      }
+      o.aoUsable = false; o.mean = mean; o.base = base_; o.noise = noise_;
+      return o;
+    }
+    if (dead_ || polarityBad_) { o.aoUsable = false; o.mean = mean; o.base = base_; return o; }
+
+    // ---- deviation toward "flame" ----
+    const float sgn = FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f;
+    const float dev = sgn * (base_ - mean);
+    const float enter = fmaxf(FLAME_MIN_DELTA_MV, FLAME_ENTER_SIGMAS * noise_);
+    const float exitT = enter * FLAME_EXIT_RATIO;
+    if (!active_ && dev >= enter) active_ = true;
+    else if (active_ && dev < exitT) active_ = false;
+    if (!active_ && !doOn) noise_ += 0.1f * (fmaxf(FLAME_NOISE_FLOOR_MV, sd) - noise_);
+
+    // ---- polarity check against DO ----
+    if (doOn) { doMs_ += dt; } else { doMs_ = 0; }
+    if (doOn && doMs_ >= 1500 && dev <= -fmaxf(4.0f * noise_, 0.5f * FLAME_MIN_DELTA_MV)) {
+      polarityBad_ = true; o.events |= FE_POLARITY_BAD; o.aoUsable = false; return o;
+    }
+
+    // ---- sudden rise (signal-change analysis) ----
+    constexpr int H = FLAME_RISE_WINDOW_MS / SENSOR_CYCLE_MS;
+    float oldest = dev;
+    for (int i = 0; i < H; i++) if (devHist_[i] < oldest) oldest = devHist_[i];
+    const bool rapid = histN_ >= H && dev >= enter && (dev - oldest) >= FLAME_RISE_FRAC * enter;
+    for (int i = H - 1; i > 0; i--) devHist_[i] = devHist_[i - 1];
+    devHist_[0] = dev; if (histN_ < H) histN_++;
+    if (rapid) riseUntil_ = now + FLAME_CORROB_HOLD_MS;
+    const bool riseRecent = (int32_t)(riseUntil_ - now) > 0;
+
+    // ---- flicker: direction reversals of AO around its mean, swing >= h ----
+    const float h = fmaxf(FLAME_FLICKER_SIGMAS * noise_, FLAME_FLICKER_FRAC * (dev > 0 ? dev : 0));
+    int rev = 0; int state = 0;
+    for (int k = 0; k < count_; k++) {
+      const float v = buf_[(idx_ + (N - count_) + k) % N] - mean;     // oldest -> newest
+      if (v > h * 0.5f) { if (state == -1) rev++; state = 1; }
+      else if (v < -h * 0.5f) { if (state == 1) rev++; state = -1; }
+    }
+    const bool flickerNow = active_ && rev >= FLAME_MIN_REVERSALS;
+    o.reversals = rev;
+
+    // ---- corroboration ----
+    const bool corroborated = doOn || (flickerNow && riseRecent) || sticky_;
+
+    // ---- strength ----
+    int pctRaw = (int)lroundf(dev / FLAME_FULL_DELTA_MV * 100.0f);
+    if (pctRaw < 0) pctRaw = 0;
+    if (pctRaw > 100) pctRaw = 100;
+
+    // ---- confirmation (only added delay: FLAME_CONFIRM_MS) ----
+    const bool strong = active_ && pctRaw >= FLAME_CRIT_PCT;
+    if (strong && corroborated) confirmMs_ += dt; else if (!sticky_) confirmMs_ = 0;
+    bool critical = sticky_ || confirmMs_ >= FLAME_CONFIRM_MS;
+    if (critical && !sticky_) { sticky_ = true; o.events |= FE_CRITICAL_ON; }
+    if (sticky_) {                         // stays critical while the flame signal is still there
+      if (active_) belowMs_ = 0; else { belowMs_ += dt; if (belowMs_ >= 2000) { sticky_ = false; confirmMs_ = 0; critical = false; belowMs_ = 0; } }
+    }
+
+    // ---- baseline: follow slowly while quiet; absorb steady, uncorroborated changes; never absorb fire-like ones ----
+    if (!active_ && !riseRecent && !sticky_ && !flickerNow && sd < 3.0f * noise_ + 1.0f) base_ += FLAME_BASELINE_ALPHA * (mean - base_);
+    if (active_ && !corroborated && !flickerNow) {
+      uncorrMs_ += dt;
+      if (uncorrMs_ >= FLAME_REBASE_MS) { base_ = mean; uncorrMs_ = 0; o.events |= FE_REBASED; active_ = false; }
+    } else uncorrMs_ = 0;
+
+    // ---- DO alone (AO quiet): WARNING at most ----
+    int pct;
+    if (!active_) pct = (doOn && doMs_ >= FLAME_DO_ONLY_HOLD_MS) ? SIGNAL_MIN_PCT : 0;
+    else if (!corroborated) pct = pctRaw < SIGNAL_MIN_PCT ? pctRaw : SIGNAL_MIN_PCT - 1;
+    else if (!critical) pct = pctRaw < SIGNAL_MIN_PCT ? SIGNAL_MIN_PCT : (pctRaw < FLAME_CRIT_PCT ? pctRaw : FLAME_CRIT_PCT - 1);
+    else pct = pctRaw < FLAME_CRIT_PCT ? FLAME_CRIT_PCT : pctRaw;
+
+    o.pct = pct; o.critical = critical; o.aoUsable = true;
+    o.base = base_; o.dev = dev; o.noise = noise_; o.enter = enter;
+    o.corroborated = corroborated; o.flicker = flickerNow; o.rise = riseRecent;
+    return o;
+  }
+
+  bool baselineReady() const { return baseReady_; }
+
+ private:
+  float buf_[N] = {};
+  int idx_ = 0, count_ = 0;
+  float xf_ = 0; bool hasFast_ = false;
+  bool baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
+  float base_ = 0, noise_ = FLAME_NOISE_FLOOR_MV;
+  uint32_t initStart_ = 0, initQuietSince_ = 0; float initSum_ = 0, initSd_ = 0; int initN_ = 0;
+  float devHist_[FLAME_RISE_WINDOW_MS / SENSOR_CYCLE_MS] = {}; int histN_ = 0;
+  uint32_t riseUntil_ = 0, doMs_ = 0, confirmMs_ = 0, belowMs_ = 0, uncorrMs_ = 0;
+};
+
 // ===== sensors.h =====
 // Sensor layer: reads, validates and filters every sensor. No sensor value is
 // ever invented: a sensor that cannot be trusted is reported as INVALID.
@@ -536,6 +729,14 @@ class SensorHub {
 
     mq2Start_ = millis();
     r_ = SensorReadings{};
+  }
+
+  // Fast AO sampling for flame-flicker analysis; call every protection-loop iteration (~10 ms). Cheap and non-blocking.
+  void fastFlameSample(uint32_t now) {
+    if (!HAS_FLAME_ANALOG) return;
+    if ((uint32_t)(now - flameLastFast_) < FLAME_FAST_PERIOD_MS) return;
+    flameLastFast_ = now;
+    flameDet_.feed(readAvgMv(PIN_FLAME_AO, 2));
   }
 
   // Non-blocking DS18B20 state machine; call every loop().
@@ -625,16 +826,15 @@ class SensorHub {
     bool raw = digitalRead(PIN_FLAME_DO) == (FLAME_ACTIVE_LOW ? LOW : HIGH);
     if (raw) { if (flameCount_ < 100) flameCount_++; } else flameCount_ = 0;
     const bool flameDo = flameCount_ >= FLAME_DEBOUNCE_CYCLES;
-    int fp = flameDo ? 100 : 0;                        // digital output: on/off
-    if (HAS_FLAME_ANALOG) {                            // analog output: how strong (weak ... strong)
-      flameAoAvg_.push(readAvgMv(PIN_FLAME_AO, ADC_SAMPLES_PER_CYCLE));
-      int ap = (int)lroundf((FLAME_AO_CLEAR_MV - flameAoAvg_.value()) / (float)(FLAME_AO_CLEAR_MV - FLAME_AO_FULL_MV) * 100.0f);
-      if (ap < 0) ap = 0;
-      if (ap > 100) ap = 100;
-      if (ap > fp) fp = ap;
+    int fp = flameDo ? 100 : 0;                        // digital output only: on/off (legacy / fail-safe)
+    bool flameCrit = flameDo;
+    if (HAS_FLAME_ANALOG) {                            // AO is primary, DO supports it (flame_detect.h)
+      const FlameOut fo = flameDet_.evaluate(now, flameDo);
+      if (fo.aoUsable) { fp = fo.pct; flameCrit = fo.critical; }   // else: AO not usable -> DO-only fail-safe
+      flameLog(fo, flameDo);
     }
     r_.flamePct = fp;
-    r_.flame = flameDo || fp >= FLAME_CRIT_PCT;
+    r_.flame = flameCrit;
 
     // --- Water level (DEMO ONLY, water, never oil) ---
     float lv = readAvgMv(PIN_LEVEL, ADC_SAMPLES_PER_CYCLE);
@@ -650,6 +850,21 @@ class SensorHub {
   }
 
  private:
+  void flameLog(const FlameOut& fo, bool doOn) {
+    if (!FLAME_AO_CALIBRATED && !flameWarned_) {
+      flameWarned_ = true;
+      Serial.println("FLAME: AO NOT CALIBRATED - thresholds in config.h are placeholders (docs/FLAME_AO_CALIBRATION.md)");
+    }
+    if (fo.events & FE_BASELINE_READY) Serial.printf("FLAME: ambient baseline learned: %.0f mV (noise %.1f mV)\n", fo.base, fo.noise);
+    if (fo.events & FE_NEAR_ADC_CEILING) Serial.println("FLAME: baseline near the ADC ceiling (~3.1 V): power the module from 3.3 V and lower its gain if AO sits at the top");
+    if (fo.events & FE_AO_UNUSABLE_NOISY) Serial.println("FLAME: AO is noisy/floating at boot -> AO NOT USED, falling back to DO-only (check the AO wire)");
+    if (fo.events & FE_POLARITY_BAD) Serial.println("FLAME: DO fired but AO moved the other way -> AO NOT USED, DO-only. Try FLAME_AO_DROPS_WITH_FLAME = false");
+    if (fo.events & FE_REBASED) Serial.println("FLAME: steady non-flickering change accepted as new ambient (sun/lamp)");
+    if (fo.events & FE_CRITICAL_ON) Serial.println("FLAME: CONFIRMED (strong + corroborated)");
+    if (FLAME_CALIBRATION_LOG && ++flameLogN_ % 4 == 0)
+      Serial.printf("FLAMEcal ao=%.0f base=%.0f dev=%.0f enter=%.0f noise=%.1f p2p=%.0f rev=%d DO=%d rise=%d flick=%d corr=%d pct=%d crit=%d usable=%d\n",
+                    fo.mean, fo.base, fo.dev, fo.enter, fo.noise, fo.p2p, fo.reversals, doOn, fo.rise, fo.flicker, fo.corroborated, fo.pct, fo.critical, fo.aoUsable);
+  }
   static float readAvgMv(int pin, int samples) {
     uint32_t sum = 0;
     for (int i = 0; i < samples; i++) sum += analogReadMilliVolts(pin);
@@ -667,7 +882,8 @@ class SensorHub {
   ValidityFilter tempFilter_, currentFilter_, voltageFilter_;
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
-  MovingAverage<4> flameAoAvg_;
+  FlameDetector flameDet_;
+  uint32_t flameLastFast_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0;
   bool tempPending_ = false;
   uint32_t tempRequestedAt_ = 0, tempLastRequest_ = 0;
   float zeroAdcMv_ = 0;
@@ -1310,6 +1526,7 @@ static void protectionTask(void*) {
   for (;;) {
     const uint32_t now = millis();
     sensors.pollTemperature(now);                   // non-blocking
+    sensors.fastFlameSample(now);                   // ~100 Hz AO sampling for flicker analysis (non-blocking)
     if ((uint32_t)(now - lastCycle) >= SENSOR_CYCLE_MS) {
       lastCycle = now;
       protectionCycle(now);

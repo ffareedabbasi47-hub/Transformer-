@@ -278,6 +278,7 @@ static void protectionTask(void*) {
   for (;;) {
     const uint32_t now = millis();
     sensors.pollTemperature(now);                   // non-blocking
+    sensors.fastFlameSample(now);                   // ~100 Hz AO sampling for flicker analysis (non-blocking)
     if ((uint32_t)(now - lastCycle) >= SENSOR_CYCLE_MS) {
       lastCycle = now;
       protectionCycle(now);

@@ -6,6 +6,7 @@
 #include <DallasTemperature.h>
 #include "config.h"
 #include "util.h"
+#include "flame_detect.h"
 
 struct SensorReadings {
   bool tempValid;    float tempC;
@@ -57,6 +58,14 @@ class SensorHub {
 
     mq2Start_ = millis();
     r_ = SensorReadings{};
+  }
+
+  // Fast AO sampling for flame-flicker analysis; call every protection-loop iteration (~10 ms). Cheap and non-blocking.
+  void fastFlameSample(uint32_t now) {
+    if (!HAS_FLAME_ANALOG) return;
+    if ((uint32_t)(now - flameLastFast_) < FLAME_FAST_PERIOD_MS) return;
+    flameLastFast_ = now;
+    flameDet_.feed(readAvgMv(PIN_FLAME_AO, 2));
   }
 
   // Non-blocking DS18B20 state machine; call every loop().
@@ -146,16 +155,15 @@ class SensorHub {
     bool raw = digitalRead(PIN_FLAME_DO) == (FLAME_ACTIVE_LOW ? LOW : HIGH);
     if (raw) { if (flameCount_ < 100) flameCount_++; } else flameCount_ = 0;
     const bool flameDo = flameCount_ >= FLAME_DEBOUNCE_CYCLES;
-    int fp = flameDo ? 100 : 0;                        // digital output: on/off
-    if (HAS_FLAME_ANALOG) {                            // analog output: how strong (weak ... strong)
-      flameAoAvg_.push(readAvgMv(PIN_FLAME_AO, ADC_SAMPLES_PER_CYCLE));
-      int ap = (int)lroundf((FLAME_AO_CLEAR_MV - flameAoAvg_.value()) / (float)(FLAME_AO_CLEAR_MV - FLAME_AO_FULL_MV) * 100.0f);
-      if (ap < 0) ap = 0;
-      if (ap > 100) ap = 100;
-      if (ap > fp) fp = ap;
+    int fp = flameDo ? 100 : 0;                        // digital output only: on/off (legacy / fail-safe)
+    bool flameCrit = flameDo;
+    if (HAS_FLAME_ANALOG) {                            // AO is primary, DO supports it (flame_detect.h)
+      const FlameOut fo = flameDet_.evaluate(now, flameDo);
+      if (fo.aoUsable) { fp = fo.pct; flameCrit = fo.critical; }   // else: AO not usable -> DO-only fail-safe
+      flameLog(fo, flameDo);
     }
     r_.flamePct = fp;
-    r_.flame = flameDo || fp >= FLAME_CRIT_PCT;
+    r_.flame = flameCrit;
 
     // --- Water level (DEMO ONLY, water, never oil) ---
     float lv = readAvgMv(PIN_LEVEL, ADC_SAMPLES_PER_CYCLE);
@@ -171,6 +179,21 @@ class SensorHub {
   }
 
  private:
+  void flameLog(const FlameOut& fo, bool doOn) {
+    if (!FLAME_AO_CALIBRATED && !flameWarned_) {
+      flameWarned_ = true;
+      Serial.println("FLAME: AO NOT CALIBRATED - thresholds in config.h are placeholders (docs/FLAME_AO_CALIBRATION.md)");
+    }
+    if (fo.events & FE_BASELINE_READY) Serial.printf("FLAME: ambient baseline learned: %.0f mV (noise %.1f mV)\n", fo.base, fo.noise);
+    if (fo.events & FE_NEAR_ADC_CEILING) Serial.println("FLAME: baseline near the ADC ceiling (~3.1 V): power the module from 3.3 V and lower its gain if AO sits at the top");
+    if (fo.events & FE_AO_UNUSABLE_NOISY) Serial.println("FLAME: AO is noisy/floating at boot -> AO NOT USED, falling back to DO-only (check the AO wire)");
+    if (fo.events & FE_POLARITY_BAD) Serial.println("FLAME: DO fired but AO moved the other way -> AO NOT USED, DO-only. Try FLAME_AO_DROPS_WITH_FLAME = false");
+    if (fo.events & FE_REBASED) Serial.println("FLAME: steady non-flickering change accepted as new ambient (sun/lamp)");
+    if (fo.events & FE_CRITICAL_ON) Serial.println("FLAME: CONFIRMED (strong + corroborated)");
+    if (FLAME_CALIBRATION_LOG && ++flameLogN_ % 4 == 0)
+      Serial.printf("FLAMEcal ao=%.0f base=%.0f dev=%.0f enter=%.0f noise=%.1f p2p=%.0f rev=%d DO=%d rise=%d flick=%d corr=%d pct=%d crit=%d usable=%d\n",
+                    fo.mean, fo.base, fo.dev, fo.enter, fo.noise, fo.p2p, fo.reversals, doOn, fo.rise, fo.flicker, fo.corroborated, fo.pct, fo.critical, fo.aoUsable);
+  }
   static float readAvgMv(int pin, int samples) {
     uint32_t sum = 0;
     for (int i = 0; i < samples; i++) sum += analogReadMilliVolts(pin);
@@ -188,7 +211,8 @@ class SensorHub {
   ValidityFilter tempFilter_, currentFilter_, voltageFilter_;
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
-  MovingAverage<4> flameAoAvg_;
+  FlameDetector flameDet_;
+  uint32_t flameLastFast_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0;
   bool tempPending_ = false;
   uint32_t tempRequestedAt_ = 0, tempLastRequest_ = 0;
   float zeroAdcMv_ = 0;

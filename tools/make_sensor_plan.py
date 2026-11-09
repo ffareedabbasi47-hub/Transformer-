@@ -65,12 +65,12 @@ b.append(sensor("6. Dhua - MQ-2 (GPIO 32)",
  "Clean-air baseline khud dheere-dheere set hota rehta hai. Baseline se 120 mV upar = dhua pakda gaya (60 mV neeche aane par band). 30 mV se 450 mV tak = 0 se 100 %. Dhua akela 3 s = EMERGENCY. Serial Monitor mein <code>mq=asli/baseline</code> dikhta hai.",
  "Agarbatti ya bujhi hui maachis ka dhua sensor ke paas (aag mat lagao). App mein smoke % badhta dikhna chahiye. Dhua hatao, % wapas 0 hona chahiye.",
  "Sensor ko 5 minute garam hone do. Agar bahut zyada/kam sensitive ho to MQ2_DELTA_ENTER_MV aur MQ2_FULL_DELTA_MV badlo."))
-b.append(sensor("7. Aag - Flame sensor (DO: GPIO 25, AO: GPIO 36 optional)",
+b.append(sensor("7. Aag - Flame sensor (DO: GPIO 25, AO: GPIO 36)",
  "Aag ki infrared roshni.",
- "DO pin: aag hai ya nahi (0.5 s debounce). AO pin (optional): signal kitna tez hai. <b>Kamzor/tez signal sirf AO jodne par</b> (HAS_FLAME_ANALOG = true, module ko 3.3V se power do).",
- "Sirf DO: on = 100 %. AO ke saath: FLAME_AO_CLEAR_MV (aag nahi) se FLAME_AO_FULL_MV (tez aag) tak 0-100 %. 40 % se upar = EMERGENCY turant. 15-40 % = WARNING.",
- "Door se mobile ki torch ya lighter ki chhoti jwala (bada khatra nahi). Direct tez roshni se bhi signal aata hai.",
- "Module ka potentiometer (DO ki sensitivity) ghumao. AO ke liye bina aag aur tez aag ke saath mV note karke FLAME_AO_* mein daalo."))
+ "AO pin = signal kitna tez (mukhya). DO pin = comparator ka haan/na (sirf madad). AO ko ambient baseline se compare kiya jaata hai; suraj/lamp ki dheere badalti roshni se bachne ke liye flicker, achanak badlaav aur DO bhi dekhte hain.",
+ "AO baseline se kaafi upar + (DO ya flicker ke saath achanak badlaav) 0.5 s tak = EMERGENCY. Sirf DO = EMERGENCY nahi (WARNING). AO kharab/ulta ho to DO-only fallback. Details: docs/FLAME_AO_CALIBRATION.md.",
+ "Door se ek chhoti jwala (safe jagah, paani paas, adult ke saath). Suraj/lamp se EMERGENCY nahi aana chahiye.",
+ "FLAME_AO_CALIBRATION.md ke steps se apni readings lo; config.h ke FLAME_* values placeholders hain. Suraj aur aag ko sensor akela alag nahi kar sakta."))
 b.append(sensor("8. Oil level (demo: sirf paani) - Water level sensor (GPIO 33)",
  "Paani ka level (asli transformer oil ke liye ye sensor nahi chalega).",
  "Jitna zyada doobta hai, voltage utna badhta hai.",

@@ -34,7 +34,7 @@ constexpr bool HAS_VOLTAGE_SENSOR = true;
 constexpr bool HAS_LEVEL_SENSOR   = true;
 // Flame strength (weak / strong) needs the module's AO pin wired to GPIO36. Without it only the digital
 // output (DO) is used: flame = on/off (always "strong"). Set true ONLY if AO is really connected.
-constexpr bool HAS_FLAME_ANALOG   = false;
+constexpr bool HAS_FLAME_ANALOG   = true;   // AO wired to GPIO36 (ADC1), DO wired to GPIO25
 
 // ---------- Pins (ASSUMPTION: PDF gives no pins) -----------------------------
 // Analog inputs are all on ADC1 (GPIO32-39) because ADC2 cannot be used while
@@ -124,10 +124,33 @@ constexpr float MQ2_BASELINE_ALPHA = 0.002f;
 constexpr int MQ2_NOISE_MV      = 30;    // rise below this = noise (0 % smoke)
 constexpr int MQ2_FULL_DELTA_MV = 450;   // rise at/above this = 100 % smoke (strong signal)
 
-// ---------- Flame module analog output (only if HAS_FLAME_ANALOG) --------------------------
-// Most modules: AO voltage DROPS as the flame gets stronger. CALIBRATE both values on your module.
-constexpr int FLAME_AO_CLEAR_MV = 2900;  // reading with no flame (module powered from 3.3V)
-constexpr int FLAME_AO_FULL_MV  = 600;   // reading with a strong flame close by
+// ---------- Flame module analog output (HAS_FLAME_ANALOG) - see flame_detect.h and docs/FLAME_AO_CALIBRATION.md ----------
+// The AO value is judged against a measured AMBIENT BASELINE, never against a fixed ADC level. Values marked
+// CALIBRATE are PLACEHOLDERS, not measurements: until you have measured your own module (guide above) the
+// firmware prints "FLAME: AO NOT CALIBRATED" at boot. Nothing here claims to be correct for your module.
+constexpr bool  FLAME_AO_CALIBRATED   = false;  // set true ONLY after doing the calibration guide
+constexpr bool  FLAME_AO_DROPS_WITH_FLAME = true; // most IR modules: AO voltage FALLS as flame IR rises. The firmware checks this
+                                                  // against DO at run time and falls back to DO-only if AO moves the other way.
+constexpr uint32_t FLAME_FAST_PERIOD_MS = 10;   // AO sampled ~100 Hz (flame flicker is a few Hz to ~20 Hz)
+constexpr float FLAME_FULL_DELTA_MV   = 1200.0f; // CALIBRATE: AO change from ambient to a strong controlled flame = 100 %
+constexpr float FLAME_MIN_DELTA_MV    = 60.0f;   // CALIBRATE: smallest AO change that may count (also >= FLAME_ENTER_SIGMAS * noise)
+constexpr float FLAME_NOISE_FLOOR_MV  = 6.0f;    // lowest noise (sigma) the detector assumes
+constexpr float FLAME_ENTER_SIGMAS    = 8.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
+constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
+constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
+constexpr float FLAME_FLICKER_FRAC    = 0.03f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr int   FLAME_MIN_REVERSALS   = 4;       // direction changes inside the ~0.64 s window (= flicker of roughly 3 Hz and up)
+constexpr float FLAME_RISE_FRAC       = 0.5f;    // "sudden rise" = deviation gains this x enter within FLAME_RISE_WINDOW_MS
+constexpr uint32_t FLAME_RISE_WINDOW_MS = 1000;
+constexpr uint32_t FLAME_CORROB_HOLD_MS = 3000;  // a sudden rise stays "recent" for this long
+constexpr uint32_t FLAME_CONFIRM_MS   = 500;     // strong + corroborated for this long = EMERGENCY (the only added delay)
+constexpr uint32_t FLAME_INIT_MS      = 3000;    // quiet time needed to learn the ambient baseline at boot
+constexpr uint32_t FLAME_INIT_GIVEUP_MS = 15000; // AO never became quiet (floating wire?) -> AO unusable, DO-only
+constexpr float FLAME_INIT_MAX_SIGMA_MV = 40.0f; // noisier than this at boot = AO not usable
+constexpr float FLAME_BASELINE_ALPHA  = 0.004f;  // baseline drift per cycle (~60 s time constant), only while quiet
+constexpr uint32_t FLAME_REBASE_MS    = 20000;   // a steady, non-flickering, DO-less change this long = new ambient (sun/lamp)
+constexpr uint32_t FLAME_DO_ONLY_HOLD_MS = 3000; // DO alone (AO quiet) this long = WARNING only, never EMERGENCY
+constexpr bool  FLAME_CALIBRATION_LOG = false;   // true: print AO / baseline / deviation / flicker once per second (calibration)
 constexpr int FLAME_CRIT_PCT    = 40;    // flame signal >= this = real fire = EMERGENCY at once
 constexpr int SIGNAL_MIN_PCT    = 15;    // smoke or flame signal >= this counts as "present"
 

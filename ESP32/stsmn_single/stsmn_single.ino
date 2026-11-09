@@ -1462,7 +1462,7 @@ static void handleContactSet() {
   char masked[24];
   sms::maskPhone(norm, masked, sizeof(masked));
   char buf[96];
-  snprintf(buf, sizeof(buf), "{\"ok\":true,\"smsEnabled\":true,\"alertPhone\":\"%s\",\"resetReason\":\"%s\"}", masked);
+  snprintf(buf, sizeof(buf), "{\"ok\":true,\"smsEnabled\":true,\"alertPhone\":\"%s\"}", masked);
   Serial.printf("Alert number saved: %s\n", masked);
   sendJson(200, buf);
 }

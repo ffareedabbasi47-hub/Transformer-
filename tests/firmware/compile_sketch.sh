@@ -12,7 +12,7 @@ for STD in gnu++11 gnu++17 gnu++2a; do
   for CORE in 2 3; do
     if [ "$CORE" = 3 ] && [ "$STD" = gnu++11 ]; then continue; fi   # core 3.x builds with a newer standard
     cp "$FW/stsmn_firmware.ino" "$TMP/sketch.cpp"
-    g++ -std=$STD -fsyntax-only -Wall -Wextra -Wno-unused-parameter -DESP_ARDUINO_VERSION_MAJOR=$CORE \
+    g++ -std=$STD -fsyntax-only -Wall -Wextra -Werror=format -Werror=format-extra-args -Wno-unused-parameter -DESP_ARDUINO_VERSION_MAJOR=$CORE \
         -I"$HERE/mock" -I"$FW" -I"$TMP" "$TMP/sketch.cpp"
     echo "syntax OK: -std=$STD mock core $CORE"
   done

@@ -52,6 +52,18 @@ constexpr int PIN_LED_YELLOW= 19;
 constexpr int PIN_LED_RED   = 23;
 constexpr int PIN_BUZZER    = 27;  // ASSUMPTION: ACTIVE buzzer (on/off)
 
+// ---------- Bluetooth Low Energy (phone <-> ESP32 without Wi-Fi) -------------------------------------------
+// 1 = BLE on (needs the ESP32 BLE library that ships with the core; adds ~0.4 MB of flash - if the sketch is too big,
+// choose Partition Scheme "Huge APP" in the board options or set this to 0). Protection never depends on BLE.
+#define ENABLE_BLE 1
+#define BLE_DEVICE_NAME "STSMN-TR001"
+// Nordic UART service UUIDs (generic BLE terminal apps can read the stream too).
+#define BLE_SERVICE_UUID "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+#define BLE_RX_UUID      "6e400002-b5a3-f393-e0a9-e50e24dcca9e"   // phone -> ESP32 (write): "PHONE <password> <number>"
+#define BLE_TX_UUID      "6e400003-b5a3-f393-e0a9-e50e24dcca9e"   // ESP32 -> phone (notify): "ST {status json}\n", "HE {health json}\n"
+constexpr uint32_t BLE_STATUS_EVERY_MS = 1000;
+constexpr uint32_t BLE_HEALTH_EVERY_MS = 5000;
+
 // ---------- GPS module (NEO-6M) on UART2 ----------------------------------------
 constexpr int PIN_GPS_RX = 16;   // ESP32 RX  <-  GPS TX
 constexpr int PIN_GPS_TX = 17;   // ESP32 TX  ->  GPS RX (the NEO-6M only talks; this wire is optional)
@@ -67,7 +79,7 @@ constexpr bool     SMS_ON_WARNING      = false;
 constexpr uint32_t SMS_MIN_INTERVAL_MS = 120000;   // never more than one SMS per 2 minutes
 constexpr uint32_t SMS_REPEAT_MS       = 1800000;  // reminder every 30 min while the alarm persists
 constexpr uint32_t GSM_STATUS_EVERY_MS = 30000;    // signal/registration check
-constexpr uint32_t COMM_TASK_STACK     = 6144;     // GPS + SMS task (low priority, never touches the relay)
+constexpr uint32_t COMM_TASK_STACK     = 8192;     // GPS + SMS task (low priority, never touches the relay)
 
 // ---------- Relay polarity (VERIFY ON YOUR MODULE!) --------------------------
 // Logical meaning is fixed: relay=true -> supply allowed, relay=false -> cutoff.

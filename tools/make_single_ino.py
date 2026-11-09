@@ -34,7 +34,7 @@ struct RiskPct;
 struct SensorReadings;
 """
 parts = [head, forward, "// ===== config.h =====\n" + body("config.h"), wifi]
-for f in ["util.h", "risk_engine.h", "protection_logic.h", "flame_detect.h", "sensors.h", "actuators.h", "gps_nmea.h", "sms_logic.h", "sim800.h"]:
+for f in ["util.h", "risk_engine.h", "protection_logic.h", "flame_detect.h", "sensors.h", "actuators.h", "gps_nmea.h", "sms_logic.h", "sim800.h", "ble_link.h"]:
     parts.append("// ===== %s =====\n%s" % (f, body(f)))
 parts.append("// ===== main sketch =====\n" + tail)
 out = pathlib.Path("ESP32/stsmn_single/stsmn_single.ino")

@@ -20,6 +20,10 @@
 #include <freertos/semphr.h>
 #include <esp_timer.h>
 #include <esp_system.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 #include <Preferences.h>
 
 // ===== forward declarations (needed by the Arduino IDE's automatic prototypes) =====
@@ -85,6 +89,18 @@ constexpr int PIN_LED_YELLOW= 19;
 constexpr int PIN_LED_RED   = 23;
 constexpr int PIN_BUZZER    = 27;  // ASSUMPTION: ACTIVE buzzer (on/off)
 
+// ---------- Bluetooth Low Energy (phone <-> ESP32 without Wi-Fi) -------------------------------------------
+// 1 = BLE on (needs the ESP32 BLE library that ships with the core; adds ~0.4 MB of flash - if the sketch is too big,
+// choose Partition Scheme "Huge APP" in the board options or set this to 0). Protection never depends on BLE.
+#define ENABLE_BLE 1
+#define BLE_DEVICE_NAME "STSMN-TR001"
+// Nordic UART service UUIDs (generic BLE terminal apps can read the stream too).
+#define BLE_SERVICE_UUID "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
+#define BLE_RX_UUID      "6e400002-b5a3-f393-e0a9-e50e24dcca9e"   // phone -> ESP32 (write): "PHONE <password> <number>"
+#define BLE_TX_UUID      "6e400003-b5a3-f393-e0a9-e50e24dcca9e"   // ESP32 -> phone (notify): "ST {status json}\n", "HE {health json}\n"
+constexpr uint32_t BLE_STATUS_EVERY_MS = 1000;
+constexpr uint32_t BLE_HEALTH_EVERY_MS = 5000;
+
 // ---------- GPS module (NEO-6M) on UART2 ----------------------------------------
 constexpr int PIN_GPS_RX = 16;   // ESP32 RX  <-  GPS TX
 constexpr int PIN_GPS_TX = 17;   // ESP32 TX  ->  GPS RX (the NEO-6M only talks; this wire is optional)
@@ -100,7 +116,7 @@ constexpr bool     SMS_ON_WARNING      = false;
 constexpr uint32_t SMS_MIN_INTERVAL_MS = 120000;   // never more than one SMS per 2 minutes
 constexpr uint32_t SMS_REPEAT_MS       = 1800000;  // reminder every 30 min while the alarm persists
 constexpr uint32_t GSM_STATUS_EVERY_MS = 30000;    // signal/registration check
-constexpr uint32_t COMM_TASK_STACK     = 6144;     // GPS + SMS task (low priority, never touches the relay)
+constexpr uint32_t COMM_TASK_STACK     = 8192;     // GPS + SMS task (low priority, never touches the relay)
 
 // ---------- Relay polarity (VERIFY ON YOUR MODULE!) --------------------------
 // Logical meaning is fixed: relay=true -> supply allowed, relay=false -> cutoff.
@@ -1286,6 +1302,83 @@ class SimModule {
   }
 };
 
+// ===== ble_link.h =====
+// BLE link (read-only monitoring + saving the alert number). Needs the BLE library of the ESP32 core.
+// The phone is a VIEWER: the only writable thing is the SMS number, and only with the device password (same as the Wi-Fi one).
+// Relay, thresholds and protection are never reachable from BLE. Everything runs in the low-priority comm task.
+#include <Arduino.h>
+
+#if ENABLE_BLE
+class BleLink : public BLEServerCallbacks, public BLECharacteristicCallbacks {
+ public:
+  void begin() {
+    BLEDevice::init(BLE_DEVICE_NAME);
+    server_ = BLEDevice::createServer();
+    server_->setCallbacks(this);
+    BLEService* svc = server_->createService(BLE_SERVICE_UUID);
+    tx_ = svc->createCharacteristic(BLE_TX_UUID, BLECharacteristic::PROPERTY_NOTIFY);
+    tx_->addDescriptor(new BLE2902());
+    BLECharacteristic* rx = svc->createCharacteristic(BLE_RX_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
+    rx->setCallbacks(this);
+    svc->start();
+    BLEAdvertising* adv = BLEDevice::getAdvertising();
+    adv->addServiceUUID(BLE_SERVICE_UUID);
+    adv->setScanResponse(true);
+    BLEDevice::startAdvertising();
+    started_ = true;
+  }
+  bool connected() const { return started_ && connected_; }
+
+  // Sends "<prefix><text>\n" in 20-byte notifications (works with the default ATT MTU).
+  void sendLine(const char* prefix, const char* text) {
+    if (!connected()) return;
+    char line[1100];
+    const int n = snprintf(line, sizeof(line), "%s%s\n", prefix, text);
+    if (n <= 0 || n >= (int)sizeof(line)) return;
+    for (int off = 0; off < n && connected_; off += 20) {
+      const int len = (n - off) < 20 ? (n - off) : 20;
+      tx_->setValue((uint8_t*)(line + off), len);
+      tx_->notify();
+      delay(8);
+    }
+  }
+
+  // Returns true once per received line (copied out, zero-terminated).
+  bool takeCommand(char* out, size_t n) {
+    if (!lineReady_) return false;
+    strlcpy(out, rxLine_, n);
+    lineReady_ = false;
+    return true;
+  }
+
+  void onConnect(BLEServer*) override { connected_ = true; }
+  void onDisconnect(BLEServer*) override { connected_ = false; BLEDevice::startAdvertising(); }
+  void onWrite(BLECharacteristic* c) override {
+    auto v = c->getValue();                       // std::string (core 2.x) or String (core 3.x)
+    const size_t len = v.length();
+    const char* d = v.c_str();
+    for (size_t i = 0; i < len; i++) {
+      const char ch = d[i];
+      if (ch == '\n' || ch == '\r') {
+        if (rxLen_ > 0 && !lineReady_) { rxLine_[rxLen_] = 0; lineReady_ = true; }
+        rxLen_ = 0;
+      } else if (rxLen_ < sizeof(rxLine_) - 1) {
+        rxLine_[rxLen_++] = ch;
+      } else {
+        rxLen_ = 0;                               // too long: drop the line
+      }
+    }
+  }
+
+ private:
+  BLEServer* server_ = nullptr;
+  BLECharacteristic* tx_ = nullptr;
+  volatile bool connected_ = false, started_ = false, lineReady_ = false;
+  char rxLine_[96] = {};
+  size_t rxLen_ = 0;
+};
+#endif
+
 // ===== main sketch =====
 // ---- Compile-time check of the Wi-Fi settings (a known default password must never ship) ------------------
 // (No default arguments: the Arduino IDE / ArduinoDroid copy them into auto-generated prototypes -> "redefinition of default argument".)
@@ -1411,7 +1504,7 @@ static const char* resetReasonName() {
   }
 }
 
-static void handleHealth() {
+static void buildHealthJson(char* buf, size_t bufSize) {
   SensorReadings rd; bool armed; uint32_t sq; CommState cs;
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   rd = lastReadings; armed = relayArmed; sq = seq; cs = comm;
@@ -1422,8 +1515,7 @@ static void handleHealth() {
   else { snprintf(latS, sizeof(latS), "null"); snprintf(lngS, sizeof(lngS), "null"); }
   char phoneMasked[24] = "";
   xSemaphoreTake(stateMutex, portMAX_DELAY); sms::maskPhone(alertPhone, phoneMasked, sizeof(phoneMasked)); xSemaphoreGive(stateMutex);
-  char buf[960];
-  snprintf(buf, sizeof(buf),
+  snprintf(buf, bufSize,
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"seq\":%lu,\"clients\":%d,"
     "\"mq2Ready\":%s,\"tempValid\":%s,\"currentValid\":%s,\"voltageValid\":%s,\"relayMismatch\":%s,"
     "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
@@ -1441,7 +1533,26 @@ static void handleHealth() {
     cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
     smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed,
     (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked, resetReasonName());
+}
+
+static void handleHealth() {
+  char buf[960];
+  buildHealthJson(buf, sizeof(buf));
   sendJson(200, buf);
+}
+
+// Shared by HTTP and BLE. Returns 1 = number saved, 0 = SMS switched off (empty), -1 = invalid. `masked` gets the masked number.
+static int applyContact(const char* raw, char* masked, size_t maskedSize) {
+  masked[0] = 0;
+  if (strlen(raw) > 30) return -1;
+  if (raw[0] == 0) { setAlertPhone(""); prefs.putString("phone", ""); return 0; }
+  char norm[24] = "";
+  if (!sms::normalizePhone(raw, norm, sizeof(norm))) return -1;
+  setAlertPhone(norm);
+  prefs.putString("phone", norm);
+  sms::maskPhone(norm, masked, maskedSize);
+  Serial.printf("Alert number saved: %s\n", masked);
+  return 1;
 }
 
 // POST /api/contact   phone=<number>   (form field).  Empty phone = switch SMS off. Cannot touch the relay or any threshold.
@@ -1449,21 +1560,12 @@ static void handleContactSet() {
   if (!server.hasArg("phone")) { sendJson(400, "{\"error\":\"phone missing\"}"); return; }
   const String raw = server.arg("phone");
   if (raw.length() > 30) { sendJson(400, "{\"error\":\"phone too long\"}"); return; }
-  char norm[24] = "";
-  if (raw.length() == 0) {
-    setAlertPhone("");
-    prefs.putString("phone", "");
-    sendJson(200, "{\"ok\":true,\"smsEnabled\":false}");
-    return;
-  }
-  if (!sms::normalizePhone(raw.c_str(), norm, sizeof(norm))) { sendJson(400, "{\"error\":\"invalid phone number\"}"); return; }
-  setAlertPhone(norm);
-  prefs.putString("phone", norm);
   char masked[24];
-  sms::maskPhone(norm, masked, sizeof(masked));
+  const int r = applyContact(raw.c_str(), masked, sizeof(masked));
+  if (r < 0) { sendJson(400, "{\"error\":\"invalid phone number\"}"); return; }
+  if (r == 0) { sendJson(200, "{\"ok\":true,\"smsEnabled\":false}"); return; }
   char buf[96];
   snprintf(buf, sizeof(buf), "{\"ok\":true,\"smsEnabled\":true,\"alertPhone\":\"%s\"}", masked);
-  Serial.printf("Alert number saved: %s\n", masked);
   sendJson(200, buf);
 }
 
@@ -1537,6 +1639,47 @@ static void protectionTask(void*) {
   }
 }
 
+#if ENABLE_BLE
+static BleLink ble;
+// Command from the phone over BLE: "PHONE <device password> <number or empty>". Replies "OK ..." / "ERR ..." on the notify stream.
+static void handleBleCommand(const char* cmd) {
+  char reply[64];
+  if (strncmp(cmd, "PHONE ", 6) != 0) { ble.sendLine("ER ", "unknown command"); return; }
+  const char* p = cmd + 6;
+  const char* sp = strchr(p, ' ');
+  const size_t pwLen = sp ? (size_t)(sp - p) : strlen(p);
+  if (pwLen != strlen(WIFI_AP_PASSWORD) || strncmp(p, WIFI_AP_PASSWORD, pwLen) != 0) { ble.sendLine("ER ", "wrong password"); return; }
+  const char* num = sp ? sp + 1 : "";
+  char masked[24];
+  const int r = applyContact(num, masked, sizeof(masked));
+  if (r < 0) snprintf(reply, sizeof(reply), "invalid number");
+  else if (r == 0) snprintf(reply, sizeof(reply), "sms off");
+  else snprintf(reply, sizeof(reply), "saved %s", masked);
+  ble.sendLine(r < 0 ? "ER " : "OK ", reply);
+}
+
+static void bleService(uint32_t now) {
+  static uint32_t lastSt = 0, lastHe = 0;
+  char cmd[96];
+  if (ble.takeCommand(cmd, sizeof(cmd))) handleBleCommand(cmd);
+  if (!ble.connected()) return;
+  if ((uint32_t)(now - lastSt) >= BLE_STATUS_EVERY_MS) {
+    lastSt = now;
+    char snap[sizeof(statusJson)];
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    strlcpy(snap, statusJson, sizeof(snap));
+    xSemaphoreGive(stateMutex);
+    if (snap[0]) ble.sendLine("ST ", snap);
+  }
+  if ((uint32_t)(now - lastHe) >= BLE_HEALTH_EVERY_MS) {
+    lastHe = now;
+    char hb[960];
+    buildHealthJson(hb, sizeof(hb));
+    ble.sendLine("HE ", hb);
+  }
+}
+#endif
+
 // GPS reader + SIM/SMS sender. Low priority; never touches sensors, relay or LEDs.
 static void commTask(void*) {
   uint32_t lastGsmCheck = 0, lastSimTry = 0;
@@ -1544,6 +1687,9 @@ static void commTask(void*) {
   for (;;) {
     const uint32_t now = millis();
 
+#if ENABLE_BLE
+    bleService(now);
+#endif
     // 1) GPS: feed the parser with whatever arrived on UART2.
     for (int guard = 0; guard < 256 && Serial2.available(); guard++) {
       if (gps.feed((char)Serial2.read())) {
@@ -1640,6 +1786,10 @@ void setup() {
   Serial.printf("Sensors fitted: temp=%d current=%d voltage=%d level=%d (config.h HAS_*; unfitted = ignored, shown as null)\n",
     HAS_TEMP_SENSOR, HAS_CURRENT_SENSOR, HAS_VOLTAGE_SENSOR, HAS_LEVEL_SENSOR);
   Serial.printf("Relay: ACTIVE_LOW=%d. At boot (cutoff) the relay module's LED must be OFF; it clicks ON ~5 s later when all fitted sensors are valid. If it is the other way round, flip RELAY_ACTIVE_LOW in config.h.\n", (int)RELAY_ACTIVE_LOW);
+#if ENABLE_BLE
+  ble.begin();
+  Serial.println("BLE: advertising as " BLE_DEVICE_NAME " (monitor over Bluetooth)");
+#endif
   xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0);
 
   startWatchdog();

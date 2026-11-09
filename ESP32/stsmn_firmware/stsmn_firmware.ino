@@ -21,6 +21,12 @@
 #include <esp_timer.h>
 #include <esp_system.h>
 #include "config.h"
+#if ENABLE_BLE
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
+#endif
 #if __has_include("secrets.h")
 #include "secrets.h"
 #else
@@ -34,6 +40,7 @@
 #include "gps_nmea.h"
 #include "sms_logic.h"
 #include "sim800.h"
+#include "ble_link.h"
 #include <Preferences.h>
 #ifndef ALERT_PHONE_NUMBER
 #define ALERT_PHONE_NUMBER ""   // old secrets.h without a phone number: SMS stays off
@@ -163,7 +170,7 @@ static const char* resetReasonName() {
   }
 }
 
-static void handleHealth() {
+static void buildHealthJson(char* buf, size_t bufSize) {
   SensorReadings rd; bool armed; uint32_t sq; CommState cs;
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   rd = lastReadings; armed = relayArmed; sq = seq; cs = comm;
@@ -174,8 +181,7 @@ static void handleHealth() {
   else { snprintf(latS, sizeof(latS), "null"); snprintf(lngS, sizeof(lngS), "null"); }
   char phoneMasked[24] = "";
   xSemaphoreTake(stateMutex, portMAX_DELAY); sms::maskPhone(alertPhone, phoneMasked, sizeof(phoneMasked)); xSemaphoreGive(stateMutex);
-  char buf[960];
-  snprintf(buf, sizeof(buf),
+  snprintf(buf, bufSize,
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"seq\":%lu,\"clients\":%d,"
     "\"mq2Ready\":%s,\"tempValid\":%s,\"currentValid\":%s,\"voltageValid\":%s,\"relayMismatch\":%s,"
     "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
@@ -193,7 +199,26 @@ static void handleHealth() {
     cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
     smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed,
     (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked, resetReasonName());
+}
+
+static void handleHealth() {
+  char buf[960];
+  buildHealthJson(buf, sizeof(buf));
   sendJson(200, buf);
+}
+
+// Shared by HTTP and BLE. Returns 1 = number saved, 0 = SMS switched off (empty), -1 = invalid. `masked` gets the masked number.
+static int applyContact(const char* raw, char* masked, size_t maskedSize) {
+  masked[0] = 0;
+  if (strlen(raw) > 30) return -1;
+  if (raw[0] == 0) { setAlertPhone(""); prefs.putString("phone", ""); return 0; }
+  char norm[24] = "";
+  if (!sms::normalizePhone(raw, norm, sizeof(norm))) return -1;
+  setAlertPhone(norm);
+  prefs.putString("phone", norm);
+  sms::maskPhone(norm, masked, maskedSize);
+  Serial.printf("Alert number saved: %s\n", masked);
+  return 1;
 }
 
 // POST /api/contact   phone=<number>   (form field).  Empty phone = switch SMS off. Cannot touch the relay or any threshold.
@@ -201,21 +226,12 @@ static void handleContactSet() {
   if (!server.hasArg("phone")) { sendJson(400, "{\"error\":\"phone missing\"}"); return; }
   const String raw = server.arg("phone");
   if (raw.length() > 30) { sendJson(400, "{\"error\":\"phone too long\"}"); return; }
-  char norm[24] = "";
-  if (raw.length() == 0) {
-    setAlertPhone("");
-    prefs.putString("phone", "");
-    sendJson(200, "{\"ok\":true,\"smsEnabled\":false}");
-    return;
-  }
-  if (!sms::normalizePhone(raw.c_str(), norm, sizeof(norm))) { sendJson(400, "{\"error\":\"invalid phone number\"}"); return; }
-  setAlertPhone(norm);
-  prefs.putString("phone", norm);
   char masked[24];
-  sms::maskPhone(norm, masked, sizeof(masked));
+  const int r = applyContact(raw.c_str(), masked, sizeof(masked));
+  if (r < 0) { sendJson(400, "{\"error\":\"invalid phone number\"}"); return; }
+  if (r == 0) { sendJson(200, "{\"ok\":true,\"smsEnabled\":false}"); return; }
   char buf[96];
   snprintf(buf, sizeof(buf), "{\"ok\":true,\"smsEnabled\":true,\"alertPhone\":\"%s\"}", masked);
-  Serial.printf("Alert number saved: %s\n", masked);
   sendJson(200, buf);
 }
 
@@ -289,6 +305,47 @@ static void protectionTask(void*) {
   }
 }
 
+#if ENABLE_BLE
+static BleLink ble;
+// Command from the phone over BLE: "PHONE <device password> <number or empty>". Replies "OK ..." / "ERR ..." on the notify stream.
+static void handleBleCommand(const char* cmd) {
+  char reply[64];
+  if (strncmp(cmd, "PHONE ", 6) != 0) { ble.sendLine("ER ", "unknown command"); return; }
+  const char* p = cmd + 6;
+  const char* sp = strchr(p, ' ');
+  const size_t pwLen = sp ? (size_t)(sp - p) : strlen(p);
+  if (pwLen != strlen(WIFI_AP_PASSWORD) || strncmp(p, WIFI_AP_PASSWORD, pwLen) != 0) { ble.sendLine("ER ", "wrong password"); return; }
+  const char* num = sp ? sp + 1 : "";
+  char masked[24];
+  const int r = applyContact(num, masked, sizeof(masked));
+  if (r < 0) snprintf(reply, sizeof(reply), "invalid number");
+  else if (r == 0) snprintf(reply, sizeof(reply), "sms off");
+  else snprintf(reply, sizeof(reply), "saved %s", masked);
+  ble.sendLine(r < 0 ? "ER " : "OK ", reply);
+}
+
+static void bleService(uint32_t now) {
+  static uint32_t lastSt = 0, lastHe = 0;
+  char cmd[96];
+  if (ble.takeCommand(cmd, sizeof(cmd))) handleBleCommand(cmd);
+  if (!ble.connected()) return;
+  if ((uint32_t)(now - lastSt) >= BLE_STATUS_EVERY_MS) {
+    lastSt = now;
+    char snap[sizeof(statusJson)];
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    strlcpy(snap, statusJson, sizeof(snap));
+    xSemaphoreGive(stateMutex);
+    if (snap[0]) ble.sendLine("ST ", snap);
+  }
+  if ((uint32_t)(now - lastHe) >= BLE_HEALTH_EVERY_MS) {
+    lastHe = now;
+    char hb[960];
+    buildHealthJson(hb, sizeof(hb));
+    ble.sendLine("HE ", hb);
+  }
+}
+#endif
+
 // GPS reader + SIM/SMS sender. Low priority; never touches sensors, relay or LEDs.
 static void commTask(void*) {
   uint32_t lastGsmCheck = 0, lastSimTry = 0;
@@ -296,6 +353,9 @@ static void commTask(void*) {
   for (;;) {
     const uint32_t now = millis();
 
+#if ENABLE_BLE
+    bleService(now);
+#endif
     // 1) GPS: feed the parser with whatever arrived on UART2.
     for (int guard = 0; guard < 256 && Serial2.available(); guard++) {
       if (gps.feed((char)Serial2.read())) {
@@ -392,6 +452,10 @@ void setup() {
   Serial.printf("Sensors fitted: temp=%d current=%d voltage=%d level=%d (config.h HAS_*; unfitted = ignored, shown as null)\n",
     HAS_TEMP_SENSOR, HAS_CURRENT_SENSOR, HAS_VOLTAGE_SENSOR, HAS_LEVEL_SENSOR);
   Serial.printf("Relay: ACTIVE_LOW=%d. At boot (cutoff) the relay module's LED must be OFF; it clicks ON ~5 s later when all fitted sensors are valid. If it is the other way round, flip RELAY_ACTIVE_LOW in config.h.\n", (int)RELAY_ACTIVE_LOW);
+#if ENABLE_BLE
+  ble.begin();
+  Serial.println("BLE: advertising as " BLE_DEVICE_NAME " (monitor over Bluetooth)");
+#endif
   xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0);
 
   startWatchdog();

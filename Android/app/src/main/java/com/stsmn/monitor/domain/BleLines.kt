@@ -6,22 +6,24 @@ package com.stsmn.monitor.domain
  */
 class BleLineAssembler(private val maxLine: Int = 2048) {
     private val sb = StringBuilder()
+    private var dropping = false
 
     /** Feed one notification; returns every COMPLETE line it finished (without the line break). */
     fun feed(chunk: String): List<String> {
         val out = ArrayList<String>()
         for (c in chunk) {
             if (c == '\n' || c == '\r') {
-                if (sb.isNotEmpty()) { out.add(sb.toString()); sb.setLength(0) }
-            } else {
+                if (!dropping && sb.isNotEmpty()) out.add(sb.toString())
+                sb.setLength(0); dropping = false
+            } else if (!dropping) {
                 sb.append(c)
-                if (sb.length > maxLine) sb.setLength(0)    // runaway line: drop it, resync at the next line break
+                if (sb.length > maxLine) { sb.setLength(0); dropping = true }   // runaway line: drop all of it, resync at the next line break
             }
         }
         return out
     }
 
-    fun reset() { sb.setLength(0) }
+    fun reset() { sb.setLength(0); dropping = false }
 }
 
 /** One line of the ESP32 BLE stream: "ST <status json>", "HE <health json>", "OK <text>", "ER <text>". */

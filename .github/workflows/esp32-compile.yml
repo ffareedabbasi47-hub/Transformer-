@@ -10,13 +10,14 @@ permissions:
 
 jobs:
   compile:
-    name: ESP32 core ${{ matrix.core }} / ${{ matrix.sketch }}
+    name: ESP32 core ${{ matrix.core }} / ${{ matrix.sketch }} / BLE ${{ matrix.ble }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         core: ['3.3.5', '2.0.17']
         sketch: [single, multi]
+        ble: ['off', 'on']
     steps:
       - uses: actions/checkout@v4
       - name: Install arduino-cli
@@ -37,9 +38,15 @@ jobs:
             cp /tmp/sk/stsmn_firmware/secrets.h.example /tmp/sk/stsmn_firmware/secrets.h
             sed -i 's|^#define WIFI_AP_PASSWORD .*|#define WIFI_AP_PASSWORD "ci-compile-only-pass1"|' /tmp/sk/stsmn_firmware/secrets.h
           fi
+      - name: Set BLE on/off (shipped default is OFF so the sketch fits the default partition)
+        run: |
+          v=0; [ "${{ matrix.ble }}" = on ] && v=1
+          sed -i "s|^#define ENABLE_BLE .*|#define ENABLE_BLE $v|" $(grep -rl "^#define ENABLE_BLE" /tmp/sk)
+          grep -rn "^#define ENABLE_BLE" /tmp/sk
       - name: Compile (default partition = what ArduinoDroid uses unless Huge APP is chosen)
         shell: bash          # bash with -eo pipefail: a compile error must FAIL the job (tee used to hide it)
         run: |
           d=$(ls -d /tmp/sk/*)
-          arduino-cli compile --fqbn esp32:esp32:esp32 --warnings default "$d" 2>&1 | tee /tmp/out.txt
+          fq=esp32:esp32:esp32; [ "${{ matrix.ble }}" = on ] && fq=esp32:esp32:esp32:PartitionScheme=huge_app
+          arduino-cli compile --fqbn $fq --warnings default "$d" 2>&1 | tee /tmp/out.txt
           ! grep -E "warning: format|error:" /tmp/out.txt

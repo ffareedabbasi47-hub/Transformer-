@@ -53,9 +53,10 @@ constexpr int PIN_LED_RED   = 23;
 constexpr int PIN_BUZZER    = 27;  // ASSUMPTION: ACTIVE buzzer (on/off)
 
 // ---------- Bluetooth Low Energy (phone <-> ESP32 without Wi-Fi) -------------------------------------------
-// 1 = BLE on (needs the ESP32 BLE library that ships with the core; adds ~0.4 MB of flash - if the sketch is too big,
-// choose Partition Scheme "Huge APP" in the board options or set this to 0). Protection never depends on BLE.
-#define ENABLE_BLE 1
+// 1 = BLE on (ESP32 BLE library of the core). It adds ~0.6-0.7 MB: the sketch no longer fits the default partition (1.3 MB), so
+// you MUST pick Partition Scheme "Huge APP (3MB No OTA)" in the board options, otherwise the build stops with "Sketch too big".
+// Protection never depends on BLE.
+#define ENABLE_BLE 0   // default OFF: with BLE the sketch is ~1.6 MB and needs Partition Scheme "Huge APP" (see ESP32/README.md)
 #define BLE_DEVICE_NAME "STSMN-TR001"
 // Nordic UART service UUIDs (generic BLE terminal apps can read the stream too).
 #define BLE_SERVICE_UUID "6e400001-b5a3-f393-e0a9-e50e24dcca9e"

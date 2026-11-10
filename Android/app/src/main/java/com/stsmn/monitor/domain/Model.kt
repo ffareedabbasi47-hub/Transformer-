@@ -83,6 +83,8 @@ data class LiveSnapshot(
     val anomalies: List<String> = emptyList(),
     val wifiBound: Boolean = false,
     val host: String = "",
+    val viaBluetooth: Boolean = false,        // link is Bluetooth (BLE) instead of the ESP32 Wi-Fi
+    val linkNote: String = "",               // short text about the Bluetooth link state
     val recent: List<StsmnStatus> = emptyList(), // last valid packets (oldest first) for sparklines
     val gps: LiveGps? = null,                    // last valid GPS fix from /api/health (null = none yet)
     val gpsElapsedMs: Long? = null,              // SystemClock.elapsedRealtime() when that fix was received

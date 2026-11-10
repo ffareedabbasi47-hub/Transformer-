@@ -2,6 +2,7 @@ package com.stsmn.monitor.data
 
 import android.os.SystemClock
 import com.stsmn.monitor.config.AppConfig
+import com.stsmn.monitor.domain.BleMessage
 import com.stsmn.monitor.domain.ConnectionState
 import com.stsmn.monitor.domain.ConnectionTracker
 import com.stsmn.monitor.domain.EventDetector
@@ -13,6 +14,7 @@ import com.stsmn.monitor.domain.LiveSnapshot
 import com.stsmn.monitor.domain.ParseResult
 import com.stsmn.monitor.domain.StatusParser
 import com.stsmn.monitor.domain.StsmnStatus
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -23,6 +25,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Single source of truth for the ESP32 link. Everything here runs on the main
@@ -34,6 +38,7 @@ class StsmnRepository(
     private val binder: WifiNetworkBinder,
     private val eventStore: EventStore,
     private val settings: StateFlow<AppSettings>,
+    private val ble: BleClient? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val tracker = ConnectionTracker()
@@ -58,6 +63,7 @@ class StsmnRepository(
     private var lastGpsElapsedMs: Long? = null
     private var lastGpsPollMs = 0L
     private var lastDevicePhone: String? = null
+    @Volatile private var pendingReply: CompletableDeferred<BleMessage>? = null
 
     private val _snapshot = MutableStateFlow(LiveSnapshot())
     val snapshot: StateFlow<LiveSnapshot> = _snapshot.asStateFlow()
@@ -86,8 +92,7 @@ class StsmnRepository(
 
     private fun launchJobs() {
         if (pollJob?.isActive == true) return
-        binder.start()
-        pollJob = scope.launch { pollLoop() }
+        pollJob = scope.launch { modeLoop() }
         tickJob = scope.launch {
             while (true) { delay(AppConfig.STATE_TICK_MS); publish() }
         }
@@ -106,8 +111,21 @@ class StsmnRepository(
         return maxOf(s.staleTimeoutMs, s.pollIntervalMs * AppConfig.MIN_STALE_POLL_MULTIPLE)
     }
 
-    private suspend fun pollLoop() {
+    /** Runs the Wi-Fi poller or the Bluetooth link, whichever the settings say, and switches when the setting changes. */
+    private suspend fun modeLoop() {
         while (true) {
+            if (settings.value.useBluetooth && ble != null) bleLoop() else pollLoop()
+        }
+    }
+
+    private suspend fun pollLoop() {
+        binder.start()
+        try { pollLoopInner() } finally { binder.stop() }
+    }
+
+    private suspend fun pollLoopInner() {
+        resetForNewHost(); activeHost = null
+        while (!(settings.value.useBluetooth && ble != null)) {
             val s = settings.value
             if (activeHost != null && activeHost != s.deviceHost) resetForNewHost()
             activeHost = s.deviceHost
@@ -130,6 +148,45 @@ class StsmnRepository(
         }
     }
 
+    /** Bluetooth: the ESP32 pushes "ST <status json>" about once a second and "HE <health json>" every few seconds. */
+    private suspend fun bleLoop() {
+        val b = ble ?: return
+        resetForNewHost(); activeHost = null
+        b.start()
+        val collector = scope.launch { b.lines.collect { onBleLine(it) } }
+        try {
+            while (settings.value.useBluetooth) {
+                if (b.state.value != BleState.CONNECTED) {
+                    tracker.onFailure(); lastError = bleStateText(b.state.value)   // no link: the data ages and the UI goes STALE
+                }
+                publish()
+                delay(2000)
+            }
+        } finally { collector.cancel(); b.stop() }
+    }
+
+    private fun bleStateText(s: BleState): String = when (s) {
+        BleState.OFF -> "Bluetooth is off - turn it on"
+        BleState.NO_PERMISSION -> "Bluetooth permission needed (tap Connect)"
+        BleState.UNSUPPORTED -> "This phone has no Bluetooth LE"
+        BleState.SCANNING -> "Searching for the ESP32 (STSMN) over Bluetooth..."
+        BleState.CONNECTING -> "Connecting over Bluetooth..."
+        BleState.CONNECTED -> "Bluetooth connected"
+        BleState.IDLE -> "Bluetooth: waiting to search again"
+    }
+
+    private fun onBleLine(line: String) {
+        val m = BleMessage.parse(line) ?: return
+        when (m.kind) {
+            BleMessage.Kind.STATUS -> { handleBody(m.payload); publish() }
+            BleMessage.Kind.HEALTH -> {
+                HealthParser.parseGps(m.payload)?.let { lastGps = it; lastGpsElapsedMs = SystemClock.elapsedRealtime() }
+                lastDevicePhone = HealthParser.parseAlertPhone(m.payload)
+            }
+            BleMessage.Kind.OK, BleMessage.Kind.ERROR -> pendingReply?.complete(m)
+        }
+    }
+
     /** Optional extra: ask /api/health for the GPS fix. Any failure here is ignored; it never affects protection data. */
     private suspend fun pollGps(host: String) {
         val now = SystemClock.elapsedRealtime()
@@ -143,7 +200,21 @@ class StsmnRepository(
     }
 
     /** Saves the SMS number on the ESP32 (the only thing the app is allowed to write). Never touches relay or thresholds. */
-    suspend fun sendAlertPhone(phone: String): FetchResult = client.postContact(settings.value.deviceHost, phone)
+    suspend fun sendAlertPhone(phone: String): FetchResult {
+        val s = settings.value
+        val b = ble
+        if (!s.useBluetooth || b == null) return client.postContact(s.deviceHost, phone)
+        if (s.blePassword.isEmpty()) return FetchResult.Failure("Enter the device password (Settings > Bluetooth) to save the number over Bluetooth")
+        if (b.state.value != BleState.CONNECTED) return FetchResult.Failure("Bluetooth is not connected")
+        val reply = CompletableDeferred<BleMessage>()
+        pendingReply = reply
+        try {
+            val sent = withContext(Dispatchers.IO) { b.write(BleMessage.phoneCommand(s.blePassword, phone)) }
+            if (!sent) return FetchResult.Failure("Could not send over Bluetooth")
+            val m = withTimeoutOrNull(6000) { reply.await() } ?: return FetchResult.Failure("No answer from the ESP32")
+            return if (m.kind == BleMessage.Kind.OK) FetchResult.Body(m.payload) else FetchResult.Failure(m.payload)
+        } finally { pendingReply = null }
+    }
 
     private fun handleBody(text: String) {
         when (val r = StatusParser.parse(text)) {
@@ -215,6 +286,8 @@ class StsmnRepository(
             anomalies = anomalies,
             wifiBound = binder.isBound,
             host = settings.value.deviceHost,
+            viaBluetooth = settings.value.useBluetooth && ble != null,
+            linkNote = ble?.let { if (settings.value.useBluetooth) bleStateText(it.state.value) else "" } ?: "",
             recent = recent.toList(),
             gps = lastGps,
             deviceAlertPhone = lastDevicePhone,

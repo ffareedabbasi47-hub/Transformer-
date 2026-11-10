@@ -1,6 +1,10 @@
 package com.stsmn.monitor.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import com.stsmn.monitor.data.BlePermissions
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
@@ -76,6 +80,12 @@ fun StsmnApp(vm: MainViewModel) {
     val events by vm.events.collectAsStateWithLifecycle()
     val contactStatus by vm.contactStatus.collectAsStateWithLifecycle()
     val whatsappStatus by vm.whatsappStatus.collectAsStateWithLifecycle()
+    val appContext = LocalContext.current
+    // Bluetooth needs a runtime permission (Android 12+: Nearby devices). Asked when the person connects over Bluetooth.
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.connect() }
+    val connectWithPerm: () -> Unit = {
+        if (settings.useBluetooth && !BlePermissions.granted(appContext)) permLauncher.launch(BlePermissions.required()) else vm.connect()
+    }
     var tab by rememberSaveable { mutableIntStateOf(0) }
     var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
     var fullscreen by rememberSaveable { mutableStateOf(false) }
@@ -136,9 +146,9 @@ fun StsmnApp(vm: MainViewModel) {
                 when (current) {
                     Tab.DASHBOARD ->
                         if (live.connection == ConnectionState.IDLE && live.status == null) {
-                            ConnectScreen(live, settings, onConnect = vm::connect)
+                            ConnectScreen(live, settings, onConnect = connectWithPerm)
                         } else DashboardScreen(
-                            live, settings, fleet, onConnect = vm::connect,
+                            live, settings, fleet, onConnect = connectWithPerm,
                             onOpenSensors = { tab = Tab.SENSORS.ordinal }, onOpenDiagnostics = { tab = Tab.DIAGNOSTICS.ordinal },
                         )
                     Tab.MAP -> EarthScreen(
@@ -157,7 +167,8 @@ fun StsmnApp(vm: MainViewModel) {
                         settings = settings,
                         fleet = fleet,
                         onUpdate = vm::updateSettings,
-                        onConnect = vm::connect,
+                        onConnect = connectWithPerm,
+                        onRequestBlePermission = { permLauncher.launch(BlePermissions.required()) },
                         onDisconnect = vm::disconnect,
                         onClearHistory = vm::clearHistory,
                         onOpenProfile = { tab = Tab.USER.ordinal },

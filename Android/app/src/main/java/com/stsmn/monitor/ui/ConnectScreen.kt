@@ -42,7 +42,7 @@ fun ConnectScreen(live: LiveSnapshot, settings: AppSettings, onConnect: () -> Un
                 Text("📶", fontSize = 40.sp)
                 Text("Connect to ESP32", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 OutlinedTextField(
-                    value = "${settings.deviceName}  ·  ${settings.deviceHost}",
+                    value = if (settings.useBluetooth) "${settings.deviceName}  ·  Bluetooth" else "${settings.deviceName}  ·  ${settings.deviceHost}",
                     onValueChange = {},
                     readOnly = true,
                     label = { Text("Device") },
@@ -50,16 +50,16 @@ fun ConnectScreen(live: LiveSnapshot, settings: AppSettings, onConnect: () -> Un
                 )
                 Button(onClick = onConnect, modifier = Modifier.fillMaxWidth()) { Text("Connect") }
                 Text(
-                    "Join the ESP32 Wi-Fi first. Change the device address in Settings.",
+                    if (settings.useBluetooth) "Bluetooth: switch it on and keep the phone near the ESP32. You do not need the ESP32 Wi-Fi." else "Join the ESP32 Wi-Fi first. Change the device address in Settings.",
                     fontSize = 12.sp, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
         AppCard {
             Text(
-                if (live.wifiBound) "Wi-Fi (local): available" else "Wi-Fi (local): not connected",
+                if (settings.useBluetooth) "Link: Bluetooth" else if (live.wifiBound) "Wi-Fi (local): available" else "Wi-Fi (local): not connected",
                 fontWeight = FontWeight.SemiBold,
-                color = if (live.wifiBound) StsmnColors.Safe else StsmnColors.Warning,
+                color = if (settings.useBluetooth || live.wifiBound) StsmnColors.Safe else StsmnColors.Warning,
             )
             Text(
                 "Monitoring is off. Nothing is shown as SAFE until a valid live packet arrives.",

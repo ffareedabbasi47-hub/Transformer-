@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import com.stsmn.monitor.config.AppConfig
 import com.stsmn.monitor.data.AppSettings
+import com.stsmn.monitor.data.BleClient
 import com.stsmn.monitor.data.EspClient
 import com.stsmn.monitor.data.EventStore
 import com.stsmn.monitor.data.KeystoreCodec
@@ -33,7 +34,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val settingsStore = SettingsStore(app, KeystoreCodec())
     private val eventStore = EventStore(File(app.filesDir, AppConfig.HISTORY_FILE_NAME))
     private val binder = WifiNetworkBinder(app)
-    private val repository = StsmnRepository(EspClient(binder), binder, eventStore, settingsStore.settings)
+    private val ble = BleClient(app)
+    private val repository = StsmnRepository(EspClient(binder), binder, eventStore, settingsStore.settings, ble)
 
     val settings = settingsStore.settings
     val live = repository.snapshot

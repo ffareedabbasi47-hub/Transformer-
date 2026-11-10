@@ -62,6 +62,7 @@ fun SettingsScreen(
     fleet: FleetState,
     onUpdate: ((AppSettings) -> AppSettings) -> Unit,
     onConnect: () -> Unit,
+    onRequestBlePermission: () -> Unit,
     onDisconnect: () -> Unit,
     onClearHistory: () -> Unit,
     onOpenProfile: () -> Unit,
@@ -73,6 +74,7 @@ fun SettingsScreen(
     var waKeyText by rememberSaveable { mutableStateOf(settings.whatsappKey) }
     var contactErr by rememberSaveable { mutableStateOf<String?>(null) }
     var host by rememberSaveable { mutableStateOf(settings.deviceHost) }
+    var blePw by rememberSaveable { mutableStateOf(settings.blePassword) }
     var deviceName by rememberSaveable { mutableStateOf(settings.deviceName) }
     var hostError by rememberSaveable { mutableStateOf(false) }
     var confirmClear by rememberSaveable { mutableStateOf(false) }
@@ -101,6 +103,29 @@ fun SettingsScreen(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Status", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 ConnectionChip(live.connection)
+            }
+            Text("Link to the ESP32", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 12.dp, bottom = 6.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(selected = !settings.useBluetooth, onClick = { onUpdate { it.copy(useBluetooth = false) } }, label = { Text("Wi-Fi") })
+                FilterChip(selected = settings.useBluetooth, onClick = { onUpdate { it.copy(useBluetooth = true) }; onRequestBlePermission() }, label = { Text("Bluetooth") })
+            }
+            if (settings.useBluetooth) {
+                Text(
+                    live.linkNote.ifBlank { "Bluetooth: press Connect" },
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
+                )
+                Text(
+                    "With Bluetooth the phone keeps its normal internet, so WhatsApp can be sent automatically while the app is open.",
+                    fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp),
+                )
+                OutlinedButton(onClick = onRequestBlePermission, modifier = Modifier.padding(top = 6.dp)) { Text("Allow Bluetooth permission") }
+                OutlinedTextField(
+                    value = blePw, onValueChange = { blePw = it.filter { c -> !c.isWhitespace() }.take(64) },
+                    label = { Text("Device password (only to save the SMS number over Bluetooth)") }, singleLine = true,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                )
+                Button(onClick = { onUpdate { it.copy(blePassword = blePw) } }, modifier = Modifier.padding(top = 6.dp)) { Text("Save password") }
             }
             Row(Modifier.padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (live.connection == ConnectionState.IDLE) {

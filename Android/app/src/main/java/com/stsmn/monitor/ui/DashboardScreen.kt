@@ -80,7 +80,7 @@ fun DashboardScreen(
                     fontWeight = FontWeight.Bold, color = StsmnColors.Warning,
                 )
                 Text(
-                    "Connect your phone to the ESP32 Wi-Fi and check the address in Settings (${live.host}).",
+                    if (live.viaBluetooth) live.linkNote.ifBlank { "Bluetooth: keep the phone near the ESP32." } else "Connect your phone to the ESP32 Wi-Fi and check the address in Settings (${live.host}).",
                     fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

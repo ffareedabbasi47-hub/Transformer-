@@ -14,6 +14,8 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 data class AppSettings(
     val deviceHost: String = AppConfig.DEFAULT_DEVICE_HOST,
+    val useBluetooth: Boolean = false,        // true: talk to the ESP32 over Bluetooth LE (phone keeps its normal internet)
+    val blePassword: String = "",            // device password, only needed to save the SMS number over Bluetooth
     val deviceName: String = "Demo Transformer",
     val pollIntervalMs: Long = AppConfig.DEFAULT_POLL_INTERVAL_MS,
     val staleTimeoutMs: Long = AppConfig.DEFAULT_STALE_TIMEOUT_MS,
@@ -67,6 +69,7 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
         profileSchool = n.profileSchool.trim().take(AppConfig.MAX_TEXT_LENGTH),
         alertPhone = n.alertPhone.trim().let { if (it.isEmpty()) "" else AlertContact.normalize(it) ?: old.alertPhone },
         whatsappKey = CloudRules.cleanSecret(n.whatsappKey),
+        blePassword = n.blePassword.trim().filter { !it.isWhitespace() }.take(64),
     )
 
     /** Both null = cleared on purpose; otherwise both must be valid, or the previous pair is kept. */
@@ -102,6 +105,8 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
                 profileSchool = prefs.getString("pSchool", d.profileSchool) ?: d.profileSchool,
                 alertPhone = prefs.getString("alertPhone", "") ?: "",
                 whatsappKey = readSecret("waKey"),
+                useBluetooth = prefs.getBoolean("useBle", d.useBluetooth),
+                blePassword = readSecret("blePw"),
             ),
             d,
         )
@@ -139,11 +144,12 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
             .putString("siteSource", s.siteSource.name)
             .putBoolean("cloudOn", s.cloudEnabled).putString("srvUrl", s.serverUrl)
             .putString("cloudId", s.cloudDeviceId)
-            .putString("alertPhone", s.alertPhone)
+            .putString("alertPhone", s.alertPhone).putBoolean("useBle", s.useBluetooth)
             .putString("pName", s.profileName).putString("pRole", s.profileRole).putString("pSchool", s.profileSchool)
         writeSecret(editor, "viewerKey", s.viewerKey)
         writeSecret(editor, "devToken", s.deviceToken)
         writeSecret(editor, "waKey", s.whatsappKey)
+        writeSecret(editor, "blePw", s.blePassword)
         editor.apply()
     }
 

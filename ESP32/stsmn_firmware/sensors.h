@@ -75,6 +75,11 @@ class SensorHub {
     }
   }
 
+  FlameTuning& flameTuning() { return flameDet_.tune; }
+  void flameRelearn() { flameDet_.relearn(); }
+  FlameOut flameDiag() const { return flameDiag_; }
+  bool flameDiagDo() const { return flameDiagDo_; }
+
   // Non-blocking DS18B20 state machine; call every loop().
   void pollTemperature(uint32_t now) {
     if (!tempPending_) {
@@ -170,6 +175,7 @@ class SensorHub {
       else if (!FLAME_DO_ONLY_FALLBACK_EMERGENCY) { fp = flameDo ? SIGNAL_MIN_PCT : 0; flameCrit = false; }   // AO unusable: DO alone = WARNING only
       // (else: DO alone is an EMERGENCY as in the old firmware)
       flameLog(fo, flameDo);
+      flameDiag_ = fo; flameDiagDo_ = flameDo;
     }
     r_.flamePct = fp;
     r_.flame = flameCrit;
@@ -225,6 +231,7 @@ class SensorHub {
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
   FlameDetector flameDet_;
+  FlameOut flameDiag_ = {}; bool flameDiagDo_ = false;
   uint32_t flameBinStart_ = 0; float flameBinSum_ = 0; int flameBinN_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0, flameStatN_ = 0;
   bool tempPending_ = false;
   uint32_t tempRequestedAt_ = 0, tempLastRequest_ = 0;

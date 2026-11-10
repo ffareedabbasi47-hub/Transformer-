@@ -14,6 +14,8 @@ import com.stsmn.monitor.data.WifiNetworkBinder
 import com.stsmn.monitor.data.FetchResult
 import com.stsmn.monitor.data.WhatsAppSender
 import com.stsmn.monitor.domain.AlertContact
+import com.stsmn.monitor.domain.FlameLive
+import com.stsmn.monitor.domain.FlameTuning
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +51,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     val contactStatus: StateFlow<String?> = _contactStatus.asStateFlow()     // "Saved on ESP32 +91*****48", errors...
     private val _whatsappStatus = MutableStateFlow<String?>(null)
     val whatsappStatus: StateFlow<String?> = _whatsappStatus.asStateFlow()  // result of the last automatic WhatsApp
+    private val _flameTuning = MutableStateFlow<FlameTuning?>(null)
+    val flameTuning: StateFlow<FlameTuning?> = _flameTuning.asStateFlow()
+    private val _flameLive = MutableStateFlow<FlameLive?>(null)
+    val flameLive: StateFlow<FlameLive?> = _flameLive.asStateFlow()
+    private val _flameStatus = MutableStateFlow<String?>(null)
+    val flameStatus: StateFlow<String?> = _flameStatus.asStateFlow()
+
+    fun refreshFlame() {
+        viewModelScope.launch {
+            when (val r = repository.flameGet()) {
+                is FetchResult.Body -> FlameTuning.parse(r.text)?.let { (t, l) ->
+                    if (_flameTuning.value == null) _flameTuning.value = t
+                    _flameLive.value = l
+                    _flameStatus.value = null
+                } ?: run { _flameStatus.value = "ESP32 sent an unreadable flame answer" }
+                is FetchResult.Failure -> _flameStatus.value = if (r.message.contains("404") || r.message.contains("405")) "ESP32 sketch is old: upload the new .ino (v17) to use the sliders" else "Flame settings: ${r.message}"
+            }
+        }
+    }
+
+    fun pushFlame(t: FlameTuning, relearn: Boolean = false) {
+        _flameTuning.value = t.clamped()
+        viewModelScope.launch {
+            when (val r = repository.flamePost(t.toForm(relearn))) {
+                is FetchResult.Body -> { FlameTuning.parse(r.text)?.let { (nt, l) -> _flameTuning.value = nt; _flameLive.value = l }; _flameStatus.value = "Applied on the ESP32 (saved, survives power-off)" }
+                is FetchResult.Failure -> _flameStatus.value = "Not applied: ${r.message}"
+            }
+        }
+    }
+
     private var lastContactSyncMs = 0L
     private var emergencyIds = emptySet<String>()
 

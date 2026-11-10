@@ -69,6 +69,11 @@ fun SettingsScreen(
     contactStatus: String?,
     whatsappStatus: String?,
     onSaveContact: (String, String) -> String?,
+    flameTuning: com.stsmn.monitor.domain.FlameTuning?,
+    flameLive: com.stsmn.monitor.domain.FlameLive?,
+    flameStatus: String?,
+    onRefreshFlame: () -> Unit,
+    onPushFlame: (com.stsmn.monitor.domain.FlameTuning, Boolean) -> Unit,
 ) {
     var phoneText by rememberSaveable { mutableStateOf(settings.alertPhone) }
     var waKeyText by rememberSaveable { mutableStateOf(settings.whatsappKey) }
@@ -170,6 +175,10 @@ fun SettingsScreen(
         }
 
         // ---------------- Realtime cloud ----------------
+        // ---------------- Flame sensor tuning (live on the ESP32) ----------------
+        SectionLabel("Flame sensor (live on ESP32)")
+        FlameTuningCard(flameTuning, flameLive, flameStatus, live.connection == com.stsmn.monitor.domain.ConnectionState.LIVE || live.connection == com.stsmn.monitor.domain.ConnectionState.STALE, onRefreshFlame, onPushFlame)
+
         // ---------------- Alert contact ----------------
         SectionLabel("Alert number (SMS + WhatsApp)")
         AppCard {
@@ -470,6 +479,56 @@ fun SettingsScreen(
             dismissButton = { TextButton(onClick = { confirmClear = false }) { Text("Cancel") } },
         )
     }
+}
+
+@Composable
+private fun FlameTuningCard(
+    tuning: com.stsmn.monitor.domain.FlameTuning?,
+    liveFlame: com.stsmn.monitor.domain.FlameLive?,
+    status: String?,
+    connected: Boolean,
+    onRefresh: () -> Unit,
+    onPush: (com.stsmn.monitor.domain.FlameTuning, Boolean) -> Unit,
+) {
+    androidx.compose.runtime.LaunchedEffect(connected) {
+        while (connected) { onRefresh(); kotlinx.coroutines.delay(1500) }
+    }
+    AppCard {
+        if (!connected) { Text("Connect to the ESP32 over Wi-Fi to change the flame settings.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant); return@AppCard }
+        if (tuning == null) { Text(status ?: "Reading flame settings from the ESP32...", fontSize = 13.sp); return@AppCard }
+        var local by androidx.compose.runtime.remember(tuning) { mutableStateOf(tuning) }
+        liveFlame?.let {
+            Text(
+                if (!it.usable) "Sensor: AO not usable / learning ambient" else "Sensor now: ambient ${it.base} mV, change ${it.dev} mV, flicker ${it.reversals}, DO ${if (it.doOn) "ON" else "off"}, signal ${it.pct}%" + if (it.critical) "  FLAME!" else "",
+                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        TuneSlider("Sensitivity: needs ${local.minDelta} mV change", "Higher = ignores light better, needs a bigger flame", local.minDelta.toFloat(),
+            com.stsmn.monitor.domain.FlameTuning.MIN_DELTA_RANGE.first.toFloat()..com.stsmn.monitor.domain.FlameTuning.MIN_DELTA_RANGE.last.toFloat(), 0,
+            { local = local.copy(minDelta = it.toInt()) }, { onPush(local, false) })
+        TuneSlider("Flicker strictness: ${"%.1f".format(local.flicker)}", "Higher = steady light/noise ignored more, flame must flicker harder", local.flicker.toFloat(),
+            com.stsmn.monitor.domain.FlameTuning.FLICKER_RANGE.start.toFloat()..com.stsmn.monitor.domain.FlameTuning.FLICKER_RANGE.endInclusive.toFloat(), 0,
+            { local = local.copy(flicker = it.toDouble()) }, { onPush(local, false) })
+        TuneSlider("Flicker count: ${local.reversals}", "Higher = needs more flicker in 0.6 s", local.reversals.toFloat(),
+            com.stsmn.monitor.domain.FlameTuning.REVERSALS_RANGE.first.toFloat()..com.stsmn.monitor.domain.FlameTuning.REVERSALS_RANGE.last.toFloat(), 0,
+            { local = local.copy(reversals = it.toInt()) }, { onPush(local, false) })
+        TuneSlider("Confirm time: ${local.confirmMs} ms", "Higher = slower alarm, fewer false alarms", local.confirmMs.toFloat(),
+            com.stsmn.monitor.domain.FlameTuning.CONFIRM_RANGE.first.toFloat()..com.stsmn.monitor.domain.FlameTuning.CONFIRM_RANGE.last.toFloat(), 0,
+            { local = local.copy(confirmMs = (it / 50f).toInt() * 50) }, { onPush(local, false) })
+        TuneSlider("Accept steady light after: ${local.rebaseSec} s", "Sunlight/lamp that does not flicker becomes normal after this time", local.rebaseSec.toFloat(),
+            com.stsmn.monitor.domain.FlameTuning.REBASE_RANGE.first.toFloat()..com.stsmn.monitor.domain.FlameTuning.REBASE_RANGE.last.toFloat(), 0,
+            { local = local.copy(rebaseSec = it.toInt()) }, { onPush(local, false) })
+        SwitchRow("DO pin must agree (fewer false alarms)", local.requireDo) { local = local.copy(requireDo = it); onPush(local, false) }
+        OutlinedButton(onClick = { onPush(local, true) }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) { Text("Re-learn light now (no flame in front!)") }
+        status?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp)) }
+    }
+}
+
+@Composable
+private fun TuneSlider(title: String, hint: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int, onChange: (Float) -> Unit, onDone: () -> Unit) {
+    Text(title, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
+    androidx.compose.material3.Slider(value = value, onValueChange = onChange, valueRange = range, steps = steps, onValueChangeFinished = onDone)
+    Text(hint, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
 
 @Composable

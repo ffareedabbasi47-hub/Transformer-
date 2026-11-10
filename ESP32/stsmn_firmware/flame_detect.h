@@ -35,8 +35,31 @@ struct FlameOut {
   uint8_t why;        // FlameWhy: why aoUsable is false
 };
 
+struct FlameTuning {
+  float minDeltaMv = FLAME_MIN_DELTA_MV;
+  float flickerSigmas = FLAME_FLICKER_SIGMAS;
+  int minReversals = FLAME_MIN_REVERSALS;
+  uint32_t confirmMs = FLAME_CONFIRM_MS;
+  uint32_t rebaseMs = FLAME_REBASE_MS;
+  bool requireDo = true;
+  void clampAll() {
+    if (minDeltaMv < 10) minDeltaMv = 10; if (minDeltaMv > 400) minDeltaMv = 400;
+    if (flickerSigmas < 2) flickerSigmas = 2; if (flickerSigmas > 12) flickerSigmas = 12;
+    if (minReversals < 2) minReversals = 2; if (minReversals > 16) minReversals = 16;
+    if (confirmMs < 250) confirmMs = 250; if (confirmMs > 3000) confirmMs = 3000;
+    if (rebaseMs < 3000) rebaseMs = 3000; if (rebaseMs > 60000) rebaseMs = 60000;
+  }
+};
+
 class FlameDetector {
  public:
+  FlameTuning tune;
+  void relearn() {
+    baseReady_ = false; dead_ = false; polarityBad_ = false; active_ = false; sticky_ = false;
+    initStart_ = 0; initQuietSince_ = 0; initSum_ = 0; initSd_ = 0; initN_ = 0;
+    confirmMs_ = 0; belowMs_ = 0; uncorrMs_ = 0; flickerHits_ = 0; histN_ = 0;
+  }
+
   static constexpr int N = 64;
 
   // Fast path: call about every FLAME_FAST_PERIOD_MS with the AO reading in mV.
@@ -94,8 +117,8 @@ class FlameDetector {
     // ---- deviation toward "flame" ----
     const float sgn = FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f;
     const float dev = sgn * (base_ - mean);
-    const float enterBase = fmaxf(FLAME_MIN_DELTA_MV, FLAME_ENTER_SIGMAS * noise_);
-    const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * FLAME_MIN_DELTA_MV) : enterBase;
+    const float enterBase = fmaxf(tune.minDeltaMv, FLAME_ENTER_SIGMAS * noise_);
+    const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * tune.minDeltaMv) : enterBase;
     const float exitT = enter * FLAME_EXIT_RATIO;
     if (!active_ && dev >= enter) active_ = true;
     else if (active_ && dev < exitT) active_ = false;
@@ -103,7 +126,7 @@ class FlameDetector {
 
     // ---- polarity check against DO ----
     if (doOn) { doMs_ += dt; } else { doMs_ = 0; }
-    if (doOn && doMs_ >= 1500 && dev <= -fmaxf(4.0f * noise_, 0.5f * FLAME_MIN_DELTA_MV)) {
+    if (doOn && doMs_ >= 1500 && dev <= -fmaxf(4.0f * noise_, 0.5f * tune.minDeltaMv)) {
       polarityBad_ = true; o.events |= FE_POLARITY_BAD; o.aoUsable = false; o.why = FW_POLARITY; return o;
     }
 
@@ -118,7 +141,7 @@ class FlameDetector {
     const bool riseRecent = (int32_t)(riseUntil_ - now) > 0;
 
     // ---- flicker: direction reversals of AO around its mean, swing >= h ----
-    const float h = fmaxf(FLAME_FLICKER_SIGMAS * noise_, FLAME_FLICKER_FRAC * (dev > 0 ? dev : 0));
+    const float h = fmaxf(tune.flickerSigmas * noise_, FLAME_FLICKER_FRAC * (dev > 0 ? dev : 0));
     int rev = 0; int state = 0;
     for (int k = 0; k < count_; k++) {
       const float v = buf_[(idx_ + (N - count_) + k) % N] - mean;     // oldest -> newest
@@ -131,14 +154,13 @@ class FlameDetector {
       if (a != b) doTrans++;
     }
     const bool doChatter = doTrans >= FLAME_DO_MIN_TRANSITIONS && doTrans <= FLAME_DO_MAX_TRANSITIONS;
-    const bool flickerNow = active_ && ((rev >= FLAME_MIN_REVERSALS && rev <= FLAME_MAX_REVERSALS) || doChatter);
+    const bool flickerNow = active_ && ((rev >= tune.minReversals && rev <= FLAME_MAX_REVERSALS) || doChatter);
     if (flickerNow) { if (flickerHits_ < 100) flickerHits_++; } else flickerHits_ = 0;
     const bool flickerSustained = flickerHits_ >= FLAME_FLICKER_CYCLES;
     o.reversals = rev;
 
     // ---- corroboration ----
-    const bool strongDev = dev >= FLAME_STRONG_FRACTION * fabsf(base_);
-    const bool corroborated = sticky_ || (flickerSustained && (doOn || doChatter));
+    const bool corroborated = sticky_ || (flickerSustained && (!tune.requireDo || doOn || doChatter));
     const bool weakEvidence = flickerSustained;     // flicker without rise/DO: visible (warning level) but never an emergency
 
     // ---- strength ----
@@ -150,7 +172,7 @@ class FlameDetector {
     // ---- confirmation (only added delay: FLAME_CONFIRM_MS) ----
     const bool strong = active_;
     if (strong && corroborated) confirmMs_ += dt; else if (!sticky_) confirmMs_ = 0;
-    bool critical = sticky_ || confirmMs_ >= FLAME_CONFIRM_MS;
+    bool critical = sticky_ || confirmMs_ >= tune.confirmMs;
     if (critical && !sticky_) { sticky_ = true; o.events |= FE_CRITICAL_ON; }
     if (sticky_) {                         // stays critical while the flame signal is still there
       if (active_) belowMs_ = 0; else { belowMs_ += dt; if (belowMs_ >= 2000) { sticky_ = false; confirmMs_ = 0; critical = false; belowMs_ = 0; } }
@@ -160,7 +182,7 @@ class FlameDetector {
     if (!active_ && !riseRecent && !sticky_ && !flickerSustained && sd < 3.0f * noise_ + 1.0f) base_ += FLAME_BASELINE_ALPHA * (mean - base_);
     if (active_ && !corroborated && !flickerSustained) {
       uncorrMs_ += dt;
-      if (uncorrMs_ >= FLAME_REBASE_MS) { base_ = mean; uncorrMs_ = 0; o.events |= FE_REBASED; active_ = false; }
+      if (uncorrMs_ >= tune.rebaseMs) { base_ = mean; uncorrMs_ = 0; o.events |= FE_REBASED; active_ = false; }
     } else uncorrMs_ = 0;
 
     // ---- DO alone (AO quiet): WARNING at most ----

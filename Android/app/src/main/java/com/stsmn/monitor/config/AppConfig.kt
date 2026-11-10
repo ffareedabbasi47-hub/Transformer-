@@ -10,6 +10,7 @@ object AppConfig {
     const val API_PORT = 80
     const val STATUS_PATH = "/api/status"
     const val CONTACT_PATH = "/api/contact"         // the ONLY write the app does: the SMS number
+    const val FLAME_PATH = "/api/flame"            // live flame-sensor tuning (sliders in Settings); never the relay
     const val HEALTH_PATH = "/api/health"          // carries the GPS fix (read-only)
     const val GPS_POLL_EVERY_MS = 5_000L           // GPS is asked less often than the protection data
     const val GPS_MAX_AGE_MS = 60_000L             // an older fix is no longer shown as "live"

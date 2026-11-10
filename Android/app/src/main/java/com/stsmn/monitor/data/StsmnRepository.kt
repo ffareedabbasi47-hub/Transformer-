@@ -199,6 +199,9 @@ class StsmnRepository(
         }
     }
 
+    suspend fun flameGet(): FetchResult = client.fetchFlame(settings.value.deviceHost)
+    suspend fun flamePost(form: Map<String, String>): FetchResult = client.postFlame(settings.value.deviceHost, form)
+
     /** Saves the SMS number on the ESP32 (the only thing the app is allowed to write). Never touches relay or thresholds. */
     suspend fun sendAlertPhone(phone: String): FetchResult {
         val s = settings.value

@@ -175,6 +175,11 @@ fun StsmnApp(vm: MainViewModel) {
                         contactStatus = contactStatus,
                         whatsappStatus = whatsappStatus,
                         onSaveContact = vm::saveAlertContact,
+                        flameTuning = vm.flameTuning.collectAsStateWithLifecycle().value,
+                        flameLive = vm.flameLive.collectAsStateWithLifecycle().value,
+                        flameStatus = vm.flameStatus.collectAsStateWithLifecycle().value,
+                        onRefreshFlame = vm::refreshFlame,
+                        onPushFlame = vm::pushFlame,
                     )
                 }
               }

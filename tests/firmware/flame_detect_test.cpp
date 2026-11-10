@@ -62,6 +62,17 @@ int main() {
   { FlameDetector d; // indoor: noisy AO, people/shadows moving, DO silent
     Run r = simulate(120000, [](int t) { return AMB - 60.0f * sinf(t / 700.0f) - 40.0f * sinf(t / 130.0f) + (rand() % 41 - 20); }, [](int) { return false; }, d);
     CHECK(!r.everCritical, "normal room, noisy AO + shadows, DO silent: no EMERGENCY"); }
+  { FlameDetector d; d.tune.requireDo = false; // slider: DO not required
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 150, 40, 8); }, [](int) { return false; }, d);
+    CHECK(r.everCritical, "tuning requireDo=false: AO flicker alone triggers"); }
+  { FlameDetector d; d.tune.minDeltaMv = 400; // slider: sensitivity lowered
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 90, 25, 8); }, [](int t) { return t >= 10000; }, d);
+    CHECK(!r.everCritical, "tuning minDelta=400: small flame no longer triggers"); }
+  { FlameDetector d; d.tune.confirmMs = 3000;
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 700, 150, 8); }, [](int t) { return t >= 10000; }, d);
+    CHECK(r.everCritical && r.critAtMs - 10000 >= 3000, "tuning confirmMs=3000: slower to confirm"); }
+  { FlameTuning t; t.minDeltaMv = -5; t.confirmMs = 99999; t.clampAll();
+    CHECK(t.minDeltaMv == 10 && t.confirmMs == 3000, "tuning values are clamped"); }
   { FlameDetector d; // weak flame, DO off, still flickers and rises suddenly
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 150, 40, 8); }, [](int) { return false; }, d);
     CHECK(!r.everCritical, "AO flicker but DO silent: no EMERGENCY (DO must agree)"); }

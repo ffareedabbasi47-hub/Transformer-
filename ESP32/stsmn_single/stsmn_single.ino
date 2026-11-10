@@ -564,8 +564,31 @@ struct FlameOut {
   uint8_t why;        // FlameWhy: why aoUsable is false
 };
 
+struct FlameTuning {
+  float minDeltaMv = FLAME_MIN_DELTA_MV;
+  float flickerSigmas = FLAME_FLICKER_SIGMAS;
+  int minReversals = FLAME_MIN_REVERSALS;
+  uint32_t confirmMs = FLAME_CONFIRM_MS;
+  uint32_t rebaseMs = FLAME_REBASE_MS;
+  bool requireDo = true;
+  void clampAll() {
+    if (minDeltaMv < 10) minDeltaMv = 10; if (minDeltaMv > 400) minDeltaMv = 400;
+    if (flickerSigmas < 2) flickerSigmas = 2; if (flickerSigmas > 12) flickerSigmas = 12;
+    if (minReversals < 2) minReversals = 2; if (minReversals > 16) minReversals = 16;
+    if (confirmMs < 250) confirmMs = 250; if (confirmMs > 3000) confirmMs = 3000;
+    if (rebaseMs < 3000) rebaseMs = 3000; if (rebaseMs > 60000) rebaseMs = 60000;
+  }
+};
+
 class FlameDetector {
  public:
+  FlameTuning tune;
+  void relearn() {
+    baseReady_ = false; dead_ = false; polarityBad_ = false; active_ = false; sticky_ = false;
+    initStart_ = 0; initQuietSince_ = 0; initSum_ = 0; initSd_ = 0; initN_ = 0;
+    confirmMs_ = 0; belowMs_ = 0; uncorrMs_ = 0; flickerHits_ = 0; histN_ = 0;
+  }
+
   static constexpr int N = 64;
 
   // Fast path: call about every FLAME_FAST_PERIOD_MS with the AO reading in mV.
@@ -623,8 +646,8 @@ class FlameDetector {
     // ---- deviation toward "flame" ----
     const float sgn = FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f;
     const float dev = sgn * (base_ - mean);
-    const float enterBase = fmaxf(FLAME_MIN_DELTA_MV, FLAME_ENTER_SIGMAS * noise_);
-    const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * FLAME_MIN_DELTA_MV) : enterBase;
+    const float enterBase = fmaxf(tune.minDeltaMv, FLAME_ENTER_SIGMAS * noise_);
+    const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * tune.minDeltaMv) : enterBase;
     const float exitT = enter * FLAME_EXIT_RATIO;
     if (!active_ && dev >= enter) active_ = true;
     else if (active_ && dev < exitT) active_ = false;
@@ -632,7 +655,7 @@ class FlameDetector {
 
     // ---- polarity check against DO ----
     if (doOn) { doMs_ += dt; } else { doMs_ = 0; }
-    if (doOn && doMs_ >= 1500 && dev <= -fmaxf(4.0f * noise_, 0.5f * FLAME_MIN_DELTA_MV)) {
+    if (doOn && doMs_ >= 1500 && dev <= -fmaxf(4.0f * noise_, 0.5f * tune.minDeltaMv)) {
       polarityBad_ = true; o.events |= FE_POLARITY_BAD; o.aoUsable = false; o.why = FW_POLARITY; return o;
     }
 
@@ -647,7 +670,7 @@ class FlameDetector {
     const bool riseRecent = (int32_t)(riseUntil_ - now) > 0;
 
     // ---- flicker: direction reversals of AO around its mean, swing >= h ----
-    const float h = fmaxf(FLAME_FLICKER_SIGMAS * noise_, FLAME_FLICKER_FRAC * (dev > 0 ? dev : 0));
+    const float h = fmaxf(tune.flickerSigmas * noise_, FLAME_FLICKER_FRAC * (dev > 0 ? dev : 0));
     int rev = 0; int state = 0;
     for (int k = 0; k < count_; k++) {
       const float v = buf_[(idx_ + (N - count_) + k) % N] - mean;     // oldest -> newest
@@ -660,14 +683,13 @@ class FlameDetector {
       if (a != b) doTrans++;
     }
     const bool doChatter = doTrans >= FLAME_DO_MIN_TRANSITIONS && doTrans <= FLAME_DO_MAX_TRANSITIONS;
-    const bool flickerNow = active_ && ((rev >= FLAME_MIN_REVERSALS && rev <= FLAME_MAX_REVERSALS) || doChatter);
+    const bool flickerNow = active_ && ((rev >= tune.minReversals && rev <= FLAME_MAX_REVERSALS) || doChatter);
     if (flickerNow) { if (flickerHits_ < 100) flickerHits_++; } else flickerHits_ = 0;
     const bool flickerSustained = flickerHits_ >= FLAME_FLICKER_CYCLES;
     o.reversals = rev;
 
     // ---- corroboration ----
-    const bool strongDev = dev >= FLAME_STRONG_FRACTION * fabsf(base_);
-    const bool corroborated = sticky_ || (flickerSustained && (doOn || doChatter));
+    const bool corroborated = sticky_ || (flickerSustained && (!tune.requireDo || doOn || doChatter));
     const bool weakEvidence = flickerSustained;     // flicker without rise/DO: visible (warning level) but never an emergency
 
     // ---- strength ----
@@ -679,7 +701,7 @@ class FlameDetector {
     // ---- confirmation (only added delay: FLAME_CONFIRM_MS) ----
     const bool strong = active_;
     if (strong && corroborated) confirmMs_ += dt; else if (!sticky_) confirmMs_ = 0;
-    bool critical = sticky_ || confirmMs_ >= FLAME_CONFIRM_MS;
+    bool critical = sticky_ || confirmMs_ >= tune.confirmMs;
     if (critical && !sticky_) { sticky_ = true; o.events |= FE_CRITICAL_ON; }
     if (sticky_) {                         // stays critical while the flame signal is still there
       if (active_) belowMs_ = 0; else { belowMs_ += dt; if (belowMs_ >= 2000) { sticky_ = false; confirmMs_ = 0; critical = false; belowMs_ = 0; } }
@@ -689,7 +711,7 @@ class FlameDetector {
     if (!active_ && !riseRecent && !sticky_ && !flickerSustained && sd < 3.0f * noise_ + 1.0f) base_ += FLAME_BASELINE_ALPHA * (mean - base_);
     if (active_ && !corroborated && !flickerSustained) {
       uncorrMs_ += dt;
-      if (uncorrMs_ >= FLAME_REBASE_MS) { base_ = mean; uncorrMs_ = 0; o.events |= FE_REBASED; active_ = false; }
+      if (uncorrMs_ >= tune.rebaseMs) { base_ = mean; uncorrMs_ = 0; o.events |= FE_REBASED; active_ = false; }
     } else uncorrMs_ = 0;
 
     // ---- DO alone (AO quiet): WARNING at most ----
@@ -794,6 +816,11 @@ class SensorHub {
     }
   }
 
+  FlameTuning& flameTuning() { return flameDet_.tune; }
+  void flameRelearn() { flameDet_.relearn(); }
+  FlameOut flameDiag() const { return flameDiag_; }
+  bool flameDiagDo() const { return flameDiagDo_; }
+
   // Non-blocking DS18B20 state machine; call every loop().
   void pollTemperature(uint32_t now) {
     if (!tempPending_) {
@@ -889,6 +916,7 @@ class SensorHub {
       else if (!FLAME_DO_ONLY_FALLBACK_EMERGENCY) { fp = flameDo ? SIGNAL_MIN_PCT : 0; flameCrit = false; }   // AO unusable: DO alone = WARNING only
       // (else: DO alone is an EMERGENCY as in the old firmware)
       flameLog(fo, flameDo);
+      flameDiag_ = fo; flameDiagDo_ = flameDo;
     }
     r_.flamePct = fp;
     r_.flame = flameCrit;
@@ -944,6 +972,7 @@ class SensorHub {
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
   FlameDetector flameDet_;
+  FlameOut flameDiag_ = {}; bool flameDiagDo_ = false;
   uint32_t flameBinStart_ = 0; float flameBinSum_ = 0; int flameBinN_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0, flameStatN_ = 0;
   bool tempPending_ = false;
   uint32_t tempRequestedAt_ = 0, tempLastRequest_ = 0;
@@ -1514,9 +1543,11 @@ static void setAlertPhone(const char* normalized) {
   smsEnabled = sms::isValidPhone(alertPhone);
   xSemaphoreGive(stateMutex);
 }
+static void flameTuningLoad();
 static void loadAlertPhone() {
   char stored[24] = "", norm[24] = "";
   prefs.begin("stsmn", false);
+  flameTuningLoad();
   if (prefs.isKey("phone")) prefs.getString("phone", stored, sizeof(stored));
   else strlcpy(stored, ALERT_PHONE_NUMBER, sizeof(stored));        // first boot: the number compiled into the sketch (if any)
   if (sms::normalizePhone(stored, norm, sizeof(norm))) setAlertPhone(norm);
@@ -1614,10 +1645,53 @@ static void handleContactSet() {
   sendJson(200, buf);
 }
 
+static void flameTuningSave() {
+  const FlameTuning& t = sensors.flameTuning();
+  prefs.putFloat("fl_d", t.minDeltaMv); prefs.putFloat("fl_s", t.flickerSigmas);
+  prefs.putInt("fl_r", t.minReversals); prefs.putUInt("fl_c", t.confirmMs);
+  prefs.putUInt("fl_b", t.rebaseMs); prefs.putBool("fl_o", t.requireDo);
+}
+
+static void flameTuningLoad() {
+  FlameTuning& t = sensors.flameTuning();
+  if (!prefs.isKey("fl_d")) return;
+  t.minDeltaMv = prefs.getFloat("fl_d", t.minDeltaMv); t.flickerSigmas = prefs.getFloat("fl_s", t.flickerSigmas);
+  t.minReversals = prefs.getInt("fl_r", t.minReversals); t.confirmMs = prefs.getUInt("fl_c", t.confirmMs);
+  t.rebaseMs = prefs.getUInt("fl_b", t.rebaseMs); t.requireDo = prefs.getBool("fl_o", t.requireDo);
+  t.clampAll();
+}
+
+static void handleFlame() {
+  FlameTuning& t = sensors.flameTuning();
+  if (server.method() == HTTP_POST) {
+    FlameTuning n = t;
+    if (server.hasArg("minDelta")) n.minDeltaMv = server.arg("minDelta").toFloat();
+    if (server.hasArg("flicker")) n.flickerSigmas = server.arg("flicker").toFloat();
+    if (server.hasArg("reversals")) n.minReversals = server.arg("reversals").toInt();
+    if (server.hasArg("confirmMs")) n.confirmMs = (uint32_t)server.arg("confirmMs").toInt();
+    if (server.hasArg("rebaseMs")) n.rebaseMs = (uint32_t)server.arg("rebaseMs").toInt();
+    if (server.hasArg("requireDo")) n.requireDo = server.arg("requireDo").toInt() != 0;
+    n.clampAll();
+    t = n;
+    flameTuningSave();
+    if (server.hasArg("relearn") && server.arg("relearn").toInt() != 0) sensors.flameRelearn();
+    Serial.printf("FLAME tuning: delta=%.0f flicker=%.1f rev=%d confirm=%u rebase=%u needDO=%d\n",
+                  t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo);
+  }
+  const FlameOut fo = sensors.flameDiag();
+  char buf[420];
+  snprintf(buf, sizeof(buf),
+           "{\"minDelta\":%.0f,\"flicker\":%.1f,\"reversals\":%d,\"confirmMs\":%u,\"rebaseMs\":%u,\"requireDo\":%d,"
+           "\"live\":{\"usable\":%d,\"ao\":%.0f,\"base\":%.0f,\"dev\":%.0f,\"noise\":%.1f,\"rev\":%d,\"do\":%d,\"pct\":%d,\"critical\":%d}}",
+           t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo ? 1 : 0,
+           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, sensors.flameDiagDo() ? 1 : 0, fo.pct, fo.critical ? 1 : 0);
+  sendJson(200, buf);
+}
+
 static void handleNotFound() {
   const String uri = server.uri();
-  if (uri == "/api/status" || uri == "/api/health" || uri == "/api/contact") {     // known path, wrong method
-    server.sendHeader("Allow", uri == "/api/contact" ? "POST" : "GET");
+  if (uri == "/api/status" || uri == "/api/health" || uri == "/api/contact" || uri == "/api/flame") {     // known path, wrong method
+    server.sendHeader("Allow", uri == "/api/contact" ? "POST" : (uri == "/api/flame" ? "GET, POST" : "GET"));
     sendJson(405, "{\"error\":\"method not allowed\"}");
   } else {
     sendJson(404, "{\"error\":\"not found\"}");
@@ -1818,6 +1892,7 @@ void setup() {
   server.on("/api/status", HTTP_GET, handleStatus);
   server.on("/api/health", HTTP_GET, handleHealth);
   server.on("/api/contact", HTTP_POST, handleContactSet);
+  server.on("/api/flame", HTTP_ANY, handleFlame);
   server.onNotFound(handleNotFound);
   server.begin();
 

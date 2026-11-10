@@ -135,9 +135,11 @@ static void setAlertPhone(const char* normalized) {
   smsEnabled = sms::isValidPhone(alertPhone);
   xSemaphoreGive(stateMutex);
 }
+static void flameTuningLoad();
 static void loadAlertPhone() {
   char stored[24] = "", norm[24] = "";
   prefs.begin("stsmn", false);
+  flameTuningLoad();
   if (prefs.isKey("phone")) prefs.getString("phone", stored, sizeof(stored));
   else strlcpy(stored, ALERT_PHONE_NUMBER, sizeof(stored));        // first boot: the number compiled into the sketch (if any)
   if (sms::normalizePhone(stored, norm, sizeof(norm))) setAlertPhone(norm);
@@ -235,10 +237,53 @@ static void handleContactSet() {
   sendJson(200, buf);
 }
 
+static void flameTuningSave() {
+  const FlameTuning& t = sensors.flameTuning();
+  prefs.putFloat("fl_d", t.minDeltaMv); prefs.putFloat("fl_s", t.flickerSigmas);
+  prefs.putInt("fl_r", t.minReversals); prefs.putUInt("fl_c", t.confirmMs);
+  prefs.putUInt("fl_b", t.rebaseMs); prefs.putBool("fl_o", t.requireDo);
+}
+
+static void flameTuningLoad() {
+  FlameTuning& t = sensors.flameTuning();
+  if (!prefs.isKey("fl_d")) return;
+  t.minDeltaMv = prefs.getFloat("fl_d", t.minDeltaMv); t.flickerSigmas = prefs.getFloat("fl_s", t.flickerSigmas);
+  t.minReversals = prefs.getInt("fl_r", t.minReversals); t.confirmMs = prefs.getUInt("fl_c", t.confirmMs);
+  t.rebaseMs = prefs.getUInt("fl_b", t.rebaseMs); t.requireDo = prefs.getBool("fl_o", t.requireDo);
+  t.clampAll();
+}
+
+static void handleFlame() {
+  FlameTuning& t = sensors.flameTuning();
+  if (server.method() == HTTP_POST) {
+    FlameTuning n = t;
+    if (server.hasArg("minDelta")) n.minDeltaMv = server.arg("minDelta").toFloat();
+    if (server.hasArg("flicker")) n.flickerSigmas = server.arg("flicker").toFloat();
+    if (server.hasArg("reversals")) n.minReversals = server.arg("reversals").toInt();
+    if (server.hasArg("confirmMs")) n.confirmMs = (uint32_t)server.arg("confirmMs").toInt();
+    if (server.hasArg("rebaseMs")) n.rebaseMs = (uint32_t)server.arg("rebaseMs").toInt();
+    if (server.hasArg("requireDo")) n.requireDo = server.arg("requireDo").toInt() != 0;
+    n.clampAll();
+    t = n;
+    flameTuningSave();
+    if (server.hasArg("relearn") && server.arg("relearn").toInt() != 0) sensors.flameRelearn();
+    Serial.printf("FLAME tuning: delta=%.0f flicker=%.1f rev=%d confirm=%u rebase=%u needDO=%d\n",
+                  t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo);
+  }
+  const FlameOut fo = sensors.flameDiag();
+  char buf[420];
+  snprintf(buf, sizeof(buf),
+           "{\"minDelta\":%.0f,\"flicker\":%.1f,\"reversals\":%d,\"confirmMs\":%u,\"rebaseMs\":%u,\"requireDo\":%d,"
+           "\"live\":{\"usable\":%d,\"ao\":%.0f,\"base\":%.0f,\"dev\":%.0f,\"noise\":%.1f,\"rev\":%d,\"do\":%d,\"pct\":%d,\"critical\":%d}}",
+           t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo ? 1 : 0,
+           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, sensors.flameDiagDo() ? 1 : 0, fo.pct, fo.critical ? 1 : 0);
+  sendJson(200, buf);
+}
+
 static void handleNotFound() {
   const String uri = server.uri();
-  if (uri == "/api/status" || uri == "/api/health" || uri == "/api/contact") {     // known path, wrong method
-    server.sendHeader("Allow", uri == "/api/contact" ? "POST" : "GET");
+  if (uri == "/api/status" || uri == "/api/health" || uri == "/api/contact" || uri == "/api/flame") {     // known path, wrong method
+    server.sendHeader("Allow", uri == "/api/contact" ? "POST" : (uri == "/api/flame" ? "GET, POST" : "GET"));
     sendJson(405, "{\"error\":\"method not allowed\"}");
   } else {
     sendJson(404, "{\"error\":\"not found\"}");
@@ -439,6 +484,7 @@ void setup() {
   server.on("/api/status", HTTP_GET, handleStatus);
   server.on("/api/health", HTTP_GET, handleHealth);
   server.on("/api/contact", HTTP_POST, handleContactSet);
+  server.on("/api/flame", HTTP_ANY, handleFlame);
   server.onNotFound(handleNotFound);
   server.begin();
 

@@ -22,6 +22,41 @@ class EspClient(private val binder: WifiNetworkBinder) {
 
     suspend fun fetchHealth(host: String): FetchResult = fetch(host, AppConfig.HEALTH_PATH)
 
+    suspend fun fetchFlame(host: String): FetchResult = fetch(host, AppConfig.FLAME_PATH)
+
+    suspend fun postFlame(host: String, form: Map<String, String>): FetchResult = withContext(Dispatchers.IO) {
+        var conn: HttpURLConnection? = null
+        try {
+            val url = URL("http", host, AppConfig.API_PORT, AppConfig.FLAME_PATH)
+            conn = binder.openConnection(url) as? HttpURLConnection
+                ?: return@withContext FetchResult.Failure("Unsupported connection type")
+            conn.connectTimeout = AppConfig.CONNECT_TIMEOUT_MS
+            conn.readTimeout = AppConfig.READ_TIMEOUT_MS
+            conn.useCaches = false
+            conn.requestMethod = "POST"
+            conn.doOutput = true
+            conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            conn.setRequestProperty("Connection", "close")
+            val body = form.entries.joinToString("&") { it.key + "=" + java.net.URLEncoder.encode(it.value, "UTF-8") }.toByteArray(Charsets.UTF_8)
+            conn.setFixedLengthStreamingMode(body.size)
+            conn.outputStream.use { it.write(body) }
+            val code = conn.responseCode
+            if (code != HttpURLConnection.HTTP_OK) return@withContext FetchResult.Failure("ESP32 answered HTTP $code (update the ESP32 sketch to v17)")
+            val text = conn.inputStream.use { readLimited(it) } ?: return@withContext FetchResult.Failure("Response too large")
+            FetchResult.Body(text)
+        } catch (e: SocketTimeoutException) {
+            FetchResult.Failure("Timeout")
+        } catch (e: IOException) {
+            FetchResult.Failure("Network error: ${e.message ?: e.javaClass.simpleName}")
+        } catch (e: SecurityException) {
+            FetchResult.Failure("Network permission denied")
+        } catch (e: IllegalArgumentException) {
+            FetchResult.Failure("Invalid device address")
+        } finally {
+            conn?.disconnect()
+        }
+    }
+
     private suspend fun fetch(host: String, path: String): FetchResult = withContext(Dispatchers.IO) {
         var conn: HttpURLConnection? = null
         try {

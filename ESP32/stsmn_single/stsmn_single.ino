@@ -93,7 +93,7 @@ constexpr int PIN_BUZZER    = 27;  // ASSUMPTION: ACTIVE buzzer (on/off)
 // 1 = BLE on (ESP32 BLE library of the core). It adds ~0.6-0.7 MB: the sketch no longer fits the default partition (1.3 MB), so
 // you MUST pick Partition Scheme "Huge APP (3MB No OTA)" in the board options, otherwise the build stops with "Sketch too big".
 // Protection never depends on BLE.
-#define ENABLE_BLE 1
+#define ENABLE_BLE 0
 #define BLE_DEVICE_NAME "STSMN-TR001"
 // Nordic UART service UUIDs (generic BLE terminal apps can read the stream too).
 #define BLE_SERVICE_UUID "6e400001-b5a3-f393-e0a9-e50e24dcca9e"

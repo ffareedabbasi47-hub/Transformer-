@@ -6,10 +6,6 @@
 #include <freertos/semphr.h>
 #include <esp_timer.h>
 #include <esp_system.h>
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-#include <BLE2902.h>
 #include <Preferences.h>
 
 enum class Status : uint8_t;
@@ -52,7 +48,7 @@ constexpr int PIN_LED_YELLOW= 19;
 constexpr int PIN_LED_RED   = 23;
 constexpr int PIN_BUZZER    = 27;
 
-#define ENABLE_BLE 1
+#define ENABLE_BLE 0
 #define BLE_DEVICE_NAME "STSMN-TR001"
 
 #define BLE_SERVICE_UUID "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
@@ -1148,75 +1144,6 @@ class SimModule {
 
 #include <Arduino.h>
 
-#if ENABLE_BLE
-class BleLink : public BLEServerCallbacks, public BLECharacteristicCallbacks {
- public:
-  void begin() {
-    BLEDevice::init(BLE_DEVICE_NAME);
-    server_ = BLEDevice::createServer();
-    server_->setCallbacks(this);
-    BLEService* svc = server_->createService(BLE_SERVICE_UUID);
-    tx_ = svc->createCharacteristic(BLE_TX_UUID, BLECharacteristic::PROPERTY_NOTIFY);
-    tx_->addDescriptor(new BLE2902());
-    BLECharacteristic* rx = svc->createCharacteristic(BLE_RX_UUID, BLECharacteristic::PROPERTY_WRITE | BLECharacteristic::PROPERTY_WRITE_NR);
-    rx->setCallbacks(this);
-    svc->start();
-    BLEAdvertising* adv = BLEDevice::getAdvertising();
-    adv->addServiceUUID(BLE_SERVICE_UUID);
-    adv->setScanResponse(true);
-    BLEDevice::startAdvertising();
-    started_ = true;
-  }
-  bool connected() const { return started_ && connected_; }
-
-  void sendLine(const char* prefix, const char* text) {
-    if (!connected()) return;
-    char line[1100];
-    const int n = snprintf(line, sizeof(line), "%s%s\n", prefix, text);
-    if (n <= 0 || n >= (int)sizeof(line)) return;
-    for (int off = 0; off < n && connected_; off += 20) {
-      const int len = (n - off) < 20 ? (n - off) : 20;
-      tx_->setValue((uint8_t*)(line + off), len);
-      tx_->notify();
-      delay(8);
-    }
-  }
-
-  bool takeCommand(char* out, size_t n) {
-    if (!lineReady_) return false;
-    strlcpy(out, rxLine_, n);
-    lineReady_ = false;
-    return true;
-  }
-
-  void onConnect(BLEServer*) override { connected_ = true; }
-  void onDisconnect(BLEServer*) override { connected_ = false; BLEDevice::startAdvertising(); }
-  void onWrite(BLECharacteristic* c) override {
-    auto v = c->getValue();
-    const size_t len = v.length();
-    const char* d = v.c_str();
-    for (size_t i = 0; i < len; i++) {
-      const char ch = d[i];
-      if (ch == '\n' || ch == '\r') {
-        if (rxLen_ > 0 && !lineReady_) { rxLine_[rxLen_] = 0; lineReady_ = true; }
-        rxLen_ = 0;
-      } else if (rxLen_ < sizeof(rxLine_) - 1) {
-        rxLine_[rxLen_++] = ch;
-      } else {
-        rxLen_ = 0;
-      }
-    }
-  }
-
- private:
-  BLEServer* server_ = nullptr;
-  BLECharacteristic* tx_ = nullptr;
-  volatile bool connected_ = false, started_ = false, lineReady_ = false;
-  char rxLine_[96] = {};
-  size_t rxLen_ = 0;
-};
-#endif
-
 constexpr size_t cstrLenAt(const char* s, size_t i) { return s[i] ? cstrLenAt(s, i + 1) : i; }
 constexpr size_t cstrLen(const char* s) { return cstrLenAt(s, 0); }
 constexpr bool cstrEqAt(const char* a, const char* b, size_t i) {
@@ -1458,56 +1385,11 @@ static void protectionTask(void*) {
   }
 }
 
-#if ENABLE_BLE
-static BleLink ble;
-
-static void handleBleCommand(const char* cmd) {
-  char reply[64];
-  if (strncmp(cmd, "PHONE ", 6) != 0) { ble.sendLine("ER ", "unknown command"); return; }
-  const char* p = cmd + 6;
-  const char* sp = strchr(p, ' ');
-  const size_t pwLen = sp ? (size_t)(sp - p) : strlen(p);
-  if (pwLen != strlen(WIFI_AP_PASSWORD) || strncmp(p, WIFI_AP_PASSWORD, pwLen) != 0) { ble.sendLine("ER ", "wrong password"); return; }
-  const char* num = sp ? sp + 1 : "";
-  char masked[24];
-  const int r = applyContact(num, masked, sizeof(masked));
-  if (r < 0) snprintf(reply, sizeof(reply), "invalid number");
-  else if (r == 0) snprintf(reply, sizeof(reply), "sms off");
-  else snprintf(reply, sizeof(reply), "saved %s", masked);
-  ble.sendLine(r < 0 ? "ER " : "OK ", reply);
-}
-
-static void bleService(uint32_t now) {
-  static uint32_t lastSt = 0, lastHe = 0;
-  char cmd[96];
-  if (ble.takeCommand(cmd, sizeof(cmd))) handleBleCommand(cmd);
-  if (!ble.connected()) return;
-  if ((uint32_t)(now - lastSt) >= BLE_STATUS_EVERY_MS) {
-    lastSt = now;
-    char snap[sizeof(statusJson)];
-    xSemaphoreTake(stateMutex, portMAX_DELAY);
-    strlcpy(snap, statusJson, sizeof(snap));
-    xSemaphoreGive(stateMutex);
-    if (snap[0]) ble.sendLine("ST ", snap);
-  }
-  if ((uint32_t)(now - lastHe) >= BLE_HEALTH_EVERY_MS) {
-    lastHe = now;
-    char hb[960];
-    buildHealthJson(hb, sizeof(hb));
-    ble.sendLine("HE ", hb);
-  }
-}
-#endif
-
 static void commTask(void*) {
   uint32_t lastGsmCheck = 0, lastSimTry = 0;
   bool simTried = false;
   for (;;) {
     const uint32_t now = millis();
-
-#if ENABLE_BLE
-    bleService(now);
-#endif
 
     for (int guard = 0; guard < 256 && Serial2.available(); guard++) {
       if (gps.feed((char)Serial2.read())) {
@@ -1596,10 +1478,6 @@ void setup() {
   Serial.printf("Sensors fitted: temp=%d current=%d voltage=%d level=%d (config.h HAS_*; unfitted = ignored, shown as null)\n",
     HAS_TEMP_SENSOR, HAS_CURRENT_SENSOR, HAS_VOLTAGE_SENSOR, HAS_LEVEL_SENSOR);
   Serial.printf("Relay: ACTIVE_LOW=%d. At boot (cutoff) the relay module's LED must be OFF; it clicks ON ~5 s later when all fitted sensors are valid. If it is the other way round, flip RELAY_ACTIVE_LOW in config.h.\n", (int)RELAY_ACTIVE_LOW);
-#if ENABLE_BLE
-  ble.begin();
-  Serial.println("BLE: advertising as " BLE_DEVICE_NAME " (monitor over Bluetooth)");
-#endif
   xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0);
 
   startWatchdog();

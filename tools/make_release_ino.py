@@ -29,6 +29,9 @@ def strip(src):
 
 root = pathlib.Path(__file__).resolve().parent.parent
 text = (root / 'ESP32/stsmn_single/stsmn_single.ino').read_text()
+if re.search(r'^#define ENABLE_BLE 0\b', text, re.M):
+    text = re.sub(r'^#include <(BLEDevice|BLEServer|BLEUtils|BLE2902)\.h>\n', '', text, flags=re.M)
+    text = re.sub(r'^#if ENABLE_BLE\n.*?^#endif\n', '', text, flags=re.M | re.S)
 dst = root / 'ESP32/release/STSMN_final.ino'
 dst.parent.mkdir(parents=True, exist_ok=True)
 dst.write_text(strip(text))

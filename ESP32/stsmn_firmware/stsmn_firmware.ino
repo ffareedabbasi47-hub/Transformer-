@@ -301,9 +301,7 @@ static void protectionTask(void*) {
     }
     actuators.applyStatus(lastRisk.status, alarmOn, now);
     esp_task_wdt_reset();
-    // With the analog flame input the loop runs every tick (~1 ms) so AO can be averaged per mains period; never 0 ticks (idle task must run).
-    const TickType_t loopTicks = pdMS_TO_TICKS(HAS_FLAME_ANALOG ? 1 : PROTECTION_LOOP_MS);
-    vTaskDelay(loopTicks ? loopTicks : 1);
+    vTaskDelay(pdMS_TO_TICKS(PROTECTION_LOOP_MS));
   }
 }
 
@@ -419,10 +417,6 @@ static void startWatchdog() {
 void setup() {
   actuators.begin();            // relay -> cutoff before anything else
   Serial.begin(115200);
-  // LED self-test (relay is still cut): green, yellow, red, buzzer-free. If one never lights, check its wiring/resistor/polarity.
-  digitalWrite(PIN_LED_GREEN, HIGH); delay(400); digitalWrite(PIN_LED_GREEN, LOW);
-  digitalWrite(PIN_LED_YELLOW, HIGH); delay(400); digitalWrite(PIN_LED_YELLOW, LOW);
-  digitalWrite(PIN_LED_RED, HIGH); delay(400); digitalWrite(PIN_LED_RED, LOW);
   Serial.println("\nSTSMN firmware " STSMN_FW_VERSION);
   Serial.printf("Reset reason: %s (BROWNOUT = power dip: use a power bank / separate 5V supply)\n", resetReasonName());
 
@@ -435,7 +429,6 @@ void setup() {
   protectionCycle(lastCycle);
 
   WiFi.mode(WIFI_AP);
-  WiFi.setTxPower(WIFI_POWER_11dBm);   // lower radio current peaks: a phone's OTG port cannot supply much
 
   IPAddress apIp(WIFI_AP_IP[0], WIFI_AP_IP[1], WIFI_AP_IP[2], WIFI_AP_IP[3]);
   WiFi.softAPConfig(apIp, apIp, IPAddress(255, 255, 255, 0));

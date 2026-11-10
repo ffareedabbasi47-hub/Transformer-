@@ -16,7 +16,7 @@ jobs:
       fail-fast: false
       matrix:
         core: ['3.3.5', '2.0.17']
-        sketch: [single, multi]
+        sketch: [single, multi, release]
         ble: ['off', 'on']
     steps:
       - uses: actions/checkout@v4
@@ -30,7 +30,10 @@ jobs:
           arduino-cli lib install OneWire DallasTemperature
       - name: Prepare sketch (placeholder password only; no real secrets)
         run: |
-          if [ "${{ matrix.sketch }}" = single ]; then
+          if [ "${{ matrix.sketch }}" = release ]; then
+            mkdir -p /tmp/sk/STSMN_final && cp ESP32/release/STSMN_final.ino /tmp/sk/STSMN_final/
+            sed -i 's|^#define WIFI_AP_PASSWORD .*|#define WIFI_AP_PASSWORD "ci-compile-only-pass1"|' /tmp/sk/STSMN_final/STSMN_final.ino
+          elif [ "${{ matrix.sketch }}" = single ]; then
             mkdir -p /tmp/sk/stsmn_single && cp ESP32/stsmn_single/stsmn_single.ino /tmp/sk/stsmn_single/
             sed -i 's|^#define WIFI_AP_PASSWORD .*|#define WIFI_AP_PASSWORD "ci-compile-only-pass1"|' /tmp/sk/stsmn_single/stsmn_single.ino
           else

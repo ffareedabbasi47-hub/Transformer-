@@ -93,7 +93,7 @@ constexpr int PIN_BUZZER    = 27;  // ASSUMPTION: ACTIVE buzzer (on/off)
 // 1 = BLE on (ESP32 BLE library of the core). It adds ~0.6-0.7 MB: the sketch no longer fits the default partition (1.3 MB), so
 // you MUST pick Partition Scheme "Huge APP (3MB No OTA)" in the board options, otherwise the build stops with "Sketch too big".
 // Protection never depends on BLE.
-#define ENABLE_BLE 0   // default OFF: with BLE the sketch is ~1.6 MB and needs Partition Scheme "Huge APP" (see ESP32/README.md)
+#define ENABLE_BLE 1
 #define BLE_DEVICE_NAME "STSMN-TR001"
 // Nordic UART service UUIDs (generic BLE terminal apps can read the stream too).
 #define BLE_SERVICE_UUID "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
@@ -183,9 +183,11 @@ constexpr bool  FLAME_AO_DROPS_WITH_FLAME = true; // most IR modules: AO voltage
                                                   // against DO at run time and falls back to DO-only if AO moves the other way.
 constexpr int   FLAME_MAINS_HZ        = 50;      // 50 (India/EU) or 60. AO is read continuously (~1 ms) and AVERAGED over one mains ripple
                                                  // period (half a mains cycle = 10 ms at 50 Hz), so lamp ripple (2 x mains) does not alias into fake flicker.
-constexpr uint32_t FLAME_BIN_US       = 500000UL / FLAME_MAINS_HZ;   // one averaged AO value every 10 ms (100 Hz) at 50 Hz
-constexpr float FLAME_FULL_DELTA_MV   = 1200.0f; // CALIBRATE: AO change from ambient to a strong controlled flame = 100 %
-constexpr float FLAME_MIN_DELTA_MV    = 60.0f;   // CALIBRATE: smallest AO change that may count (also >= FLAME_ENTER_SIGMAS * noise)
+constexpr uint32_t FLAME_BIN_US       = 10000;   // one averaged AO value every 10 ms (100 Hz) at 50 Hz
+constexpr float FLAME_FULL_FRACTION   = 0.5f; // CALIBRATE: AO change from ambient to a strong controlled flame = 100 %
+constexpr float FLAME_MIN_DELTA_MV    = 60.0f;
+constexpr float FLAME_DO_ENTER_RATIO  = 0.35f;
+constexpr float FLAME_STRONG_FRACTION = 0.25f;   // CALIBRATE: smallest AO change that may count (also >= FLAME_ENTER_SIGMAS * noise)
 constexpr float FLAME_NOISE_FLOOR_MV  = 6.0f;    // lowest noise (sigma) the detector assumes
 constexpr float FLAME_ENTER_SIGMAS    = 8.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
 constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
@@ -203,7 +205,7 @@ constexpr uint32_t FLAME_INIT_GIVEUP_MS = 15000; // AO never became quiet (float
 constexpr float FLAME_INIT_MAX_SIGMA_MV = 40.0f; // noisier than this at boot = AO not usable
 constexpr float FLAME_BASELINE_ALPHA  = 0.004f;  // baseline drift per cycle (~60 s time constant), only while quiet
 constexpr uint32_t FLAME_REBASE_MS    = 20000;   // a steady, non-flickering, DO-less change this long = new ambient (sun/lamp)
-constexpr bool  FLAME_DO_ONLY_FALLBACK_EMERGENCY = false; // AO unusable (wire/polarity): false = DO alone is only a WARNING (sunlight must not cut
+constexpr bool  FLAME_DO_ONLY_FALLBACK_EMERGENCY = true; // AO unusable (wire/polarity): false = DO alone is only a WARNING (sunlight must not cut
                                                  // the relay); true = DO alone is an EMERGENCY again (flame can no longer be missed, sunlight WILL trigger)
 constexpr bool  FLAME_CALIBRATION_LOG = false;   // true: print AO / baseline / deviation / flicker once per second (calibration)
 constexpr int FLAME_CRIT_PCT    = 40;    // flame signal >= this = real fire = EMERGENCY at once
@@ -613,7 +615,8 @@ class FlameDetector {
     // ---- deviation toward "flame" ----
     const float sgn = FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f;
     const float dev = sgn * (base_ - mean);
-    const float enter = fmaxf(FLAME_MIN_DELTA_MV, FLAME_ENTER_SIGMAS * noise_);
+    const float enterBase = fmaxf(FLAME_MIN_DELTA_MV, FLAME_ENTER_SIGMAS * noise_);
+    const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * FLAME_MIN_DELTA_MV) : enterBase;
     const float exitT = enter * FLAME_EXIT_RATIO;
     if (!active_ && dev >= enter) active_ = true;
     else if (active_ && dev < exitT) active_ = false;
@@ -649,16 +652,18 @@ class FlameDetector {
     o.reversals = rev;
 
     // ---- corroboration ----
-    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn));
+    const bool strongDev = dev >= FLAME_STRONG_FRACTION * fabsf(base_);
+    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn || strongDev));
     const bool weakEvidence = flickerSustained;     // flicker without rise/DO: visible (warning level) but never an emergency
 
     // ---- strength ----
-    int pctRaw = (int)lroundf(dev / FLAME_FULL_DELTA_MV * 100.0f);
+    const float fullDelta = fmaxf(1.0f, fabsf(base_) * FLAME_FULL_FRACTION);
+    int pctRaw = (int)lroundf(dev / fullDelta * 100.0f);
     if (pctRaw < 0) pctRaw = 0;
     if (pctRaw > 100) pctRaw = 100;
 
     // ---- confirmation (only added delay: FLAME_CONFIRM_MS) ----
-    const bool strong = active_ && pctRaw >= FLAME_CRIT_PCT;
+    const bool strong = active_;
     if (strong && corroborated) confirmMs_ += dt; else if (!sticky_) confirmMs_ = 0;
     bool critical = sticky_ || confirmMs_ >= FLAME_CONFIRM_MS;
     if (critical && !sticky_) { sticky_ = true; o.events |= FE_CRITICAL_ON; }
@@ -1659,9 +1664,7 @@ static void protectionTask(void*) {
     }
     actuators.applyStatus(lastRisk.status, alarmOn, now);
     esp_task_wdt_reset();
-    // With the analog flame input the loop runs every tick (~1 ms) so AO can be averaged per mains period; never 0 ticks (idle task must run).
-    const TickType_t loopTicks = pdMS_TO_TICKS(HAS_FLAME_ANALOG ? 1 : PROTECTION_LOOP_MS);
-    vTaskDelay(loopTicks ? loopTicks : 1);
+    vTaskDelay(pdMS_TO_TICKS(PROTECTION_LOOP_MS));
   }
 }
 
@@ -1777,10 +1780,6 @@ static void startWatchdog() {
 void setup() {
   actuators.begin();            // relay -> cutoff before anything else
   Serial.begin(115200);
-  // LED self-test (relay is still cut): green, yellow, red, buzzer-free. If one never lights, check its wiring/resistor/polarity.
-  digitalWrite(PIN_LED_GREEN, HIGH); delay(400); digitalWrite(PIN_LED_GREEN, LOW);
-  digitalWrite(PIN_LED_YELLOW, HIGH); delay(400); digitalWrite(PIN_LED_YELLOW, LOW);
-  digitalWrite(PIN_LED_RED, HIGH); delay(400); digitalWrite(PIN_LED_RED, LOW);
   Serial.println("\nSTSMN firmware " STSMN_FW_VERSION);
   Serial.printf("Reset reason: %s (BROWNOUT = power dip: use a power bank / separate 5V supply)\n", resetReasonName());
 
@@ -1793,7 +1792,6 @@ void setup() {
   protectionCycle(lastCycle);
 
   WiFi.mode(WIFI_AP);
-  WiFi.setTxPower(WIFI_POWER_11dBm);   // lower radio current peaks: a phone's OTG port cannot supply much
 
   IPAddress apIp(WIFI_AP_IP[0], WIFI_AP_IP[1], WIFI_AP_IP[2], WIFI_AP_IP[3]);
   WiFi.softAPConfig(apIp, apIp, IPAddress(255, 255, 255, 0));

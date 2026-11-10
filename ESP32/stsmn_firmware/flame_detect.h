@@ -88,7 +88,8 @@ class FlameDetector {
     // ---- deviation toward "flame" ----
     const float sgn = FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f;
     const float dev = sgn * (base_ - mean);
-    const float enter = fmaxf(FLAME_MIN_DELTA_MV, FLAME_ENTER_SIGMAS * noise_);
+    const float enterBase = fmaxf(FLAME_MIN_DELTA_MV, FLAME_ENTER_SIGMAS * noise_);
+    const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * FLAME_MIN_DELTA_MV) : enterBase;
     const float exitT = enter * FLAME_EXIT_RATIO;
     if (!active_ && dev >= enter) active_ = true;
     else if (active_ && dev < exitT) active_ = false;
@@ -124,16 +125,18 @@ class FlameDetector {
     o.reversals = rev;
 
     // ---- corroboration ----
-    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn));
+    const bool strongDev = dev >= FLAME_STRONG_FRACTION * fabsf(base_);
+    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn || strongDev));
     const bool weakEvidence = flickerSustained;     // flicker without rise/DO: visible (warning level) but never an emergency
 
     // ---- strength ----
-    int pctRaw = (int)lroundf(dev / FLAME_FULL_DELTA_MV * 100.0f);
+    const float fullDelta = fmaxf(1.0f, fabsf(base_) * FLAME_FULL_FRACTION);
+    int pctRaw = (int)lroundf(dev / fullDelta * 100.0f);
     if (pctRaw < 0) pctRaw = 0;
     if (pctRaw > 100) pctRaw = 100;
 
     // ---- confirmation (only added delay: FLAME_CONFIRM_MS) ----
-    const bool strong = active_ && pctRaw >= FLAME_CRIT_PCT;
+    const bool strong = active_;
     if (strong && corroborated) confirmMs_ += dt; else if (!sticky_) confirmMs_ = 0;
     bool critical = sticky_ || confirmMs_ >= FLAME_CONFIRM_MS;
     if (critical && !sticky_) { sticky_ = true; o.events |= FE_CRITICAL_ON; }

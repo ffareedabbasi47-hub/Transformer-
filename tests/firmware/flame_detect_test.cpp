@@ -53,6 +53,12 @@ int main() {
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 700, 150, 8); }, [](int) { return false; }, d);
     CHECK(r.everCritical, "flickering flame, DO off (comparator mis-set): EMERGENCY from AO alone");
     CHECK(r.critAtMs >= 10000 && r.critAtMs - 10000 <= 2500, "... within 2.5 s of the flame appearing"); printf("      (detected after %d ms)\n", r.critAtMs - 10000); }
+  { FlameDetector d; // weak / distant flame: small AO change, flicker, DO on (user-tuned comparator)
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 110, 30, 8); }, [](int t) { return t >= 10000; }, d);
+    CHECK(r.everCritical && r.critAtMs - 10000 <= 3000, "weak flame (flicker + DO): EMERGENCY"); }
+  { FlameDetector d; // weak flame, DO off, still flickers and rises suddenly
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 150, 40, 8); }, [](int) { return false; }, d);
+    CHECK(r.everCritical, "weak flame (flicker + sudden rise, DO off): EMERGENCY"); }
   { FlameDetector d; // flame with flicker AND DO asserted, then it saturates the sensor
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : (t < 12000 ? AMB - flameWave(t, 10000, 700, 150, 8) : 80.0f); }, [](int t) { return t >= 10000; }, d);
     CHECK(r.everCritical && r.critAtMs - 10000 <= 2500, "flicker + DO, then saturated: EMERGENCY within 2.5 s"); }

@@ -294,14 +294,16 @@ static void protectionTask(void*) {
   for (;;) {
     const uint32_t now = millis();
     sensors.pollTemperature(now);                   // non-blocking
-    sensors.fastFlameSample(now);                   // ~100 Hz AO sampling for flicker analysis (non-blocking)
+    sensors.fastFlameSample();                      // AO sampling for flicker analysis (non-blocking, averaged per mains period)
     if ((uint32_t)(now - lastCycle) >= SENSOR_CYCLE_MS) {
       lastCycle = now;
       protectionCycle(now);
     }
     actuators.applyStatus(lastRisk.status, alarmOn, now);
     esp_task_wdt_reset();
-    vTaskDelay(pdMS_TO_TICKS(PROTECTION_LOOP_MS));
+    // With the analog flame input the loop runs every tick (~1 ms) so AO can be averaged per mains period; never 0 ticks (idle task must run).
+    const TickType_t loopTicks = pdMS_TO_TICKS(HAS_FLAME_ANALOG ? 1 : PROTECTION_LOOP_MS);
+    vTaskDelay(loopTicks ? loopTicks : 1);
   }
 }
 

@@ -53,13 +53,28 @@ int main() {
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 700, 150, 8); }, [](int) { return false; }, d);
     CHECK(r.everCritical, "flickering flame, DO off (comparator mis-set): EMERGENCY from AO alone");
     CHECK(r.critAtMs >= 10000 && r.critAtMs - 10000 <= 2500, "... within 2.5 s of the flame appearing"); printf("      (detected after %d ms)\n", r.critAtMs - 10000); }
-  { FlameDetector d; // flame with DO asserted, steady strong (saturated), no flicker
-    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : 80.0f; }, [](int t) { return t >= 10000; }, d);
-    CHECK(r.everCritical && r.critAtMs - 10000 <= 1500, "saturated flame + DO: EMERGENCY within 1.5 s"); }
-  { FlameDetector d; // DO only (AO quiet), e.g. comparator set too sensitive in sunlight
+  { FlameDetector d; // flame with flicker AND DO asserted, then it saturates the sensor
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : (t < 12000 ? AMB - flameWave(t, 10000, 700, 150, 8) : 80.0f); }, [](int t) { return t >= 10000; }, d);
+    CHECK(r.everCritical && r.critAtMs - 10000 <= 2500, "flicker + DO, then saturated: EMERGENCY within 2.5 s"); }
+  { FlameDetector d; // DIRECT SUNLIGHT: strong steady change, comparator (DO) on, no flicker
+    Run r = simulate(60000, [](int t) { return t < 10000 ? AMB : 150.0f; }, [](int t) { return t >= 10000; }, d);
+    CHECK(!r.everCritical, "direct sunlight (strong, steady, DO on): never EMERGENCY");
+    CHECK(!r.everWarn, "... and not even a WARNING"); }
+  { FlameDetector d; // room light switched on / reflection: moderate steady change with DO on
+    Run r = simulate(60000, [](int t) { return t < 10000 ? AMB : AMB - 500.0f; }, [](int t) { return t >= 10000; }, d);
+    CHECK(!r.everCritical && !r.everWarn, "bright lamp / reflection (steady, DO on): ignored"); }
+  { FlameDetector d; // DO only (AO quiet), comparator set too sensitive
     Run r = simulate(30000, [](int) { return AMB; }, [](int t) { return t >= 10000; }, d);
-    CHECK(!r.everCritical, "DO alone never causes EMERGENCY while AO is usable");
-    CHECK(r.everWarn && r.maxPct == SIGNAL_MIN_PCT, "DO alone for >= 3 s = WARNING level only"); }
+    CHECK(!r.everCritical && !r.everWarn, "DO alone while AO is usable: ignored"); }
+  { FlameDetector d; // LIMITATION (documented): a perfectly steady saturated 'flame' with DO and no flicker looks exactly like sunlight
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : 80.0f; }, [](int t) { return t >= 10000; }, d);
+    CHECK(!r.everCritical, "known limitation: steady saturation without any flicker is treated as sunlight"); }
+  { FlameDetector d; // flicker that is only noise-like fast chatter (too many reversals) is not a flame
+    Run r = simulate(40000, [](int t) { return t < 10000 ? AMB : AMB - 600.0f + ((t / 10) % 2 ? 90.0f : -90.0f); }, [](int) { return true; }, d);
+    CHECK(!r.everCritical, "sample-rate chatter (every sample flips): not a flame"); }
+  { FlameDetector d; // single short blink (shadow / flash) must not trigger
+    Run r = simulate(30000, [](int t) { return (t >= 10000 && t < 10400) ? AMB - 700.0f + 150.0f * sinf(t / 30.0f) : AMB; }, [](int t) { return t >= 10000 && t < 10400; }, d);
+    CHECK(!r.everCritical, "0.4 s flash: no emergency"); }
   { FlameDetector d; // saturated flame that then keeps burning: must stay critical (not absorbed by the baseline)
     Run r = simulate(90000, [](int t) { return t < 10000 ? AMB : (t < 11500 ? AMB - flameWave(t, 10000, 700, 150, 8) : 80.0f); }, [](int) { return false; }, d);
     CHECK(r.everCritical && r.lastCritical, "burning flame for 80 s stays critical (baseline never absorbs it)"); }

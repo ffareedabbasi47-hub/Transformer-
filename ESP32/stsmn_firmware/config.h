@@ -144,7 +144,9 @@ constexpr int MQ2_FULL_DELTA_MV = 450;   // rise at/above this = 100 % smoke (st
 constexpr bool  FLAME_AO_CALIBRATED   = false;  // set true ONLY after doing the calibration guide
 constexpr bool  FLAME_AO_DROPS_WITH_FLAME = true; // most IR modules: AO voltage FALLS as flame IR rises. The firmware checks this
                                                   // against DO at run time and falls back to DO-only if AO moves the other way.
-constexpr uint32_t FLAME_FAST_PERIOD_MS = 10;   // AO sampled ~100 Hz (flame flicker is a few Hz to ~20 Hz)
+constexpr int   FLAME_MAINS_HZ        = 50;      // 50 (India/EU) or 60. AO is read continuously (~1 ms) and AVERAGED over one mains ripple
+                                                 // period (half a mains cycle = 10 ms at 50 Hz), so lamp ripple (2 x mains) does not alias into fake flicker.
+constexpr uint32_t FLAME_BIN_US       = 500000UL / FLAME_MAINS_HZ;   // one averaged AO value every 10 ms (100 Hz) at 50 Hz
 constexpr float FLAME_FULL_DELTA_MV   = 1200.0f; // CALIBRATE: AO change from ambient to a strong controlled flame = 100 %
 constexpr float FLAME_MIN_DELTA_MV    = 60.0f;   // CALIBRATE: smallest AO change that may count (also >= FLAME_ENTER_SIGMAS * noise)
 constexpr float FLAME_NOISE_FLOOR_MV  = 6.0f;    // lowest noise (sigma) the detector assumes
@@ -153,6 +155,8 @@ constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when devia
 constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
 constexpr float FLAME_FLICKER_FRAC    = 0.03f;   // ... and this fraction of the deviation (peak-to-peak)
 constexpr int   FLAME_MIN_REVERSALS   = 4;       // direction changes inside the ~0.64 s window (= flicker of roughly 3 Hz and up)
+constexpr int   FLAME_MAX_REVERSALS   = 28;      // more than this = sample noise / electrical interference, not a flame
+constexpr int   FLAME_FLICKER_CYCLES  = 2;       // flicker must be seen in this many consecutive 250 ms cycles (not one shadow/blink)
 constexpr float FLAME_RISE_FRAC       = 0.5f;    // "sudden rise" = deviation gains this x enter within FLAME_RISE_WINDOW_MS
 constexpr uint32_t FLAME_RISE_WINDOW_MS = 1000;
 constexpr uint32_t FLAME_CORROB_HOLD_MS = 3000;  // a sudden rise stays "recent" for this long
@@ -162,7 +166,8 @@ constexpr uint32_t FLAME_INIT_GIVEUP_MS = 15000; // AO never became quiet (float
 constexpr float FLAME_INIT_MAX_SIGMA_MV = 40.0f; // noisier than this at boot = AO not usable
 constexpr float FLAME_BASELINE_ALPHA  = 0.004f;  // baseline drift per cycle (~60 s time constant), only while quiet
 constexpr uint32_t FLAME_REBASE_MS    = 20000;   // a steady, non-flickering, DO-less change this long = new ambient (sun/lamp)
-constexpr uint32_t FLAME_DO_ONLY_HOLD_MS = 3000; // DO alone (AO quiet) this long = WARNING only, never EMERGENCY
+constexpr bool  FLAME_DO_ONLY_FALLBACK_EMERGENCY = false; // AO unusable (wire/polarity): false = DO alone is only a WARNING (sunlight must not cut
+                                                 // the relay); true = DO alone is an EMERGENCY again (flame can no longer be missed, sunlight WILL trigger)
 constexpr bool  FLAME_CALIBRATION_LOG = false;   // true: print AO / baseline / deviation / flicker once per second (calibration)
 constexpr int FLAME_CRIT_PCT    = 40;    // flame signal >= this = real fire = EMERGENCY at once
 constexpr int SIGNAL_MIN_PCT    = 15;    // smoke or flame signal >= this counts as "present"

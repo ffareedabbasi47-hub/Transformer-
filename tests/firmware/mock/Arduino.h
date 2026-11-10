@@ -33,6 +33,7 @@ inline void analogReadResolution(int) {}
 inline void analogSetAttenuation(adc_attenuation_t) {}
 inline uint32_t analogReadMilliVolts(int p) { return hw().mv[p]; }
 inline uint32_t millis() { return hw().now; }
+inline uint32_t micros() { return hw().now * 1000u; }
 inline void delay(uint32_t) {}
 class String {
  public:

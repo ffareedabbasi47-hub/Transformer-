@@ -60,12 +60,18 @@ class SensorHub {
     r_ = SensorReadings{};
   }
 
-  // Fast AO sampling for flame-flicker analysis; call every protection-loop iteration (~10 ms). Cheap and non-blocking.
-  void fastFlameSample(uint32_t now) {
+  // Continuous AO sampling (call every protection-loop iteration, ~1 ms): readings are averaged over FLAME_BIN_US = one mains-ripple
+  // period (10 ms at 50 Hz) and each average is fed to the detector. Cheap and non-blocking.
+  void fastFlameSample() {
     if (!HAS_FLAME_ANALOG) return;
-    if ((uint32_t)(now - flameLastFast_) < FLAME_FAST_PERIOD_MS) return;
-    flameLastFast_ = now;
-    flameDet_.feed(readAvgMv(PIN_FLAME_AO, 2));
+    const uint32_t us = micros();
+    if (flameBinN_ == 0) flameBinStart_ = us;
+    flameBinSum_ += (float)analogReadMilliVolts(PIN_FLAME_AO);
+    flameBinN_++;
+    if ((uint32_t)(us - flameBinStart_) >= FLAME_BIN_US) {
+      flameDet_.feed(flameBinSum_ / flameBinN_);
+      flameBinSum_ = 0; flameBinN_ = 0;
+    }
   }
 
   // Non-blocking DS18B20 state machine; call every loop().
@@ -155,11 +161,13 @@ class SensorHub {
     bool raw = digitalRead(PIN_FLAME_DO) == (FLAME_ACTIVE_LOW ? LOW : HIGH);
     if (raw) { if (flameCount_ < 100) flameCount_++; } else flameCount_ = 0;
     const bool flameDo = flameCount_ >= FLAME_DEBOUNCE_CYCLES;
-    int fp = flameDo ? 100 : 0;                        // digital output only: on/off (legacy / fail-safe)
+    int fp = flameDo ? 100 : 0;                        // digital output only (used while AO is unusable)
     bool flameCrit = flameDo;
     if (HAS_FLAME_ANALOG) {                            // AO is primary, DO supports it (flame_detect.h)
       const FlameOut fo = flameDet_.evaluate(now, flameDo);
-      if (fo.aoUsable) { fp = fo.pct; flameCrit = fo.critical; }   // else: AO not usable -> DO-only fail-safe
+      if (fo.aoUsable) { fp = fo.pct; flameCrit = fo.critical; }
+      else if (!FLAME_DO_ONLY_FALLBACK_EMERGENCY) { fp = flameDo ? SIGNAL_MIN_PCT : 0; flameCrit = false; }   // AO unusable: DO alone = WARNING only
+      // (else: DO alone is an EMERGENCY as in the old firmware)
       flameLog(fo, flameDo);
     }
     r_.flamePct = fp;
@@ -190,6 +198,10 @@ class SensorHub {
     if (fo.events & FE_POLARITY_BAD) Serial.println("FLAME: DO fired but AO moved the other way -> AO NOT USED, DO-only. Try FLAME_AO_DROPS_WITH_FLAME = false");
     if (fo.events & FE_REBASED) Serial.println("FLAME: steady non-flickering change accepted as new ambient (sun/lamp)");
     if (fo.events & FE_CRITICAL_ON) Serial.println("FLAME: CONFIRMED (strong + corroborated)");
+    if (++flameStatN_ % 40 == 0)   // every 10 s: which mode is the flame sensor in?
+      Serial.printf("FLAME mode=%s ao=%.0f base=%.0f dev=%.0f DO=%d rev=%d pct=%d\n",
+                    fo.aoUsable ? "AO+DO" : (fo.why == FW_NOISY ? "DO-only (AO noisy/not wired)" : fo.why == FW_POLARITY ? "DO-only (AO polarity)" : "learning baseline"),
+                    fo.mean, fo.base, fo.dev, doOn, fo.reversals, fo.pct);
     if (FLAME_CALIBRATION_LOG && ++flameLogN_ % 4 == 0)
       Serial.printf("FLAMEcal ao=%.0f base=%.0f dev=%.0f enter=%.0f noise=%.1f p2p=%.0f rev=%d DO=%d rise=%d flick=%d corr=%d pct=%d crit=%d usable=%d\n",
                     fo.mean, fo.base, fo.dev, fo.enter, fo.noise, fo.p2p, fo.reversals, doOn, fo.rise, fo.flicker, fo.corroborated, fo.pct, fo.critical, fo.aoUsable);
@@ -212,7 +224,7 @@ class SensorHub {
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
   FlameDetector flameDet_;
-  uint32_t flameLastFast_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0;
+  uint32_t flameBinStart_ = 0; float flameBinSum_ = 0; int flameBinN_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0, flameStatN_ = 0;
   bool tempPending_ = false;
   uint32_t tempRequestedAt_ = 0, tempLastRequest_ = 0;
   float zeroAdcMv_ = 0;

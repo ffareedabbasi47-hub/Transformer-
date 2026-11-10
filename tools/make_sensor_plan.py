@@ -68,7 +68,7 @@ b.append(sensor("6. Dhua - MQ-2 (GPIO 32)",
 b.append(sensor("7. Aag - Flame sensor (DO: GPIO 25, AO: GPIO 36)",
  "Aag ki infrared roshni.",
  "AO pin = signal kitna tez (mukhya). DO pin = comparator ka haan/na (sirf madad). AO ko ambient baseline se compare kiya jaata hai; suraj/lamp ki dheere badalti roshni se bachne ke liye flicker, achanak badlaav aur DO bhi dekhte hain.",
- "AO baseline se kaafi upar + (DO ya flicker ke saath achanak badlaav) 0.5 s tak = EMERGENCY. Sirf DO = EMERGENCY nahi (WARNING). AO kharab/ulta ho to DO-only fallback. Details: docs/FLAME_AO_CALIBRATION.md.",
+ "Sirf FLICKER wali aag (AO jhilmilata hai) + (achanak badlaav ya DO) 0.5 s tak = EMERGENCY. Steady dhoop/lamp/reflection (flicker nahi) = kuch nahi. Sirf DO = ignore. AO kharab ho to DO-only = sirf WARNING. Details: docs/FLAME_AO_CALIBRATION.md.",
  "Door se ek chhoti jwala (safe jagah, paani paas, adult ke saath). Suraj/lamp se EMERGENCY nahi aana chahiye.",
  "FLAME_AO_CALIBRATION.md ke steps se apni readings lo; config.h ke FLAME_* values placeholders hain. Suraj aur aag ko sensor akela alag nahi kar sakta."))
 b.append(sensor("8. Oil level (demo: sirf paani) - Water level sensor (GPIO 33)",

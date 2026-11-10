@@ -50,8 +50,8 @@ int main() {
     CHECK(!r.everWarn, "... and not even a warning (uncorroborated is capped below 'present')");
     CHECK(!r.lastCritical && r.lastPct == 0, "... and after ~20 s it is accepted as the new ambient"); }
   { FlameDetector d; // real-like flame: appears at 10 s, drops ~700 mV, 8 Hz flicker
-    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 700, 150, 8); }, [](int) { return false; }, d);
-    CHECK(r.everCritical, "flickering flame, DO off (comparator mis-set): EMERGENCY from AO alone");
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 700, 150, 8); }, [](int t) { return t >= 10000; }, d);
+    CHECK(r.everCritical, "flickering flame with DO on: EMERGENCY");
     CHECK(r.critAtMs >= 10000 && r.critAtMs - 10000 <= 2500, "... within 2.5 s of the flame appearing"); printf("      (detected after %d ms)\n", r.critAtMs - 10000); }
   { FlameDetector d; // weak / distant flame: small AO change, flicker, DO on (user-tuned comparator)
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 110, 30, 8); }, [](int t) { return t >= 10000; }, d);
@@ -59,12 +59,12 @@ int main() {
   { FlameDetector d; // matchstick: small AO drop, weak flicker, DO chattering at the comparator threshold
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 70, 22, 9); }, [](int t) { return t >= 10000 && ((t / 40) % 3 != 0); }, d);
     CHECK(r.everCritical && r.critAtMs - 10000 <= 3000, "matchstick (small drop, weak flicker, DO chatter): EMERGENCY"); printf("      (detected after %d ms)\n", r.critAtMs - 10000); }
-  { FlameDetector d; // matchstick, DO never asserts
-    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 80, 25, 9); }, [](int) { return false; }, d);
-    CHECK(r.everCritical && r.critAtMs - 10000 <= 3000, "matchstick, DO silent: EMERGENCY from AO flicker"); }
+  { FlameDetector d; // indoor: noisy AO, people/shadows moving, DO silent
+    Run r = simulate(120000, [](int t) { return AMB - 60.0f * sinf(t / 700.0f) - 40.0f * sinf(t / 130.0f) + (rand() % 41 - 20); }, [](int) { return false; }, d);
+    CHECK(!r.everCritical, "normal room, noisy AO + shadows, DO silent: no EMERGENCY"); }
   { FlameDetector d; // weak flame, DO off, still flickers and rises suddenly
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 150, 40, 8); }, [](int) { return false; }, d);
-    CHECK(r.everCritical, "weak flame (flicker + sudden rise, DO off): EMERGENCY"); }
+    CHECK(!r.everCritical, "AO flicker but DO silent: no EMERGENCY (DO must agree)"); }
   { FlameDetector d; // flame with flicker AND DO asserted, then it saturates the sensor
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : (t < 12000 ? AMB - flameWave(t, 10000, 700, 150, 8) : 80.0f); }, [](int t) { return t >= 10000; }, d);
     CHECK(r.everCritical && r.critAtMs - 10000 <= 2500, "flicker + DO, then saturated: EMERGENCY within 2.5 s"); }
@@ -88,10 +88,10 @@ int main() {
     Run r = simulate(30000, [](int t) { return (t >= 10000 && t < 10400) ? AMB - 700.0f + 150.0f * sinf(t / 30.0f) : AMB; }, [](int t) { return t >= 10000 && t < 10400; }, d);
     CHECK(!r.everCritical, "0.4 s flash: no emergency"); }
   { FlameDetector d; // saturated flame that then keeps burning: must stay critical (not absorbed by the baseline)
-    Run r = simulate(90000, [](int t) { return t < 10000 ? AMB : (t < 11500 ? AMB - flameWave(t, 10000, 700, 150, 8) : 80.0f); }, [](int) { return false; }, d);
+    Run r = simulate(90000, [](int t) { return t < 10000 ? AMB : (t < 11500 ? AMB - flameWave(t, 10000, 700, 150, 8) : 80.0f); }, [](int t) { return t >= 10000; }, d);
     CHECK(r.everCritical && r.lastCritical, "burning flame for 80 s stays critical (baseline never absorbs it)"); }
   { FlameDetector d; // flame goes out: returns to normal
-    Run r = simulate(40000, [](int t) { return (t >= 10000 && t < 20000) ? AMB - flameWave(t, 10000, 700, 150, 8) : AMB; }, [](int) { return false; }, d);
+    Run r = simulate(40000, [](int t) { return (t >= 10000 && t < 20000) ? AMB - flameWave(t, 10000, 700, 150, 8) : AMB; }, [](int t) { return t >= 10000 && t < 20000; }, d);
     CHECK(r.everCritical && !r.lastCritical && r.lastPct == 0, "flame out: critical released"); }
   { FlameDetector d; // inverted polarity: AO RISES with flame while DO fires -> AO unusable, DO-only fallback
     Run r = simulate(30000, [](int t) { return t < 10000 ? 1000.0f : 1000.0f + 700.0f; }, [](int t) { return t >= 10000; }, d);

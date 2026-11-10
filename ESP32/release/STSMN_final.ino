@@ -122,10 +122,10 @@ constexpr int   FLAME_MAINS_HZ        = 50;
 
 constexpr uint32_t FLAME_BIN_US       = 10000;
 constexpr float FLAME_FULL_FRACTION   = 0.5f;
-constexpr float FLAME_MIN_DELTA_MV    = 30.0f;
+constexpr float FLAME_MIN_DELTA_MV    = 40.0f;
 constexpr float FLAME_DO_ENTER_RATIO  = 0.35f;
 constexpr float FLAME_STRONG_FRACTION = 0.25f;
-constexpr float FLAME_NOISE_FLOOR_MV  = 3.0f;
+constexpr float FLAME_NOISE_FLOOR_MV  = 5.0f;
 constexpr float FLAME_ENTER_SIGMAS    = 6.0f;
 constexpr float FLAME_EXIT_RATIO      = 0.5f;
 constexpr float FLAME_FLICKER_SIGMAS  = 4.0f;
@@ -531,7 +531,7 @@ class FlameDetector {
     o.reversals = rev;
 
     const bool strongDev = dev >= FLAME_STRONG_FRACTION * fabsf(base_);
-    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn || doChatter || strongDev || dev >= 2.0f * enter));
+    const bool corroborated = sticky_ || (flickerSustained && (doOn || doChatter));
     const bool weakEvidence = flickerSustained;
 
     const float fullDelta = fmaxf(1.0f, fabsf(base_) * FLAME_FULL_FRACTION);

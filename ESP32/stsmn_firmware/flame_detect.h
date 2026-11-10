@@ -138,7 +138,7 @@ class FlameDetector {
 
     // ---- corroboration ----
     const bool strongDev = dev >= FLAME_STRONG_FRACTION * fabsf(base_);
-    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn || doChatter || strongDev || dev >= 2.0f * enter));
+    const bool corroborated = sticky_ || (flickerSustained && (doOn || doChatter));
     const bool weakEvidence = flickerSustained;     // flicker without rise/DO: visible (warning level) but never an emergency
 
     // ---- strength ----

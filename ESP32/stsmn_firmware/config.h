@@ -148,14 +148,16 @@ constexpr int   FLAME_MAINS_HZ        = 50;      // 50 (India/EU) or 60. AO is r
                                                  // period (half a mains cycle = 10 ms at 50 Hz), so lamp ripple (2 x mains) does not alias into fake flicker.
 constexpr uint32_t FLAME_BIN_US       = 10000;   // one averaged AO value every 10 ms (100 Hz) at 50 Hz
 constexpr float FLAME_FULL_FRACTION   = 0.5f; // CALIBRATE: AO change from ambient to a strong controlled flame = 100 %
-constexpr float FLAME_MIN_DELTA_MV    = 60.0f;
+constexpr float FLAME_MIN_DELTA_MV    = 30.0f;
 constexpr float FLAME_DO_ENTER_RATIO  = 0.35f;
 constexpr float FLAME_STRONG_FRACTION = 0.25f;   // CALIBRATE: smallest AO change that may count (also >= FLAME_ENTER_SIGMAS * noise)
-constexpr float FLAME_NOISE_FLOOR_MV  = 6.0f;    // lowest noise (sigma) the detector assumes
-constexpr float FLAME_ENTER_SIGMAS    = 8.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
+constexpr float FLAME_NOISE_FLOOR_MV  = 3.0f;    // lowest noise (sigma) the detector assumes
+constexpr float FLAME_ENTER_SIGMAS    = 6.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
 constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
-constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
-constexpr float FLAME_FLICKER_FRAC    = 0.03f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr float FLAME_FLICKER_SIGMAS  = 4.0f;    // flicker swing must exceed this x noise ...
+constexpr float FLAME_FLICKER_FRAC    = 0.02f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr int   FLAME_DO_MIN_TRANSITIONS = 2;
+constexpr int   FLAME_DO_MAX_TRANSITIONS = 20;
 constexpr int   FLAME_MIN_REVERSALS   = 4;       // direction changes inside the ~0.64 s window (= flicker of roughly 3 Hz and up)
 constexpr int   FLAME_MAX_REVERSALS   = 28;      // more than this = sample noise / electrical interference, not a flame
 constexpr int   FLAME_FLICKER_CYCLES  = 2;       // flicker must be seen in this many consecutive 250 ms cycles (not one shadow/blink)

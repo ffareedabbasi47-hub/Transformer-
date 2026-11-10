@@ -17,7 +17,7 @@ struct Run { bool everCritical = false, everWarn = false; int maxPct = 0; int cr
 static Run simulate(int totalMs, std::function<float(int)> ao, std::function<bool(int)> doFn, FlameDetector& d) {
   Run r; int doCount = 0;
   for (int t = 0; t < totalMs; t += 10) {
-    d.feed(ao(t) + noise());
+    d.feed(ao(t) + noise()); d.feedDo(doFn(t));
     if ((t % SENSOR_CYCLE_MS) == 0) {
       bool raw = doFn(t); doCount = raw ? doCount + 1 : 0;
       FlameOut o = d.evaluate((uint32_t)t + 1000, doCount >= FLAME_DEBOUNCE_CYCLES);
@@ -56,6 +56,12 @@ int main() {
   { FlameDetector d; // weak / distant flame: small AO change, flicker, DO on (user-tuned comparator)
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 110, 30, 8); }, [](int t) { return t >= 10000; }, d);
     CHECK(r.everCritical && r.critAtMs - 10000 <= 3000, "weak flame (flicker + DO): EMERGENCY"); }
+  { FlameDetector d; // matchstick: small AO drop, weak flicker, DO chattering at the comparator threshold
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 70, 22, 9); }, [](int t) { return t >= 10000 && ((t / 40) % 3 != 0); }, d);
+    CHECK(r.everCritical && r.critAtMs - 10000 <= 3000, "matchstick (small drop, weak flicker, DO chatter): EMERGENCY"); printf("      (detected after %d ms)\n", r.critAtMs - 10000); }
+  { FlameDetector d; // matchstick, DO never asserts
+    Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 80, 25, 9); }, [](int) { return false; }, d);
+    CHECK(r.everCritical && r.critAtMs - 10000 <= 3000, "matchstick, DO silent: EMERGENCY from AO flicker"); }
   { FlameDetector d; // weak flame, DO off, still flickers and rises suddenly
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 150, 40, 8); }, [](int) { return false; }, d);
     CHECK(r.everCritical, "weak flame (flicker + sudden rise, DO off): EMERGENCY"); }

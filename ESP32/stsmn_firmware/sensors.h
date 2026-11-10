@@ -68,6 +68,7 @@ class SensorHub {
     if (flameBinN_ == 0) flameBinStart_ = us;
     flameBinSum_ += (float)analogReadMilliVolts(PIN_FLAME_AO);
     flameBinN_++;
+    flameDet_.feedDo(digitalRead(PIN_FLAME_DO) == (FLAME_ACTIVE_LOW ? LOW : HIGH));
     if ((uint32_t)(us - flameBinStart_) >= FLAME_BIN_US) {
       flameDet_.feed(flameBinSum_ / flameBinN_);
       flameBinSum_ = 0; flameBinN_ = 0;

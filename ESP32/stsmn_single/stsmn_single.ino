@@ -185,14 +185,16 @@ constexpr int   FLAME_MAINS_HZ        = 50;      // 50 (India/EU) or 60. AO is r
                                                  // period (half a mains cycle = 10 ms at 50 Hz), so lamp ripple (2 x mains) does not alias into fake flicker.
 constexpr uint32_t FLAME_BIN_US       = 10000;   // one averaged AO value every 10 ms (100 Hz) at 50 Hz
 constexpr float FLAME_FULL_FRACTION   = 0.5f; // CALIBRATE: AO change from ambient to a strong controlled flame = 100 %
-constexpr float FLAME_MIN_DELTA_MV    = 60.0f;
+constexpr float FLAME_MIN_DELTA_MV    = 30.0f;
 constexpr float FLAME_DO_ENTER_RATIO  = 0.35f;
 constexpr float FLAME_STRONG_FRACTION = 0.25f;   // CALIBRATE: smallest AO change that may count (also >= FLAME_ENTER_SIGMAS * noise)
-constexpr float FLAME_NOISE_FLOOR_MV  = 6.0f;    // lowest noise (sigma) the detector assumes
-constexpr float FLAME_ENTER_SIGMAS    = 8.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
+constexpr float FLAME_NOISE_FLOOR_MV  = 3.0f;    // lowest noise (sigma) the detector assumes
+constexpr float FLAME_ENTER_SIGMAS    = 6.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
 constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
-constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
-constexpr float FLAME_FLICKER_FRAC    = 0.03f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr float FLAME_FLICKER_SIGMAS  = 4.0f;    // flicker swing must exceed this x noise ...
+constexpr float FLAME_FLICKER_FRAC    = 0.02f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr int   FLAME_DO_MIN_TRANSITIONS = 2;
+constexpr int   FLAME_DO_MAX_TRANSITIONS = 20;
 constexpr int   FLAME_MIN_REVERSALS   = 4;       // direction changes inside the ~0.64 s window (= flicker of roughly 3 Hz and up)
 constexpr int   FLAME_MAX_REVERSALS   = 28;      // more than this = sample noise / electrical interference, not a flame
 constexpr int   FLAME_FLICKER_CYCLES  = 2;       // flicker must be seen in this many consecutive 250 ms cycles (not one shadow/blink)
@@ -573,6 +575,12 @@ class FlameDetector {
     if (count_ < N) count_++;
   }
 
+  void feedDo(bool raw) {
+    dbuf_[didx_] = raw ? 1 : 0;
+    didx_ = (didx_ + 1) % N;
+    if (dcount_ < N) dcount_++;
+  }
+
   // Cycle path: call every SENSOR_CYCLE_MS. doOn = debounced DO asserted (comparator says flame).
   FlameOut evaluate(uint32_t now, bool doOn) {
     FlameOut o = {};
@@ -646,14 +654,20 @@ class FlameDetector {
       if (v > h * 0.5f) { if (state == -1) rev++; state = 1; }
       else if (v < -h * 0.5f) { if (state == 1) rev++; state = -1; }
     }
-    const bool flickerNow = active_ && rev >= FLAME_MIN_REVERSALS && rev <= FLAME_MAX_REVERSALS;
+    int doTrans = 0;
+    for (int k = 1; k < dcount_; k++) {
+      const int a = dbuf_[(didx_ + (N - dcount_) + k - 1) % N], b = dbuf_[(didx_ + (N - dcount_) + k) % N];
+      if (a != b) doTrans++;
+    }
+    const bool doChatter = doTrans >= FLAME_DO_MIN_TRANSITIONS && doTrans <= FLAME_DO_MAX_TRANSITIONS;
+    const bool flickerNow = active_ && ((rev >= FLAME_MIN_REVERSALS && rev <= FLAME_MAX_REVERSALS) || doChatter);
     if (flickerNow) { if (flickerHits_ < 100) flickerHits_++; } else flickerHits_ = 0;
     const bool flickerSustained = flickerHits_ >= FLAME_FLICKER_CYCLES;
     o.reversals = rev;
 
     // ---- corroboration ----
     const bool strongDev = dev >= FLAME_STRONG_FRACTION * fabsf(base_);
-    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn || strongDev));
+    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn || doChatter || strongDev || dev >= 2.0f * enter));
     const bool weakEvidence = flickerSustained;     // flicker without rise/DO: visible (warning level) but never an emergency
 
     // ---- strength ----
@@ -698,6 +712,7 @@ class FlameDetector {
   float buf_[N] = {};
   int idx_ = 0, count_ = 0;
   int flickerHits_ = 0;
+  uint8_t dbuf_[N] = {}; int didx_ = 0, dcount_ = 0;
   bool baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
   float base_ = 0, noise_ = FLAME_NOISE_FLOOR_MV;
   uint32_t initStart_ = 0, initQuietSince_ = 0; float initSum_ = 0, initSd_ = 0; int initN_ = 0;
@@ -772,6 +787,7 @@ class SensorHub {
     if (flameBinN_ == 0) flameBinStart_ = us;
     flameBinSum_ += (float)analogReadMilliVolts(PIN_FLAME_AO);
     flameBinN_++;
+    flameDet_.feedDo(digitalRead(PIN_FLAME_DO) == (FLAME_ACTIVE_LOW ? LOW : HIGH));
     if ((uint32_t)(us - flameBinStart_) >= FLAME_BIN_US) {
       flameDet_.feed(flameBinSum_ / flameBinN_);
       flameBinSum_ = 0; flameBinN_ = 0;

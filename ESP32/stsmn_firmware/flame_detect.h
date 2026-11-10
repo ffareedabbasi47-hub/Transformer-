@@ -46,6 +46,12 @@ class FlameDetector {
     if (count_ < N) count_++;
   }
 
+  void feedDo(bool raw) {
+    dbuf_[didx_] = raw ? 1 : 0;
+    didx_ = (didx_ + 1) % N;
+    if (dcount_ < N) dcount_++;
+  }
+
   // Cycle path: call every SENSOR_CYCLE_MS. doOn = debounced DO asserted (comparator says flame).
   FlameOut evaluate(uint32_t now, bool doOn) {
     FlameOut o = {};
@@ -119,14 +125,20 @@ class FlameDetector {
       if (v > h * 0.5f) { if (state == -1) rev++; state = 1; }
       else if (v < -h * 0.5f) { if (state == 1) rev++; state = -1; }
     }
-    const bool flickerNow = active_ && rev >= FLAME_MIN_REVERSALS && rev <= FLAME_MAX_REVERSALS;
+    int doTrans = 0;
+    for (int k = 1; k < dcount_; k++) {
+      const int a = dbuf_[(didx_ + (N - dcount_) + k - 1) % N], b = dbuf_[(didx_ + (N - dcount_) + k) % N];
+      if (a != b) doTrans++;
+    }
+    const bool doChatter = doTrans >= FLAME_DO_MIN_TRANSITIONS && doTrans <= FLAME_DO_MAX_TRANSITIONS;
+    const bool flickerNow = active_ && ((rev >= FLAME_MIN_REVERSALS && rev <= FLAME_MAX_REVERSALS) || doChatter);
     if (flickerNow) { if (flickerHits_ < 100) flickerHits_++; } else flickerHits_ = 0;
     const bool flickerSustained = flickerHits_ >= FLAME_FLICKER_CYCLES;
     o.reversals = rev;
 
     // ---- corroboration ----
     const bool strongDev = dev >= FLAME_STRONG_FRACTION * fabsf(base_);
-    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn || strongDev));
+    const bool corroborated = sticky_ || (flickerSustained && (riseRecent || doOn || doChatter || strongDev || dev >= 2.0f * enter));
     const bool weakEvidence = flickerSustained;     // flicker without rise/DO: visible (warning level) but never an emergency
 
     // ---- strength ----
@@ -171,6 +183,7 @@ class FlameDetector {
   float buf_[N] = {};
   int idx_ = 0, count_ = 0;
   int flickerHits_ = 0;
+  uint8_t dbuf_[N] = {}; int didx_ = 0, dcount_ = 0;
   bool baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
   float base_ = 0, noise_ = FLAME_NOISE_FLOOR_MV;
   uint32_t initStart_ = 0, initQuietSince_ = 0; float initSum_ = 0, initSd_ = 0; int initN_ = 0;

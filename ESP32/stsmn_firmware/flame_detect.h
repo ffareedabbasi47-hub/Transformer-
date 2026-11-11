@@ -12,7 +12,7 @@
 //     after FLAME_REBASE_MS it becomes the new baseline. It can never cause an EMERGENCY.
 //   * DO alone, or a strong STEADY AO change (sun, lamp, reflection) is never a warning nor an emergency while AO is usable.
 //   * If AO is unusable (noisy/floating at boot, or it moves against DO = polarity wrong) the caller uses DO only:
-//     WARNING level by default, EMERGENCY if FLAME_DO_ONLY_FALLBACK_EMERGENCY (then sunlight WILL trigger).
+//     only DO chatter (the comparator flickering with the flame) counts as an EMERGENCY; a steady DO is ignored (sunlight).
 //   * Limit: a sensor cannot tell sunlight from flame by physics alone; this uses behaviour (suddenness, flicker,
 //     DO) and can be fooled (see docs/FLAME_AO_CALIBRATION.md).
 #pragma once
@@ -106,16 +106,18 @@ class FlameDetector {
         if (initQuietSince_ == 0) { initSum_ = initSd_ = 0; initN_ = 0; }
         if ((uint32_t)(now - initStart_) >= FLAME_INIT_GIVEUP_MS && sd > FLAME_INIT_MAX_SIGMA_MV) {
           if (!dead_) o.events |= FE_AO_UNUSABLE_NOISY;
+          if (!dead_) deadSince_ = now;
           dead_ = true;
         }
       }
       o.aoUsable = false; o.why = dead_ ? FW_NOISY : FW_LEARNING; o.mean = mean; o.base = base_; o.noise = noise_;
       return o;
     }
+    if (dead_ && (uint32_t)(now - deadSince_) >= 20000) { relearn(); o.aoUsable = false; o.why = FW_LEARNING; return o; }
     if (dead_ || polarityBad_) { o.aoUsable = false; o.why = dead_ ? FW_NOISY : FW_POLARITY; o.mean = mean; o.base = base_; return o; }
 
     // ---- deviation toward "flame" ----
-    const float sgn = FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f;
+    const float sgn = (FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f) * (flipped_ ? -1.0f : 1.0f);
     const float dev = sgn * (base_ - mean);
     const float enterBase = fmaxf(tune.minDeltaMv, FLAME_ENTER_SIGMAS * noise_);
     const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * tune.minDeltaMv) : enterBase;
@@ -123,12 +125,14 @@ class FlameDetector {
     const float holdT = sticky_ ? 0.3f * enterBase : exitT;
     if (!active_ && dev >= enter) active_ = true;
     else if (active_ && dev < holdT && !(sticky_ && doOn)) active_ = false;
-    if (!sticky_ && (!active_ || uncorrMs_ >= 3000)) noise_ += 0.1f * (fmaxf(FLAME_NOISE_FLOOR_MV, sd) - noise_);
+    if (!sticky_ && ((!active_ && fabsf(dev) < enterBase) || uncorrMs_ >= 3000)) noise_ += 0.1f * (fmaxf(FLAME_NOISE_FLOOR_MV, sd) - noise_);
 
     // ---- polarity check against DO ----
     if (doOn) { doMs_ += dt; } else { doMs_ = 0; }
     if (doOn && doMs_ >= 1500 && dev <= -fmaxf(4.0f * noise_, 0.5f * tune.minDeltaMv)) {
-      polarityBad_ = true; o.events |= FE_POLARITY_BAD; o.aoUsable = false; o.why = FW_POLARITY; return o;
+      o.events |= FE_POLARITY_BAD; o.aoUsable = false;
+      if (!flipped_) { flipped_ = true; active_ = false; sticky_ = false; confirmMs_ = 0; doMs_ = 0; histN_ = 0; o.why = FW_LEARNING; return o; }
+      polarityBad_ = true; o.why = FW_POLARITY; return o;
     }
 
     // ---- sudden rise (signal-change analysis) ----
@@ -201,15 +205,23 @@ class FlameDetector {
   }
 
   bool baselineReady() const { return baseReady_; }
+  bool doChatterNow() const {
+    int tr = 0;
+    for (int k = 1; k < dcount_; k++) {
+      const int a = dbuf_[(didx_ + (N - dcount_) + k - 1) % N], b = dbuf_[(didx_ + (N - dcount_) + k) % N];
+      if (a != b) tr++;
+    }
+    return tr >= FLAME_DO_MIN_TRANSITIONS && tr <= FLAME_DO_MAX_TRANSITIONS;
+  }
 
  private:
   float buf_[N] = {};
   int idx_ = 0, count_ = 0;
   int flickerHits_ = 0;
   uint8_t dbuf_[N] = {}; int didx_ = 0, dcount_ = 0;
-  bool baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
+  bool flipped_ = false, baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
   float base_ = 0, noise_ = FLAME_NOISE_FLOOR_MV;
-  uint32_t initStart_ = 0, initQuietSince_ = 0; float initSum_ = 0, initSd_ = 0; int initN_ = 0;
+  uint32_t deadSince_ = 0, initStart_ = 0, initQuietSince_ = 0; float initSum_ = 0, initSd_ = 0; int initN_ = 0;
   float devHist_[FLAME_RISE_WINDOW_MS / SENSOR_CYCLE_MS] = {}; int histN_ = 0;
   uint32_t riseUntil_ = 0, doMs_ = 0, confirmMs_ = 0, belowMs_ = 0, uncorrMs_ = 0;
 };

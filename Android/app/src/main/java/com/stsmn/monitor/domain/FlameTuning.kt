@@ -6,6 +6,7 @@ import org.json.JSONObject
 data class FlameLive(
     val usable: Boolean, val ao: Int, val base: Int, val dev: Int, val noise: Double,
     val reversals: Int, val doOn: Boolean, val pct: Int, val critical: Boolean,
+    val why: Int = 0, val flicker: Boolean = false, val corroborated: Boolean = false,
 )
 
 data class FlameTuning(
@@ -51,7 +52,8 @@ data class FlameTuning(
             ).clamped()
             val l = o.optJSONObject("live")?.let {
                 FlameLive(it.getInt("usable") != 0, it.getInt("ao"), it.getInt("base"), it.getInt("dev"), it.getDouble("noise"),
-                    it.getInt("rev"), it.getInt("do") != 0, it.getInt("pct"), it.getInt("critical") != 0)
+                    it.getInt("rev"), it.getInt("do") != 0, it.getInt("pct"), it.getInt("critical") != 0,
+                    it.optInt("why", 0), it.optInt("flick", 0) != 0, it.optInt("corr", 0) != 0)
             }
             t to l
         } catch (e: JSONException) { null }

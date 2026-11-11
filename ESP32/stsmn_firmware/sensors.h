@@ -172,8 +172,12 @@ class SensorHub {
     if (HAS_FLAME_ANALOG) {                            // AO is primary, DO supports it (flame_detect.h)
       const FlameOut fo = flameDet_.evaluate(now, flameDo);
       if (fo.aoUsable) { fp = fo.pct; flameCrit = fo.critical; }
-      else if (!FLAME_DO_ONLY_FALLBACK_EMERGENCY) { fp = flameDo ? SIGNAL_MIN_PCT : 0; flameCrit = false; }   // AO unusable: DO alone = WARNING only
-      // (else: DO alone is an EMERGENCY as in the old firmware)
+      else {
+        if (flameDo && flameDet_.doChatterNow()) { if (fbChatter_ < 100) fbChatter_++; } else fbChatter_ = 0;
+        if (fbChatter_ >= 2) fbHoldUntil_ = now + FLAME_FALLBACK_HOLD_MS;
+        flameCrit = (int32_t)(fbHoldUntil_ - now) > 0;
+        fp = flameCrit ? 100 : 0;
+      }
       flameLog(fo, flameDo);
       flameDiag_ = fo; flameDiagDo_ = flameDo;
     }
@@ -231,6 +235,7 @@ class SensorHub {
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
   FlameDetector flameDet_;
+  int fbChatter_ = 0; uint32_t fbHoldUntil_ = 0;
   FlameOut flameDiag_ = {}; bool flameDiagDo_ = false;
   uint32_t flameBinStart_ = 0; float flameBinSum_ = 0; int flameBinN_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0, flameStatN_ = 0;
   bool tempPending_ = false;

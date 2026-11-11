@@ -499,7 +499,8 @@ private fun FlameTuningCard(
         var local by androidx.compose.runtime.remember(tuning) { mutableStateOf(tuning) }
         liveFlame?.let {
             Text(
-                if (!it.usable) "Sensor: AO not usable / learning ambient" else "Sensor now: ambient ${it.base} mV, change ${it.dev} mV, flicker ${it.reversals}, DO ${if (it.doOn) "ON" else "off"}, signal ${it.pct}%" + if (it.critical) "  FLAME!" else "",
+                if (!it.usable) "Sensor: " + when (it.why) { 1 -> "learning the normal light (keep flame away)"; 2 -> "AO wire noisy: DO-only mode, only a flickering DO counts"; 3 -> "AO direction wrong: DO-only mode"; else -> "AO not usable" } + ", DO ${if (it.doOn) "ON" else "off"}"
+                else "Sensor now: normal light ${it.base} mV, change ${it.dev} mV, flicker ${it.reversals}${if (it.flicker) " (flame-like)" else ""}, DO ${if (it.doOn) "ON" else "off"}, signal ${it.pct}%" + if (it.critical) "  FLAME!" else "",
                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

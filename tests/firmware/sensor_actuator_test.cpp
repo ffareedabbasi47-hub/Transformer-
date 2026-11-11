@@ -68,9 +68,7 @@ int main() {
     SensorReadings r = run(h, 250);
     CHECK(!r.flame, "flame needs debounce (not instant)");
     r = run(h, 750);
-    // AO not ready (mock has no fast sampling): DO alone. Emergency only if configured; otherwise WARNING-level signal.
-    if (HAS_FLAME_ANALOG && !FLAME_DO_ONLY_FALLBACK_EMERGENCY) CHECK(!r.flame && r.flamePct >= SIGNAL_MIN_PCT, "DO alone (AO not usable) after debounce = WARNING signal, no emergency");
-    else CHECK(r.flame, "flame detected after debounce");
+    CHECK(!r.flame && r.flamePct == 0, "steady DO alone (AO not usable, no chatter) = ignored: sunlight cannot sound the alarm");
   }
   { reset(); SensorHub h; h.begin(); SensorReadings r = run(h, MQ2_WARMUP_MS + 1000);
     CHECK(r.mq2Ready && !r.smoke, "MQ-2 ready after warm-up, clean air = no smoke");

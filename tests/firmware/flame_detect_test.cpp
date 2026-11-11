@@ -104,9 +104,20 @@ int main() {
   { FlameDetector d; // flame goes out: returns to normal
     Run r = simulate(40000, [](int t) { return (t >= 10000 && t < 20000) ? AMB - flameWave(t, 10000, 700, 150, 8) : AMB; }, [](int t) { return t >= 10000 && t < 20000; }, d);
     CHECK(r.everCritical && !r.lastCritical && r.lastPct == 0, "flame out: critical released"); }
-  { FlameDetector d; // inverted polarity: AO RISES with flame while DO fires -> AO unusable, DO-only fallback
-    Run r = simulate(30000, [](int t) { return t < 10000 ? 1000.0f : 1000.0f + 700.0f; }, [](int t) { return t >= 10000; }, d);
-    CHECK(!r.usable, "AO moving against DO: AO declared unusable (legacy DO-only fallback)"); }
+  { FlameDetector d; // inverted polarity, steady sun-like: AO RISES while DO fires -> direction is flipped once, steady = ignored
+    Run r = simulate(60000, [](int t) { return t < 10000 ? 1000.0f : 1000.0f + 700.0f; }, [](int t) { return t >= 10000; }, d);
+    CHECK(r.usable && !r.everCritical && !r.everWarn, "AO against DO, steady: direction auto-corrected, sunlight ignored"); }
+  { FlameDetector d; // inverted-polarity module: AO RISES with a flickering flame, DO on
+    Run r = simulate(40000, [](int t) { return t < 10000 ? 1000.0f : 1000.0f + flameWave(t, 10000, 500, 120, 8); }, [](int t) { return t >= 10000; }, d);
+    CHECK(r.everCritical, "inverted-polarity module: flickering flame still detected after the auto-flip"); }
+  { FlameDetector d; // very noisy AO at boot (sun) then calms down: AO must come back, not stay dead
+    Run r; bool usable = false;
+    for (int t = 0; t < 60000; t += 10) { float v = t < 20000 ? 1500.0f + (rand() % 400) : 2800.0f; d.feed(v); d.feedDo(false); if (t % 250 == 0) usable = d.evaluate(t + 1000, false).aoUsable; }
+    CHECK(usable, "AO noisy at boot then quiet: detector re-learns instead of staying dead"); }
+  { FlameDetector d; for (int i = 0; i < 64; i++) d.feedDo(true);
+    CHECK(!d.doChatterNow(), "steady DO is not chatter");
+    for (int i = 0; i < 64; i++) d.feedDo((i / 8) % 2 == 0);
+    CHECK(d.doChatterNow(), "DO toggling is chatter"); }
   { FlameDetector d; // floating / very noisy AO at boot
     Run r; int doCount = 0; (void)doCount; bool usable = true;
     for (int t = 0; t < 40000; t += 10) { d.feed(500.0f + (rand() % 2000)); if (t % 250 == 0) { FlameOut o = d.evaluate(t + 1000, false); usable = o.aoUsable; } }

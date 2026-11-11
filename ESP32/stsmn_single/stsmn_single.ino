@@ -208,7 +208,7 @@ constexpr uint32_t FLAME_INIT_GIVEUP_MS = 15000; // AO never became quiet (float
 constexpr float FLAME_INIT_MAX_SIGMA_MV = 40.0f; // noisier than this at boot = AO not usable
 constexpr float FLAME_BASELINE_ALPHA  = 0.004f;  // baseline drift per cycle (~60 s time constant), only while quiet
 constexpr uint32_t FLAME_REBASE_MS    = 20000;   // a steady, non-flickering, DO-less change this long = new ambient (sun/lamp)
-constexpr bool  FLAME_DO_ONLY_FALLBACK_EMERGENCY = true; // AO unusable (wire/polarity): false = DO alone is only a WARNING (sunlight must not cut
+constexpr uint32_t FLAME_FALLBACK_HOLD_MS = 10000;
                                                  // the relay); true = DO alone is an EMERGENCY again (flame can no longer be missed, sunlight WILL trigger)
 constexpr bool  FLAME_CALIBRATION_LOG = false;   // true: print AO / baseline / deviation / flicker once per second (calibration)
 constexpr int FLAME_CRIT_PCT    = 40;    // flame signal >= this = real fire = EMERGENCY at once
@@ -544,7 +544,7 @@ class RelayGate {
 //     after FLAME_REBASE_MS it becomes the new baseline. It can never cause an EMERGENCY.
 //   * DO alone, or a strong STEADY AO change (sun, lamp, reflection) is never a warning nor an emergency while AO is usable.
 //   * If AO is unusable (noisy/floating at boot, or it moves against DO = polarity wrong) the caller uses DO only:
-//     WARNING level by default, EMERGENCY if FLAME_DO_ONLY_FALLBACK_EMERGENCY (then sunlight WILL trigger).
+//     only DO chatter (the comparator flickering with the flame) counts as an EMERGENCY; a steady DO is ignored (sunlight).
 //   * Limit: a sensor cannot tell sunlight from flame by physics alone; this uses behaviour (suddenness, flicker,
 //     DO) and can be fooled (see docs/FLAME_AO_CALIBRATION.md).
 #include <stdint.h>
@@ -636,16 +636,18 @@ class FlameDetector {
         if (initQuietSince_ == 0) { initSum_ = initSd_ = 0; initN_ = 0; }
         if ((uint32_t)(now - initStart_) >= FLAME_INIT_GIVEUP_MS && sd > FLAME_INIT_MAX_SIGMA_MV) {
           if (!dead_) o.events |= FE_AO_UNUSABLE_NOISY;
+          if (!dead_) deadSince_ = now;
           dead_ = true;
         }
       }
       o.aoUsable = false; o.why = dead_ ? FW_NOISY : FW_LEARNING; o.mean = mean; o.base = base_; o.noise = noise_;
       return o;
     }
+    if (dead_ && (uint32_t)(now - deadSince_) >= 20000) { relearn(); o.aoUsable = false; o.why = FW_LEARNING; return o; }
     if (dead_ || polarityBad_) { o.aoUsable = false; o.why = dead_ ? FW_NOISY : FW_POLARITY; o.mean = mean; o.base = base_; return o; }
 
     // ---- deviation toward "flame" ----
-    const float sgn = FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f;
+    const float sgn = (FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f) * (flipped_ ? -1.0f : 1.0f);
     const float dev = sgn * (base_ - mean);
     const float enterBase = fmaxf(tune.minDeltaMv, FLAME_ENTER_SIGMAS * noise_);
     const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * tune.minDeltaMv) : enterBase;
@@ -653,12 +655,14 @@ class FlameDetector {
     const float holdT = sticky_ ? 0.3f * enterBase : exitT;
     if (!active_ && dev >= enter) active_ = true;
     else if (active_ && dev < holdT && !(sticky_ && doOn)) active_ = false;
-    if (!sticky_ && (!active_ || uncorrMs_ >= 3000)) noise_ += 0.1f * (fmaxf(FLAME_NOISE_FLOOR_MV, sd) - noise_);
+    if (!sticky_ && ((!active_ && fabsf(dev) < enterBase) || uncorrMs_ >= 3000)) noise_ += 0.1f * (fmaxf(FLAME_NOISE_FLOOR_MV, sd) - noise_);
 
     // ---- polarity check against DO ----
     if (doOn) { doMs_ += dt; } else { doMs_ = 0; }
     if (doOn && doMs_ >= 1500 && dev <= -fmaxf(4.0f * noise_, 0.5f * tune.minDeltaMv)) {
-      polarityBad_ = true; o.events |= FE_POLARITY_BAD; o.aoUsable = false; o.why = FW_POLARITY; return o;
+      o.events |= FE_POLARITY_BAD; o.aoUsable = false;
+      if (!flipped_) { flipped_ = true; active_ = false; sticky_ = false; confirmMs_ = 0; doMs_ = 0; histN_ = 0; o.why = FW_LEARNING; return o; }
+      polarityBad_ = true; o.why = FW_POLARITY; return o;
     }
 
     // ---- sudden rise (signal-change analysis) ----
@@ -731,15 +735,23 @@ class FlameDetector {
   }
 
   bool baselineReady() const { return baseReady_; }
+  bool doChatterNow() const {
+    int tr = 0;
+    for (int k = 1; k < dcount_; k++) {
+      const int a = dbuf_[(didx_ + (N - dcount_) + k - 1) % N], b = dbuf_[(didx_ + (N - dcount_) + k) % N];
+      if (a != b) tr++;
+    }
+    return tr >= FLAME_DO_MIN_TRANSITIONS && tr <= FLAME_DO_MAX_TRANSITIONS;
+  }
 
  private:
   float buf_[N] = {};
   int idx_ = 0, count_ = 0;
   int flickerHits_ = 0;
   uint8_t dbuf_[N] = {}; int didx_ = 0, dcount_ = 0;
-  bool baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
+  bool flipped_ = false, baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
   float base_ = 0, noise_ = FLAME_NOISE_FLOOR_MV;
-  uint32_t initStart_ = 0, initQuietSince_ = 0; float initSum_ = 0, initSd_ = 0; int initN_ = 0;
+  uint32_t deadSince_ = 0, initStart_ = 0, initQuietSince_ = 0; float initSum_ = 0, initSd_ = 0; int initN_ = 0;
   float devHist_[FLAME_RISE_WINDOW_MS / SENSOR_CYCLE_MS] = {}; int histN_ = 0;
   uint32_t riseUntil_ = 0, doMs_ = 0, confirmMs_ = 0, belowMs_ = 0, uncorrMs_ = 0;
 };
@@ -915,8 +927,12 @@ class SensorHub {
     if (HAS_FLAME_ANALOG) {                            // AO is primary, DO supports it (flame_detect.h)
       const FlameOut fo = flameDet_.evaluate(now, flameDo);
       if (fo.aoUsable) { fp = fo.pct; flameCrit = fo.critical; }
-      else if (!FLAME_DO_ONLY_FALLBACK_EMERGENCY) { fp = flameDo ? SIGNAL_MIN_PCT : 0; flameCrit = false; }   // AO unusable: DO alone = WARNING only
-      // (else: DO alone is an EMERGENCY as in the old firmware)
+      else {
+        if (flameDo && flameDet_.doChatterNow()) { if (fbChatter_ < 100) fbChatter_++; } else fbChatter_ = 0;
+        if (fbChatter_ >= 2) fbHoldUntil_ = now + FLAME_FALLBACK_HOLD_MS;
+        flameCrit = (int32_t)(fbHoldUntil_ - now) > 0;
+        fp = flameCrit ? 100 : 0;
+      }
       flameLog(fo, flameDo);
       flameDiag_ = fo; flameDiagDo_ = flameDo;
     }
@@ -974,6 +990,7 @@ class SensorHub {
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
   FlameDetector flameDet_;
+  int fbChatter_ = 0; uint32_t fbHoldUntil_ = 0;
   FlameOut flameDiag_ = {}; bool flameDiagDo_ = false;
   uint32_t flameBinStart_ = 0; float flameBinSum_ = 0; int flameBinN_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0, flameStatN_ = 0;
   bool tempPending_ = false;
@@ -1681,12 +1698,12 @@ static void handleFlame() {
                   t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo);
   }
   const FlameOut fo = sensors.flameDiag();
-  char buf[420];
+  char buf[520];
   snprintf(buf, sizeof(buf),
            "{\"minDelta\":%.0f,\"flicker\":%.1f,\"reversals\":%d,\"confirmMs\":%u,\"rebaseMs\":%u,\"requireDo\":%d,"
-           "\"live\":{\"usable\":%d,\"ao\":%.0f,\"base\":%.0f,\"dev\":%.0f,\"noise\":%.1f,\"rev\":%d,\"do\":%d,\"pct\":%d,\"critical\":%d}}",
+           "\"live\":{\"usable\":%d,\"ao\":%.0f,\"base\":%.0f,\"dev\":%.0f,\"noise\":%.1f,\"rev\":%d,\"do\":%d,\"pct\":%d,\"critical\":%d,\"why\":%d,\"flick\":%d,\"corr\":%d}}",
            t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo ? 1 : 0,
-           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, sensors.flameDiagDo() ? 1 : 0, fo.pct, fo.critical ? 1 : 0);
+           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, sensors.flameDiagDo() ? 1 : 0, fo.pct, fo.critical ? 1 : 0, (int)fo.why, fo.flicker ? 1 : 0, fo.corroborated ? 1 : 0);
   sendJson(200, buf);
 }
 

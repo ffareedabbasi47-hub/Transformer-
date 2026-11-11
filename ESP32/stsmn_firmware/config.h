@@ -171,7 +171,7 @@ constexpr uint32_t FLAME_INIT_GIVEUP_MS = 15000; // AO never became quiet (float
 constexpr float FLAME_INIT_MAX_SIGMA_MV = 40.0f; // noisier than this at boot = AO not usable
 constexpr float FLAME_BASELINE_ALPHA  = 0.004f;  // baseline drift per cycle (~60 s time constant), only while quiet
 constexpr uint32_t FLAME_REBASE_MS    = 20000;   // a steady, non-flickering, DO-less change this long = new ambient (sun/lamp)
-constexpr bool  FLAME_DO_ONLY_FALLBACK_EMERGENCY = true; // AO unusable (wire/polarity): false = DO alone is only a WARNING (sunlight must not cut
+constexpr uint32_t FLAME_FALLBACK_HOLD_MS = 10000;
                                                  // the relay); true = DO alone is an EMERGENCY again (flame can no longer be missed, sunlight WILL trigger)
 constexpr bool  FLAME_CALIBRATION_LOG = false;   // true: print AO / baseline / deviation / flicker once per second (calibration)
 constexpr int FLAME_CRIT_PCT    = 40;    // flame signal >= this = real fire = EMERGENCY at once

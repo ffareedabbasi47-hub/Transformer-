@@ -271,12 +271,12 @@ static void handleFlame() {
                   t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo);
   }
   const FlameOut fo = sensors.flameDiag();
-  char buf[420];
+  char buf[520];
   snprintf(buf, sizeof(buf),
            "{\"minDelta\":%.0f,\"flicker\":%.1f,\"reversals\":%d,\"confirmMs\":%u,\"rebaseMs\":%u,\"requireDo\":%d,"
-           "\"live\":{\"usable\":%d,\"ao\":%.0f,\"base\":%.0f,\"dev\":%.0f,\"noise\":%.1f,\"rev\":%d,\"do\":%d,\"pct\":%d,\"critical\":%d}}",
+           "\"live\":{\"usable\":%d,\"ao\":%.0f,\"base\":%.0f,\"dev\":%.0f,\"noise\":%.1f,\"rev\":%d,\"do\":%d,\"pct\":%d,\"critical\":%d,\"why\":%d,\"flick\":%d,\"corr\":%d}}",
            t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo ? 1 : 0,
-           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, sensors.flameDiagDo() ? 1 : 0, fo.pct, fo.critical ? 1 : 0);
+           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, sensors.flameDiagDo() ? 1 : 0, fo.pct, fo.critical ? 1 : 0, (int)fo.why, fo.flicker ? 1 : 0, fo.corroborated ? 1 : 0);
   sendJson(200, buf);
 }
 

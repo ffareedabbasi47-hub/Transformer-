@@ -154,13 +154,14 @@ constexpr float FLAME_STRONG_FRACTION = 0.25f;   // CALIBRATE: smallest AO chang
 constexpr float FLAME_NOISE_FLOOR_MV  = 5.0f;    // lowest noise (sigma) the detector assumes
 constexpr float FLAME_ENTER_SIGMAS    = 6.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
 constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
-constexpr float FLAME_FLICKER_SIGMAS  = 4.0f;    // flicker swing must exceed this x noise ...
+constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
 constexpr float FLAME_FLICKER_FRAC    = 0.02f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr uint32_t FLAME_RELEASE_MS = 8000;
 constexpr int   FLAME_DO_MIN_TRANSITIONS = 2;
 constexpr int   FLAME_DO_MAX_TRANSITIONS = 20;
 constexpr int   FLAME_MIN_REVERSALS   = 4;       // direction changes inside the ~0.64 s window (= flicker of roughly 3 Hz and up)
 constexpr int   FLAME_MAX_REVERSALS   = 28;      // more than this = sample noise / electrical interference, not a flame
-constexpr int   FLAME_FLICKER_CYCLES  = 2;       // flicker must be seen in this many consecutive 250 ms cycles (not one shadow/blink)
+constexpr int   FLAME_FLICKER_CYCLES  = 3;       // flicker must be seen in this many consecutive 250 ms cycles (not one shadow/blink)
 constexpr float FLAME_RISE_FRAC       = 0.5f;    // "sudden rise" = deviation gains this x enter within FLAME_RISE_WINDOW_MS
 constexpr uint32_t FLAME_RISE_WINDOW_MS = 1000;
 constexpr uint32_t FLAME_CORROB_HOLD_MS = 3000;  // a sudden rise stays "recent" for this long

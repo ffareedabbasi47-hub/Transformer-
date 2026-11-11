@@ -191,13 +191,14 @@ constexpr float FLAME_STRONG_FRACTION = 0.25f;   // CALIBRATE: smallest AO chang
 constexpr float FLAME_NOISE_FLOOR_MV  = 5.0f;    // lowest noise (sigma) the detector assumes
 constexpr float FLAME_ENTER_SIGMAS    = 6.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
 constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
-constexpr float FLAME_FLICKER_SIGMAS  = 4.0f;    // flicker swing must exceed this x noise ...
+constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
 constexpr float FLAME_FLICKER_FRAC    = 0.02f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr uint32_t FLAME_RELEASE_MS = 8000;
 constexpr int   FLAME_DO_MIN_TRANSITIONS = 2;
 constexpr int   FLAME_DO_MAX_TRANSITIONS = 20;
 constexpr int   FLAME_MIN_REVERSALS   = 4;       // direction changes inside the ~0.64 s window (= flicker of roughly 3 Hz and up)
 constexpr int   FLAME_MAX_REVERSALS   = 28;      // more than this = sample noise / electrical interference, not a flame
-constexpr int   FLAME_FLICKER_CYCLES  = 2;       // flicker must be seen in this many consecutive 250 ms cycles (not one shadow/blink)
+constexpr int   FLAME_FLICKER_CYCLES  = 3;       // flicker must be seen in this many consecutive 250 ms cycles (not one shadow/blink)
 constexpr float FLAME_RISE_FRAC       = 0.5f;    // "sudden rise" = deviation gains this x enter within FLAME_RISE_WINDOW_MS
 constexpr uint32_t FLAME_RISE_WINDOW_MS = 1000;
 constexpr uint32_t FLAME_CORROB_HOLD_MS = 3000;  // a sudden rise stays "recent" for this long
@@ -649,9 +650,10 @@ class FlameDetector {
     const float enterBase = fmaxf(tune.minDeltaMv, FLAME_ENTER_SIGMAS * noise_);
     const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * tune.minDeltaMv) : enterBase;
     const float exitT = enter * FLAME_EXIT_RATIO;
+    const float holdT = sticky_ ? 0.3f * enterBase : exitT;
     if (!active_ && dev >= enter) active_ = true;
-    else if (active_ && dev < exitT) active_ = false;
-    if (!active_ && !doOn) noise_ += 0.1f * (fmaxf(FLAME_NOISE_FLOOR_MV, sd) - noise_);
+    else if (active_ && dev < holdT && !(sticky_ && doOn)) active_ = false;
+    if (!sticky_ && (!active_ || uncorrMs_ >= 3000)) noise_ += 0.1f * (fmaxf(FLAME_NOISE_FLOOR_MV, sd) - noise_);
 
     // ---- polarity check against DO ----
     if (doOn) { doMs_ += dt; } else { doMs_ = 0; }
@@ -670,7 +672,7 @@ class FlameDetector {
     const bool riseRecent = (int32_t)(riseUntil_ - now) > 0;
 
     // ---- flicker: direction reversals of AO around its mean, swing >= h ----
-    const float h = fmaxf(tune.flickerSigmas * noise_, FLAME_FLICKER_FRAC * (dev > 0 ? dev : 0));
+    const float h = fmaxf(tune.flickerSigmas * noise_, 0.03f * tune.flickerSigmas * (dev > 0 ? dev : 0));
     int rev = 0; int state = 0;
     for (int k = 0; k < count_; k++) {
       const float v = buf_[(idx_ + (N - count_) + k) % N] - mean;     // oldest -> newest
@@ -683,7 +685,7 @@ class FlameDetector {
       if (a != b) doTrans++;
     }
     const bool doChatter = doTrans >= FLAME_DO_MIN_TRANSITIONS && doTrans <= FLAME_DO_MAX_TRANSITIONS;
-    const bool flickerNow = active_ && ((rev >= tune.minReversals && rev <= FLAME_MAX_REVERSALS) || doChatter);
+    const bool flickerNow = active_ && rev >= tune.minReversals && rev <= FLAME_MAX_REVERSALS;
     if (flickerNow) { if (flickerHits_ < 100) flickerHits_++; } else flickerHits_ = 0;
     const bool flickerSustained = flickerHits_ >= FLAME_FLICKER_CYCLES;
     o.reversals = rev;
@@ -704,7 +706,7 @@ class FlameDetector {
     bool critical = sticky_ || confirmMs_ >= tune.confirmMs;
     if (critical && !sticky_) { sticky_ = true; o.events |= FE_CRITICAL_ON; }
     if (sticky_) {                         // stays critical while the flame signal is still there
-      if (active_) belowMs_ = 0; else { belowMs_ += dt; if (belowMs_ >= 2000) { sticky_ = false; confirmMs_ = 0; critical = false; belowMs_ = 0; } }
+      if (active_) belowMs_ = 0; else { belowMs_ += dt; if (belowMs_ >= FLAME_RELEASE_MS) { sticky_ = false; confirmMs_ = 0; critical = false; belowMs_ = 0; } }
     }
 
     // ---- baseline: follow slowly while quiet; absorb steady, uncorroborated changes; never absorb fire-like ones ----

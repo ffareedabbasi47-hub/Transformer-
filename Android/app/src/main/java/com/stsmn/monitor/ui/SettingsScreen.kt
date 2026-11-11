@@ -526,7 +526,7 @@ private fun FlameTuningCard(
 
 @Composable
 private fun TuneSlider(title: String, hint: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int, onChange: (Float) -> Unit, onDone: () -> Unit) {
-    Text(title, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 10.dp))
+    Text(title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.padding(top = 10.dp))
     androidx.compose.material3.Slider(value = value, onValueChange = onChange, valueRange = range, steps = steps, onValueChangeFinished = onDone)
     Text(hint, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
 }
@@ -534,7 +534,7 @@ private fun TuneSlider(title: String, hint: String, value: Float, range: ClosedF
 @Composable
 private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().padding(top = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, modifier = Modifier.weight(1f))
+        Text(label, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onChange)
     }
 }

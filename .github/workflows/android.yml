@@ -176,6 +176,8 @@ jobs:
           ./sensor_test
           g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware firmware/flame_detect_test.cpp -o flame_test
           ./flame_test
+          g++ -std=c++17 -O2 -I../ESP32/stsmn_firmware firmware/flame_fuzz_test.cpp -o flame_fuzz
+          for s in 1 2 3 4 5; do ./flame_fuzz $s; done
       - name: Syntax-check the sketch against host mocks (NOT the ESP32 core)
         working-directory: ${{ env.ROOT_DIR }}
         run: sh tests/firmware/compile_sketch.sh

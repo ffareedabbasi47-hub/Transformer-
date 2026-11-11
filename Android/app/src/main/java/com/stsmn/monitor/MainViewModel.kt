@@ -98,7 +98,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 buildMap<String, Triple<SystemStatus, Int?, Boolean?>> {
                     val st = l.status
                     if (l.connection == ConnectionState.LIVE && st != null) put(st.deviceId.removePrefix("STSMN-").uppercase(), Triple(st.status, st.risk, !st.relay))
-                    f.devices.filter { it.link == FleetLink.LIVE }.forEach { putIfAbsent(it.id, Triple(it.status, it.risk, it.relay?.not())) }
+                    f.devices.filter { it.link == FleetLink.LIVE && it.status != null }.forEach { putIfAbsent(it.id, Triple(it.status!!, it.risk, it.relay?.not())) }
                 }
             }.collect { now ->
                 now.forEach { (id, v) ->

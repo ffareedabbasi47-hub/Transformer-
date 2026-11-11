@@ -83,7 +83,7 @@ constexpr uint32_t TEMP_REQUEST_EVERY_MS = 1000;
 constexpr uint32_t TEMP_CONVERSION_MS  = 200;
 constexpr uint32_t BOOT_SELF_CHECK_MS  = 3000;
 constexpr uint32_t MQ2_WARMUP_MS       = 60000;
-constexpr uint32_t RECOVERY_MS         = 10000;
+constexpr uint32_t RECOVERY_MS         = 5000;
 
 constexpr int ADC_SAMPLES_PER_CYCLE = 16;
 constexpr int AVG_WINDOW_CYCLES     = 8;
@@ -130,7 +130,7 @@ constexpr float FLAME_ENTER_SIGMAS    = 6.0f;
 constexpr float FLAME_EXIT_RATIO      = 0.5f;
 constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;
 constexpr float FLAME_FLICKER_FRAC    = 0.02f;
-constexpr uint32_t FLAME_RELEASE_MS = 8000;
+constexpr uint32_t FLAME_RELEASE_MS = 6000;
 constexpr int   FLAME_DO_MIN_TRANSITIONS = 2;
 constexpr int   FLAME_DO_MAX_TRANSITIONS = 20;
 constexpr int   FLAME_MIN_REVERSALS   = 4;

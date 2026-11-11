@@ -99,7 +99,7 @@ constexpr uint32_t TEMP_REQUEST_EVERY_MS = 1000;
 constexpr uint32_t TEMP_CONVERSION_MS  = 200;   // DS18B20 at 10-bit resolution
 constexpr uint32_t BOOT_SELF_CHECK_MS  = 3000;  // relay stays in cutoff until done
 constexpr uint32_t MQ2_WARMUP_MS       = 60000; // smoke reported false while warming
-constexpr uint32_t RECOVERY_MS         = 10000; // stable time before leaving EMERGENCY
+constexpr uint32_t RECOVERY_MS         = 5000;  // stable time before leaving EMERGENCY
 
 // ---------- Filtering / validity --------------------------------------------
 constexpr int ADC_SAMPLES_PER_CYCLE = 16;  // oversampling inside one cycle
@@ -156,7 +156,7 @@ constexpr float FLAME_ENTER_SIGMAS    = 6.0f;    // enter threshold = max(MIN_DE
 constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
 constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
 constexpr float FLAME_FLICKER_FRAC    = 0.02f;   // ... and this fraction of the deviation (peak-to-peak)
-constexpr uint32_t FLAME_RELEASE_MS = 8000;
+constexpr uint32_t FLAME_RELEASE_MS = 6000;
 constexpr int   FLAME_DO_MIN_TRANSITIONS = 2;
 constexpr int   FLAME_DO_MAX_TRANSITIONS = 20;
 constexpr int   FLAME_MIN_REVERSALS   = 4;       // direction changes inside the ~0.64 s window (= flicker of roughly 3 Hz and up)

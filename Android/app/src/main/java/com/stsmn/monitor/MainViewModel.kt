@@ -82,7 +82,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     private var lastContactSyncMs = 0L
-    private var emergencyIds = emptySet<String>()
+    private val alertLevels = mutableMapOf<String, SystemStatus>()
 
     private var wantConnected = false
     private var foreground = false
@@ -91,30 +91,36 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         if (settings.value.autoConnect) { wantConnected = true; repository.start() }
         // Cloud sockets follow the settings (restarted only when cloud settings actually change).
         viewModelScope.launch { settings.collect { fleetRepository.configure(it) } }
-        // Notify once when a transformer ENTERS emergency (local ESP32 or any transformer on the server).
+        // Alert for as long as the fault lasts: EMERGENCY rings (insistent, ongoing), WARNING stays visible; both vanish by themselves
+        // as soon as the transformer reports SAFE again. A lost link keeps the last alert (unknown is not safe).
         viewModelScope.launch {
             combine(live, fleet) { l, f ->
-                buildMap<String, Pair<Int?, Boolean?>> {
+                buildMap<String, Triple<SystemStatus, Int?, Boolean?>> {
                     val st = l.status
-                    if (l.connection == ConnectionState.LIVE && st != null && st.status == SystemStatus.EMERGENCY) {
-                        put(st.deviceId.removePrefix("STSMN-").uppercase(), st.risk to !st.relay)
-                    }
-                    f.devices.filter { it.link == FleetLink.LIVE && it.status == SystemStatus.EMERGENCY }
-                        .forEach { putIfAbsent(it.id, it.risk to it.relay?.not()) }
+                    if (l.connection == ConnectionState.LIVE && st != null) put(st.deviceId.removePrefix("STSMN-").uppercase(), Triple(st.status, st.risk, !st.relay))
+                    f.devices.filter { it.link == FleetLink.LIVE }.forEach { putIfAbsent(it.id, Triple(it.status, it.risk, it.relay?.not())) }
                 }
             }.collect { now ->
-                val fresh = now.filterKeys { it !in emergencyIds }
-                fresh.forEach { (id, v) ->
-                    val cfg = settings.value
-                    val st = live.value.status
-                    val localId = st?.deviceId?.removePrefix("STSMN-")?.uppercase()
-                    val phone = cfg.alertPhone
-                    val text = if (st != null && id == localId) AlertContact.message(st) else "STSMN ALERT $id: EMERGENCY. Risk ${v.first ?: "?"}/100."
-                    notifier.emergency(id, v.first, v.second)
-                    // Fully automatic WhatsApp (only if a CallMeBot key was saved) - never blocks anything else.
-                    if (phone.isNotEmpty() && cfg.whatsappKey.isNotEmpty()) launch { sendWhatsAppWithRetry(id, phone, text, cfg.whatsappKey) }
+                now.forEach { (id, v) ->
+                    val prev = alertLevels[id]
+                    val level = v.first
+                    if (level == prev) return@forEach
+                    alertLevels[id] = level
+                    when (level) {
+                        SystemStatus.EMERGENCY -> {
+                            val cfg = settings.value
+                            val st = live.value.status
+                            val localId = st?.deviceId?.removePrefix("STSMN-")?.uppercase()
+                            val phone = cfg.alertPhone
+                            val text = if (st != null && id == localId) AlertContact.message(st) else "STSMN ALERT $id: EMERGENCY. Risk ${v.second ?: "?"}/100."
+                            notifier.clearWarning(id)
+                            notifier.emergency(id, v.second, v.third)
+                            if (phone.isNotEmpty() && cfg.whatsappKey.isNotEmpty()) launch { sendWhatsAppWithRetry(id, phone, text, cfg.whatsappKey) }
+                        }
+                        SystemStatus.WARNING -> { notifier.clearEmergency(id); notifier.warning(id, v.second) }
+                        else -> notifier.clearAll(id)
+                    }
                 }
-                emergencyIds = now.keys
             }
         }
         // Keep the ESP32's SMS number equal to the one saved in the app (re-sent when the ESP32 reports a different/empty one).
@@ -165,7 +171,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             val err = whatsApp.send(phone, text, key)
             if (err == null) { _whatsappStatus.value = "WhatsApp alert sent automatically ($id)"; return }
             _whatsappStatus.value = "WhatsApp alert not sent yet: $err. Retrying..."
-            if (id !in emergencyIds) return
+            if (alertLevels[id] != SystemStatus.EMERGENCY) return
             delay(30_000L)
         }
         _whatsappStatus.value = "WhatsApp alert could not be sent (check internet and the key)."

@@ -180,6 +180,8 @@ jobs:
           ./status_persist
           g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware latch_test.cpp -o latch_test
           ./latch_test
+          g++ -std=c++17 -Wall -I../ESP32/stsmn_firmware voltage_relay_test.cpp -o voltage_relay_test
+          ./voltage_relay_test
           g++ -std=c++17 -O2 -I../ESP32/stsmn_firmware firmware/flame_fuzz_test.cpp -o flame_fuzz
           for s in 1 2 3 4 5; do ./flame_fuzz $s; done
       - name: Syntax-check the sketch against host mocks (NOT the ESP32 core)

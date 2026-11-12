@@ -63,8 +63,7 @@ inline RiskBreakdown scoreSensors(const RiskInput& in) {
   if (in.tempValid)    p.temp    = (int)lroundf(rampPoints(in.tempC, TEMP_WARN_C, TEMP_CRIT_C, PTS_TEMP));
   if (in.currentValid) p.current = (int)lroundf(rampPoints(fabsf(in.currentA), CURRENT_WARN_A, CURRENT_CRIT_A, PTS_CURRENT));
   if (in.voltageValid) {
-    float devPct = fabsf(in.voltageV - NOMINAL_VOLTAGE_V) / NOMINAL_VOLTAGE_V * 100.0f;
-    p.voltage = (int)lroundf(rampPoints(devPct, VOLT_OK_BAND_PCT, VOLT_FULL_BAND_PCT, PTS_VOLTAGE));
+    p.voltage = (int)lroundf(rampPoints(in.voltageV, VOLT_SAFE_MAX_V, VOLT_SAFE_MAX_V + 100.0f / VOLT_PTS_PER_V, 100.0f));
   }
   p.smoke = (int)lroundf(PTS_SMOKE * effSmokePct(in) / 100.0f);
   p.flame = (int)lroundf(PTS_FLAME * effFlamePct(in) / 100.0f);
@@ -84,7 +83,7 @@ inline RiskPct scorePercent(const RiskInput& in) {
   RiskPct p;
   p.temp    = in.tempValid    ? rampPct(in.tempC, TEMP_WARN_C, TEMP_CRIT_C) : -1;
   p.current = in.currentValid ? rampPct(fabsf(in.currentA), CURRENT_WARN_A, CURRENT_CRIT_A) : -1;
-  p.voltage = in.voltageValid ? rampPct(fabsf(in.voltageV - NOMINAL_VOLTAGE_V) / NOMINAL_VOLTAGE_V * 100.0f, VOLT_OK_BAND_PCT, VOLT_FULL_BAND_PCT) : -1;
+  p.voltage = in.voltageValid ? rampPct(in.voltageV, VOLT_SAFE_MAX_V, VOLT_SAFE_MAX_V + 100.0f / VOLT_PTS_PER_V) : -1;
   p.smoke   = effSmokePct(in);
   p.flame   = effFlamePct(in);
   return p;

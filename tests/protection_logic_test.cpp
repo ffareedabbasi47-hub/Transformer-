@@ -22,7 +22,8 @@ int main() {
     CHECK(g.armed(), "armed after normal operation");
     CHECK(!g.update(t, Status::EMERGENCY, false), "EMERGENCY cuts immediately");
     CHECK(!g.update(t + 250, Status::SAFE, false), "not re-armed on the first safe cycle");
-    CHECK(g.update(t + 250 + RELAY_ARM_STABLE_MS, Status::SAFE, false), "re-armed after the stable period");
+    CHECK(!g.update(t + 250 + RELAY_ARM_STABLE_MS, Status::SAFE, false), "still cut after a short safe period (post-emergency)");
+    CHECK(g.update(t + 250 + RELAY_REARM_AFTER_EMERGENCY_MS, Status::SAFE, false), "re-armed after the longer post-emergency period");
   }
   { // Sensor fault: short glitch keeps supply, sustained fault cuts, recovery needs stable valid period
     RelayGate g; uint32_t t = 0;

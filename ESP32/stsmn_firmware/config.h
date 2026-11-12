@@ -99,7 +99,7 @@ constexpr uint32_t TEMP_REQUEST_EVERY_MS = 1000;
 constexpr uint32_t TEMP_CONVERSION_MS  = 200;   // DS18B20 at 10-bit resolution
 constexpr uint32_t BOOT_SELF_CHECK_MS  = 3000;  // relay stays in cutoff until done
 constexpr uint32_t MQ2_WARMUP_MS       = 60000; // smoke reported false while warming
-constexpr uint32_t RECOVERY_MS         = 5000;  // stable time before leaving EMERGENCY
+constexpr uint32_t RECOVERY_MS         = 10000;  // stable time before leaving EMERGENCY
 
 // ---------- Filtering / validity --------------------------------------------
 constexpr int ADC_SAMPLES_PER_CYCLE = 16;  // oversampling inside one cycle
@@ -122,6 +122,8 @@ constexpr int   ACS_ADC_MAX_MV      = 3000;        // runtime: above = saturated
 constexpr float ACS_DEADBAND_A      = 0.05f;
 
 // ---------- Voltage module (0-25V) ------------------------------------------
+constexpr float VOLT_SAFE_MAX_V    = 8.0f;   // 0..8 V = safe
+constexpr float VOLT_PTS_PER_V     = 20.0f;  // above 8 V: +20 risk points per volt (12 V = 80 = EMERGENCY)
 constexpr float VOLT_MODULE_RATIO = 5.0f;  // module divides by 5 (calibrate!)
 constexpr float VOLT_CAL_FACTOR   = 1.00f; // multiply after comparing with a multimeter
 constexpr int   VOLT_ADC_MAX_MV   = 3100;  // above this the ESP32 ADC saturates
@@ -229,6 +231,7 @@ constexpr int FLOOR_SMOKE_RISK        = 55;  // any smoke OR flame signal = at l
 // the supply is cut and needs a fresh stable-valid period to come back. 0 disables the cut-off on sensor
 // fault (NOT recommended: protection would be blind while the load stays connected).
 constexpr uint32_t RELAY_ARM_STABLE_MS     = 2000;
+constexpr uint32_t RELAY_REARM_AFTER_EMERGENCY_MS = 15000;
 constexpr uint32_t SENSOR_FAULT_CUTOFF_MS  = 10000;
 
 // ---------- Tasks / watchdog -------------------------------------------------

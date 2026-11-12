@@ -86,7 +86,7 @@ constexpr uint32_t TEMP_REQUEST_EVERY_MS = 1000;
 constexpr uint32_t TEMP_CONVERSION_MS  = 200;
 constexpr uint32_t BOOT_SELF_CHECK_MS  = 3000;
 constexpr uint32_t MQ2_WARMUP_MS       = 60000;
-constexpr uint32_t RECOVERY_MS         = 5000;
+constexpr uint32_t RECOVERY_MS         = 10000;
 
 constexpr int ADC_SAMPLES_PER_CYCLE = 16;
 constexpr int AVG_WINDOW_CYCLES     = 8;
@@ -105,6 +105,8 @@ constexpr int   ACS_ADC_MIN_MV      = 200;
 constexpr int   ACS_ADC_MAX_MV      = 3000;
 constexpr float ACS_DEADBAND_A      = 0.05f;
 
+constexpr float VOLT_SAFE_MAX_V    = 8.0f;
+constexpr float VOLT_PTS_PER_V     = 20.0f;
 constexpr float VOLT_MODULE_RATIO = 5.0f;
 constexpr float VOLT_CAL_FACTOR   = 1.00f;
 constexpr int   VOLT_ADC_MAX_MV   = 3100;
@@ -194,6 +196,7 @@ constexpr int FLOOR_CRITICAL_RISK     = 90;
 constexpr int FLOOR_SMOKE_RISK        = 55;
 
 constexpr uint32_t RELAY_ARM_STABLE_MS     = 2000;
+constexpr uint32_t RELAY_REARM_AFTER_EMERGENCY_MS = 15000;
 constexpr uint32_t SENSOR_FAULT_CUTOFF_MS  = 10000;
 
 constexpr uint32_t WDT_TIMEOUT_S            = 8;
@@ -320,8 +323,7 @@ inline RiskBreakdown scoreSensors(const RiskInput& in) {
   if (in.tempValid)    p.temp    = (int)lroundf(rampPoints(in.tempC, TEMP_WARN_C, TEMP_CRIT_C, PTS_TEMP));
   if (in.currentValid) p.current = (int)lroundf(rampPoints(fabsf(in.currentA), CURRENT_WARN_A, CURRENT_CRIT_A, PTS_CURRENT));
   if (in.voltageValid) {
-    float devPct = fabsf(in.voltageV - NOMINAL_VOLTAGE_V) / NOMINAL_VOLTAGE_V * 100.0f;
-    p.voltage = (int)lroundf(rampPoints(devPct, VOLT_OK_BAND_PCT, VOLT_FULL_BAND_PCT, PTS_VOLTAGE));
+    p.voltage = (int)lroundf(rampPoints(in.voltageV, VOLT_SAFE_MAX_V, VOLT_SAFE_MAX_V + 100.0f / VOLT_PTS_PER_V, 100.0f));
   }
   p.smoke = (int)lroundf(PTS_SMOKE * effSmokePct(in) / 100.0f);
   p.flame = (int)lroundf(PTS_FLAME * effFlamePct(in) / 100.0f);
@@ -340,7 +342,7 @@ inline RiskPct scorePercent(const RiskInput& in) {
   RiskPct p;
   p.temp    = in.tempValid    ? rampPct(in.tempC, TEMP_WARN_C, TEMP_CRIT_C) : -1;
   p.current = in.currentValid ? rampPct(fabsf(in.currentA), CURRENT_WARN_A, CURRENT_CRIT_A) : -1;
-  p.voltage = in.voltageValid ? rampPct(fabsf(in.voltageV - NOMINAL_VOLTAGE_V) / NOMINAL_VOLTAGE_V * 100.0f, VOLT_OK_BAND_PCT, VOLT_FULL_BAND_PCT) : -1;
+  p.voltage = in.voltageValid ? rampPct(in.voltageV, VOLT_SAFE_MAX_V, VOLT_SAFE_MAX_V + 100.0f / VOLT_PTS_PER_V) : -1;
   p.smoke   = effSmokePct(in);
   p.flame   = effFlamePct(in);
   return p;
@@ -437,6 +439,7 @@ class RelayGate {
   bool update(uint32_t now, Status status, bool sensorFault, bool hold) {
     if (hold) { armed_ = false; healthy_ = false; faultActive_ = false; return false; }
     if (status == Status::EMERGENCY) {
+      afterEmergency_ = true;
       armed_ = false; healthy_ = false; faultActive_ = false;
       return false;
     }
@@ -447,14 +450,14 @@ class RelayGate {
     } else {
       faultActive_ = false;
       if (!healthy_) { healthy_ = true; healthySince_ = now; }
-      if (!armed_ && now >= BOOT_SELF_CHECK_MS && (uint32_t)(now - healthySince_) >= RELAY_ARM_STABLE_MS) armed_ = true;
+      if (!armed_ && now >= BOOT_SELF_CHECK_MS && (uint32_t)(now - healthySince_) >= (afterEmergency_ ? RELAY_REARM_AFTER_EMERGENCY_MS : RELAY_ARM_STABLE_MS)) { armed_ = true; afterEmergency_ = false; }
     }
     return armed_;
   }
   bool armed() const { return armed_; }
 
  private:
-  bool armed_ = false, healthy_ = false, faultActive_ = false;
+  bool armed_ = false, healthy_ = false, faultActive_ = false, afterEmergency_ = false;
   uint32_t healthySince_ = 0, faultSince_ = 0;
 };
 

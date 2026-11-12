@@ -27,7 +27,7 @@ int main() {
     CHECK(!r.reset(now), "reset refused before the minimum open time");
     now += TRIP_MIN_OPEN_MS + 250;
     CHECK(r.reset(now), "reset accepted after the minimum open time");
-    for (int i = 0; i < 40; i++) { auto s2 = r.update(normal(0.5f), now); relay = g.update(now, s2.status, s2.sensorFault); now += 250; }
+    for (int i = 0; i < 100; i++) { auto s2 = r.update(normal(0.5f), now); relay = g.update(now, s2.status, s2.sensorFault); now += 250; }
     CHECK(!r.latched() && r.status() == Status::SAFE && relay, "after reset and healthy readings the supply returns");
   }
   { // trip memory: restored latch after a reset of the ESP32

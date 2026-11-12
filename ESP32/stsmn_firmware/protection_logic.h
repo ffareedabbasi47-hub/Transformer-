@@ -18,6 +18,7 @@ class RelayGate {
   bool update(uint32_t now, Status status, bool sensorFault, bool hold) {
     if (hold) { armed_ = false; healthy_ = false; faultActive_ = false; return false; }
     if (status == Status::EMERGENCY) {
+      afterEmergency_ = true;
       armed_ = false; healthy_ = false; faultActive_ = false;
       return false;
     }
@@ -28,13 +29,13 @@ class RelayGate {
     } else {
       faultActive_ = false;
       if (!healthy_) { healthy_ = true; healthySince_ = now; }
-      if (!armed_ && now >= BOOT_SELF_CHECK_MS && (uint32_t)(now - healthySince_) >= RELAY_ARM_STABLE_MS) armed_ = true;
+      if (!armed_ && now >= BOOT_SELF_CHECK_MS && (uint32_t)(now - healthySince_) >= (afterEmergency_ ? RELAY_REARM_AFTER_EMERGENCY_MS : RELAY_ARM_STABLE_MS)) { armed_ = true; afterEmergency_ = false; }
     }
     return armed_;
   }
   bool armed() const { return armed_; }
 
  private:
-  bool armed_ = false, healthy_ = false, faultActive_ = false;
+  bool armed_ = false, healthy_ = false, faultActive_ = false, afterEmergency_ = false;
   uint32_t healthySince_ = 0, faultSince_ = 0;
 };

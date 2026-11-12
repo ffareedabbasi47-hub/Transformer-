@@ -48,6 +48,8 @@ fun DashboardScreen(
     onConnect: () -> Unit,
     onOpenSensors: () -> Unit,
     onOpenDiagnostics: () -> Unit,
+    resetStatus: String?,
+    onReset: () -> Unit,
 ) {
     val s = live.status
     val nowElapsed by rememberElapsedNow()
@@ -71,6 +73,18 @@ fun DashboardScreen(
         HeroCard(live, onConnect)
 
         if (live.isLive && s != null && !s.relay) BigBanner("SUPPLY CUT OFF", StsmnColors.Emergency)
+
+        if (s != null && s.latched) {
+            AppCard(container = StsmnColors.Emergency.copy(alpha = 0.14f)) {
+                Text("OVER-CURRENT LOCK", fontWeight = FontWeight.Bold, color = StsmnColors.Emergency)
+                Text(
+                    "Supply stays cut until you reset it." + if (s.resetWaitS > 0) " Reset possible in ${s.resetWaitS} s." else " Fix the cause first.",
+                    fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface,
+                )
+                Button(onClick = onReset, enabled = live.isLive && s.resetWaitS == 0, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) { Text("Reset lock") }
+                resetStatus?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
+            }
+        }
 
         if (live.connection != ConnectionState.LIVE && live.connection != ConnectionState.IDLE) {
             AppCard(container = StsmnColors.Warning.copy(alpha = 0.14f)) {
@@ -141,8 +155,8 @@ private fun HeroCard(live: LiveSnapshot, onConnect: () -> Unit) {
     val description = when {
         isLive -> when (s!!.status) {
             SystemStatus.SAFE -> "All readings are normal."
-            SystemStatus.WARNING -> "Abnormal condition – inspection advised."
-            SystemStatus.EMERGENCY -> "Critical fault – supply cut off by ESP32."
+            SystemStatus.WARNING -> "Abnormal condition – inspection advised." + reasonSuffix(s.reason)
+            SystemStatus.EMERGENCY -> "Critical fault – supply cut off by ESP32." + reasonSuffix(s.reason)
         }
         s != null -> "Last known: ${s.status.name} · risk ${s.risk} (not live)"
         else -> "Waiting for a valid packet from the transformer node."
@@ -213,3 +227,5 @@ private fun SensorGrid(s: StsmnStatus?, dimmed: Boolean) {
         }
     }
 }
+
+private fun reasonSuffix(r: String): String = if (r.isEmpty() || r == "OK") "" else " Reason: $r."

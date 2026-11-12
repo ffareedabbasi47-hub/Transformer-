@@ -35,6 +35,7 @@ data class StsmnStatus(
     val resetWaitS: Int = 0,
     val oilLow: Boolean = false,
     val uncalibrated: Boolean = false,
+    val reason: String = "",
 ) {
     fun invalidSensors(): List<String> = buildList {
         if (temperature == null) add("Temperature")

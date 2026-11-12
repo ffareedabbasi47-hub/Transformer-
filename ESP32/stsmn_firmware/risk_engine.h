@@ -49,6 +49,7 @@ struct RiskResult {
   bool latched;        // over-current trip: stays EMERGENCY / supply cut until an authorised reset
   int trips;           // over-current trips since boot
   uint32_t resetWaitMs;// minimum open time still to wait before a reset is accepted
+  const char* reason;  // short text: what is making the status WARNING/EMERGENCY
 };
 
 // 0 points at/below lo, maxPts at/above hi, linear in between.
@@ -96,7 +97,7 @@ class RiskEngine {
   RiskResult update(const RiskInput& in, uint32_t now) {
     RiskResult r;
     r.parts = scoreSensors(in);
-    r.latched = false; r.trips = 0; r.resetWaitMs = 0;
+    r.latched = false; r.trips = 0; r.resetWaitMs = 0; r.reason = "OK";
     // Only sensors that are FITTED (config.h HAS_*) can be a fault; an unplugged-by-design sensor is not one.
     r.sensorFault = (fitT_ && HAS_TEMP_SENSOR && !in.tempValid) || (fitC_ && HAS_CURRENT_SENSOR && !in.currentValid) ||
                     (fitV_ && HAS_VOLTAGE_SENSOR && !in.voltageValid);
@@ -145,6 +146,18 @@ class RiskEngine {
         break;
     }
     r.status = status_;
+    if (status_ != Status::SAFE) {
+      if (latched_) r.reason = curCrit ? "Over-current (lock)" : "Over-current lock - reset needed";
+      else if (tempCrit) r.reason = "High temperature";
+      else if (smokeAndFire) r.reason = "Smoke and flame";
+      else if (in.flame) r.reason = "Flame";
+      else if (smokeHeat || smokeAlone) r.reason = "Smoke";
+      else if (r.sensorFault) r.reason = "Sensor fault";
+      else if (r.parts.voltage >= 40) r.reason = "High voltage";
+      else if (r.parts.current >= 15) r.reason = "High current";
+      else if (r.parts.temp >= 8) r.reason = "Temperature rising";
+      else r.reason = "Risk score high";
+    }
     r.latched = latched_; r.trips = trips_;
     if (latched_) { const uint32_t el = (uint32_t)(now - latchSince_); r.resetWaitMs = el >= TRIP_MIN_OPEN_MS ? 0 : TRIP_MIN_OPEN_MS - el; }
     return r;

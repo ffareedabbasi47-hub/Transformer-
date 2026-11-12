@@ -148,6 +148,8 @@ fun StsmnApp(vm: MainViewModel) {
                         } else DashboardScreen(
                             live, settings, fleet, onConnect = connectWithPerm,
                             onOpenSensors = { tab = Tab.SENSORS.ordinal }, onOpenDiagnostics = { tab = Tab.DIAGNOSTICS.ordinal },
+                            resetStatus = vm.resetStatus.collectAsStateWithLifecycle().value,
+                            onReset = vm::resetLatch,
                         )
                     Tab.MAP -> EarthScreen(
                         devices, fleet, settings.cloudEnabled, selectedId,

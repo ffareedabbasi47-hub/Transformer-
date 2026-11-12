@@ -158,13 +158,13 @@ static void buildStatusJson(char* out, size_t n, const SensorReadings& s, const 
     "\"current\":%s,\"smoke\":%s,\"flame\":%s,\"oilLevel\":%s,\"risk\":%d,"
     "\"status\":\"%s\",\"relay\":%s,\"alarm\":%s,\"seq\":%lu,"
     "\"pct\":{\"temp\":%s,\"current\":%s,\"voltage\":%s,\"smoke\":%d,\"flame\":%d},"
-    "\"latched\":%s,\"trips\":%d,\"resetWaitS\":%d,\"oilLow\":%s,\"uncal\":%s,\"relayVerified\":\"UNKNOWN\"}",
+    "\"latched\":%s,\"trips\":%d,\"resetWaitS\":%d,\"oilLow\":%s,\"uncal\":%s,\"reason\":\"%s\",\"relayVerified\":\"UNKNOWN\"}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), t, v, c,
     s.smoke ? "true" : "false", s.flame ? "true" : "false", oil, r.risk,
     statusName(r.status), relay ? "true" : "false", alarm ? "true" : "false",
     (unsigned long)seqNo, pT, pI, pV, pc.smoke, pc.flame,
     r.latched ? "true" : "false", r.trips, (int)((r.resetWaitMs + 999) / 1000), oilLowNow ? "true" : "false",
-    (!FLAME_DO_CALIBRATED || !LEVEL_CALIBRATED || !MQ2_CALIBRATED) ? "true" : "false");
+    (!FLAME_DO_CALIBRATED || !LEVEL_CALIBRATED || !MQ2_CALIBRATED) ? "true" : "false", r.reason);
   // Never serve a half-written JSON: on overflow the app gets an explicit invalid packet (-> STALE), not a wrong value.
   if (written < 0 || written >= (int)n) snprintf(out, n, "{\"error\":\"status buffer overflow\"}");
 }

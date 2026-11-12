@@ -24,7 +24,7 @@ static Result run(int totalMs, int burnStart, int burnEnd, std::function<float(i
     doCount = doFn(t) ? doCount + 1 : 0;
     const uint32_t now = T0 + t;
     FlameOut o = d.evaluate(now, doCount >= FLAME_DEBOUNCE_CYCLES);
-    RiskInput in{true, 40.0f, true, 1.0f, true, 230.0f, false, o.aoUsable ? o.critical : false, false, 10, 0, o.aoUsable ? o.pct : 0};
+    RiskInput in{true, 40.0f, true, 1.0f, true, 3.7f, false, o.aoUsable ? o.critical : false, false, 10, 0, o.aoUsable ? o.pct : 0};
     RiskResult rr = risk.update(in, now);
     const bool allow = gate.update(now, rr.status, rr.sensorFault);
     const bool em = rr.status == Status::EMERGENCY;

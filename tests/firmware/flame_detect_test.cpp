@@ -72,7 +72,7 @@ int main() {
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 700, 150, 8); }, [](int t) { return t >= 10000; }, d);
     CHECK(r.everCritical && r.critAtMs - 10000 >= 3000, "tuning confirmMs=3000: slower to confirm"); }
   { FlameTuning t; t.minDeltaMv = -5; t.confirmMs = 99999; t.clampAll();
-    CHECK(t.minDeltaMv == 10 && t.confirmMs == 3000, "tuning values are clamped"); }
+    CHECK(t.minDeltaMv == 10 && t.confirmMs == 2000, "tuning values are clamped"); }
   { FlameDetector d; // weak flame, DO off, still flickers and rises suddenly
     Run r = simulate(30000, [](int t) { return t < 10000 ? AMB : AMB - flameWave(t, 10000, 150, 40, 8); }, [](int) { return false; }, d);
     CHECK(!r.everCritical, "AO flicker but DO silent: no EMERGENCY (DO must agree)"); }
@@ -107,9 +107,9 @@ int main() {
   { FlameDetector d; // inverted polarity, steady sun-like: AO RISES while DO fires -> direction is flipped once, steady = ignored
     Run r = simulate(60000, [](int t) { return t < 10000 ? 1000.0f : 1000.0f + 700.0f; }, [](int t) { return t >= 10000; }, d);
     CHECK(r.usable && !r.everCritical && !r.everWarn, "AO against DO, steady: direction auto-corrected, sunlight ignored"); }
-  { FlameDetector d; // inverted-polarity module: AO RISES with a flickering flame, DO on
+  { FlameDetector d; d.tune.invert = true; // inverted-polarity module (set in the app): AO RISES with a flickering flame, DO on
     Run r = simulate(40000, [](int t) { return t < 10000 ? 1000.0f : 1000.0f + flameWave(t, 10000, 500, 120, 8); }, [](int t) { return t >= 10000; }, d);
-    CHECK(r.everCritical, "inverted-polarity module: flickering flame still detected after the auto-flip"); }
+    CHECK(r.everCritical, "inverted-polarity module: flickering flame detected with invert switch"); }
   { FlameDetector d; // very noisy AO at boot (sun) then calms down: AO must come back, not stay dead
     Run r; bool usable = false;
     for (int t = 0; t < 60000; t += 10) { float v = t < 20000 ? 1500.0f + (rand() % 400) : 2800.0f; d.feed(v); d.feedDo(false); if (t % 250 == 0) usable = d.evaluate(t + 1000, false).aoUsable; }

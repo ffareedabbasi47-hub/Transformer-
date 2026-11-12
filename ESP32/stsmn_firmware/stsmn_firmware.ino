@@ -42,6 +42,9 @@
 #include "sim800.h"
 #include "ble_link.h"
 #include <Preferences.h>
+#ifndef STSMN_API_TOKEN
+#define STSMN_API_TOKEN WIFI_AP_PASSWORD
+#endif
 #ifndef ALERT_PHONE_NUMBER
 #define ALERT_PHONE_NUMBER ""   // old secrets.h without a phone number: SMS stays off
 #endif
@@ -86,7 +89,29 @@ static volatile bool smsRetryFlag = false;
 // State shared between the protection task (writer) and the HTTP handlers (readers).
 // Guarded by stateMutex; the mutex is NEVER held while sending data over the network.
 static SemaphoreHandle_t stateMutex = nullptr;
-static char statusJson[640] = "";
+static char statusJson[800] = "";
+struct EventEntry { uint32_t t; char msg[24]; };
+static EventEntry events[EVENT_LOG_SIZE];
+static int eventHead = 0, eventCount = 0;
+static FlameOut flameSnap{};
+static bool flameSnapDo = false;
+static bool snapLatched = false;
+static int snapResetWaitS = 0;
+static Status snapStatus = Status::SAFE;
+static int snapTrips = 0;
+static volatile int resetReq = 0;
+static volatile int tripNv = -1;
+static volatile bool tuneReady = false;
+static FlameTuning pendingTune;
+static volatile bool relearnReq = false;
+static FlameTuning lastTune;
+static bool bootHold = false;
+static uint32_t bootHoldUntil = 0;
+static HoldTimer oilLowTimer;
+static uint32_t authFails = 0, authLockUntil = 0;
+static bool authLocked = false;
+static Status prevStatus = Status::SAFE;
+static uint32_t logTick = 0;
 static SensorReadings lastReadings{};
 static bool relayArmed = false;
 static uint32_t seq = 0;
@@ -95,6 +120,15 @@ static uint32_t seq = 0;
 static uint32_t lastCycle = 0;
 static RiskResult lastRisk{};
 static bool alarmOn = false;
+
+static void addEvent(const char* m) {
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  EventEntry& e = events[eventHead];
+  e.t = millis() / 1000; strlcpy(e.msg, m, sizeof(e.msg));
+  eventHead = (eventHead + 1) % EVENT_LOG_SIZE;
+  if (eventCount < EVENT_LOG_SIZE) eventCount++;
+  xSemaphoreGive(stateMutex);
+}
 
 // 64-bit uptime: does not wrap after 49.7 days like millis().
 static uint64_t uptimeMs() { return (uint64_t)(esp_timer_get_time() / 1000); }
@@ -107,7 +141,7 @@ static void fmtFloat(char* out, size_t n, bool valid, float v, int decimals) {
 
 // Builds into `out` (size n). Field names/types are the contract with the Android app: do not rename.
 static void buildStatusJson(char* out, size_t n, const SensorReadings& s, const RiskResult& r, const RiskPct& pc,
-                            bool relay, bool alarm, uint32_t seqNo) {
+                            bool relay, bool alarm, uint32_t seqNo, bool oilLowNow) {
   char t[16], v[16], c[16], oil[16], pT[8], pI[8], pV[8];
   auto pctS = [](char* o, size_t sz, int p) { if (p < 0) snprintf(o, sz, "null"); else snprintf(o, sz, "%d", p); };
   pctS(pT, sizeof(pT), pc.temp); pctS(pI, sizeof(pI), pc.current); pctS(pV, sizeof(pV), pc.voltage);
@@ -119,11 +153,14 @@ static void buildStatusJson(char* out, size_t n, const SensorReadings& s, const 
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"temperature\":%s,\"voltage\":%s,"
     "\"current\":%s,\"smoke\":%s,\"flame\":%s,\"oilLevel\":%s,\"risk\":%d,"
     "\"status\":\"%s\",\"relay\":%s,\"alarm\":%s,\"seq\":%lu,"
-    "\"pct\":{\"temp\":%s,\"current\":%s,\"voltage\":%s,\"smoke\":%d,\"flame\":%d}}",
+    "\"pct\":{\"temp\":%s,\"current\":%s,\"voltage\":%s,\"smoke\":%d,\"flame\":%d},"
+    "\"latched\":%s,\"trips\":%d,\"resetWaitS\":%d,\"oilLow\":%s,\"uncal\":%s,\"relayVerified\":\"UNKNOWN\"}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), t, v, c,
     s.smoke ? "true" : "false", s.flame ? "true" : "false", oil, r.risk,
     statusName(r.status), relay ? "true" : "false", alarm ? "true" : "false",
-    (unsigned long)seqNo, pT, pI, pV, pc.smoke, pc.flame);
+    (unsigned long)seqNo, pT, pI, pV, pc.smoke, pc.flame,
+    r.latched ? "true" : "false", r.trips, (int)((r.resetWaitMs + 999) / 1000), oilLowNow ? "true" : "false",
+    (!FLAME_DO_CALIBRATED || !LEVEL_CALIBRATED || !MQ2_CALIBRATED) ? "true" : "false");
   // Never serve a half-written JSON: on overflow the app gets an explicit invalid packet (-> STALE), not a wrong value.
   if (written < 0 || written >= (int)n) snprintf(out, n, "{\"error\":\"status buffer overflow\"}");
 }
@@ -189,7 +226,7 @@ static void buildHealthJson(char* buf, size_t bufSize) {
     "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
     "\"gpsFix\":%s,\"gpsSats\":%d,\"lat\":%s,\"lng\":%s,"
     "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu,"
-    "\"mq2Mv\":%d,\"mq2BaseMv\":%d,\"alertPhone\":\"%s\",\"resetReason\":\"%s\"}",
+    "\"mq2Mv\":%d,\"mq2BaseMv\":%d,\"alertPhone\":\"%s\",\"resetReason\":\"%s\",\"bootHold\":%s,\"flameRateHz\":%d,\"flameLearned\":%s}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), (unsigned long)sq,
     WiFi.softAPgetStationNum(),
     rd.mq2Ready ? "true" : "false", rd.tempValid ? "true" : "false",
@@ -200,7 +237,7 @@ static void buildHealthJson(char* buf, size_t bufSize) {
     gpsFix ? "true" : "false", cs.sats, latS, lngS,
     cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
     smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed,
-    (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked, resetReasonName());
+    (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked, resetReasonName(), bootHold ? "true" : "false", sensors.flameRateHz(), sensors.flameLearned() ? "true" : "false");
 }
 
 static void handleHealth() {
@@ -224,7 +261,41 @@ static int applyContact(const char* raw, char* masked, size_t maskedSize) {
 }
 
 // POST /api/contact   phone=<number>   (form field).  Empty phone = switch SMS off. Cannot touch the relay or any threshold.
+static bool authOk() {
+  const uint32_t now = millis();
+  if (authLocked && (int32_t)(now - authLockUntil) < 0) { sendJson(429, "{\"error\":\"locked\"}"); return false; }
+  authLocked = false;
+  const String tk = server.arg("token");
+  const char* want = STSMN_API_TOKEN;
+  const size_t wl = strlen(want);
+  uint8_t diff = (tk.length() != wl) ? 1 : 0;
+  for (size_t i = 0; i < wl; i++) diff |= (uint8_t)((i < tk.length() ? tk.c_str()[i] : 0) ^ want[i]);
+  if (diff) {
+    if (++authFails >= (uint32_t)AUTH_FAIL_LIMIT) { authFails = 0; authLocked = true; authLockUntil = now + AUTH_LOCKOUT_MS; }
+    sendJson(401, "{\"error\":\"unauthorized\"}");
+    return false;
+  }
+  authFails = 0;
+  return true;
+}
+
+static bool parseF(const String& v, float& out) {
+  if (v.length() == 0 || v.length() > 16) return false;
+  char* end = nullptr;
+  const float f = strtof(v.c_str(), &end);
+  if (!end || *end != 0 || !isfinite(f)) return false;
+  out = f; return true;
+}
+static bool parseI(const String& v, long& out) {
+  if (v.length() == 0 || v.length() > 10) return false;
+  char* end = nullptr;
+  const long l = strtol(v.c_str(), &end, 10);
+  if (!end || *end != 0) return false;
+  out = l; return true;
+}
+
 static void handleContactSet() {
+  if (!authOk()) return;
   if (!server.hasArg("phone")) { sendJson(400, "{\"error\":\"phone missing\"}"); return; }
   const String raw = server.arg("phone");
   if (raw.length() > 30) { sendJson(400, "{\"error\":\"phone too long\"}"); return; }
@@ -237,11 +308,10 @@ static void handleContactSet() {
   sendJson(200, buf);
 }
 
-static void flameTuningSave() {
-  const FlameTuning& t = sensors.flameTuning();
+static void flameTuningSave(const FlameTuning& t) {
   prefs.putFloat("fl_d", t.minDeltaMv); prefs.putFloat("fl_s", t.flickerSigmas);
   prefs.putInt("fl_r", t.minReversals); prefs.putUInt("fl_c", t.confirmMs);
-  prefs.putUInt("fl_b", t.rebaseMs); prefs.putBool("fl_o", t.requireDo);
+  prefs.putUInt("fl_b", t.rebaseMs); prefs.putBool("fl_o", t.requireDo); prefs.putBool("fl_i", t.invert);
 }
 
 static void flameTuningLoad() {
@@ -250,40 +320,86 @@ static void flameTuningLoad() {
   t.minDeltaMv = prefs.getFloat("fl_d", t.minDeltaMv); t.flickerSigmas = prefs.getFloat("fl_s", t.flickerSigmas);
   t.minReversals = prefs.getInt("fl_r", t.minReversals); t.confirmMs = prefs.getUInt("fl_c", t.confirmMs);
   t.rebaseMs = prefs.getUInt("fl_b", t.rebaseMs); t.requireDo = prefs.getBool("fl_o", t.requireDo);
+  t.invert = prefs.getBool("fl_i", t.invert);
   t.clampAll();
 }
 
 static void handleFlame() {
-  FlameTuning& t = sensors.flameTuning();
+  FlameTuning cur;
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  cur = tuneReady ? pendingTune : lastTune;
+  const Status stNow = snapStatus;
+  xSemaphoreGive(stateMutex);
   if (server.method() == HTTP_POST) {
-    FlameTuning n = t;
-    if (server.hasArg("minDelta")) n.minDeltaMv = server.arg("minDelta").toFloat();
-    if (server.hasArg("flicker")) n.flickerSigmas = server.arg("flicker").toFloat();
-    if (server.hasArg("reversals")) n.minReversals = server.arg("reversals").toInt();
-    if (server.hasArg("confirmMs")) n.confirmMs = (uint32_t)server.arg("confirmMs").toInt();
-    if (server.hasArg("rebaseMs")) n.rebaseMs = (uint32_t)server.arg("rebaseMs").toInt();
-    if (server.hasArg("requireDo")) n.requireDo = server.arg("requireDo").toInt() != 0;
+    if (!authOk()) return;
+    FlameTuning n = cur;
+    float f; long l;
+    if (server.hasArg("minDelta")) { if (!parseF(server.arg("minDelta"), f) || f < 10 || f > 300) { sendJson(400, "{\"error\":\"minDelta\"}"); return; } n.minDeltaMv = f; }
+    if (server.hasArg("flicker")) { if (!parseF(server.arg("flicker"), f) || f < 2 || f > 10) { sendJson(400, "{\"error\":\"flicker\"}"); return; } n.flickerSigmas = f; }
+    if (server.hasArg("reversals")) { if (!parseI(server.arg("reversals"), l) || l < 2 || l > 12) { sendJson(400, "{\"error\":\"reversals\"}"); return; } n.minReversals = (int)l; }
+    if (server.hasArg("confirmMs")) { if (!parseI(server.arg("confirmMs"), l) || l < 250 || l > 2000) { sendJson(400, "{\"error\":\"confirmMs\"}"); return; } n.confirmMs = (uint32_t)l; }
+    if (server.hasArg("rebaseMs")) { if (!parseI(server.arg("rebaseMs"), l) || l < 3000 || l > 60000) { sendJson(400, "{\"error\":\"rebaseMs\"}"); return; } n.rebaseMs = (uint32_t)l; }
+    if (server.hasArg("requireDo")) { if (!parseI(server.arg("requireDo"), l) || (l != 0 && l != 1)) { sendJson(400, "{\"error\":\"requireDo\"}"); return; } n.requireDo = l != 0; }
+    if (server.hasArg("invert")) { if (!parseI(server.arg("invert"), l) || (l != 0 && l != 1)) { sendJson(400, "{\"error\":\"invert\"}"); return; } n.invert = l != 0; }
+    const bool wantRelearn = server.hasArg("relearn") && server.arg("relearn") == "1";
+    if (wantRelearn && stNow != Status::SAFE) { sendJson(409, "{\"error\":\"relearn only when SAFE\"}"); return; }
     n.clampAll();
-    t = n;
-    flameTuningSave();
-    if (server.hasArg("relearn") && server.arg("relearn").toInt() != 0) sensors.flameRelearn();
-    Serial.printf("FLAME tuning: delta=%.0f flicker=%.1f rev=%d confirm=%u rebase=%u needDO=%d\n",
-                  t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo);
+    const bool changed = n.minDeltaMv != cur.minDeltaMv || n.flickerSigmas != cur.flickerSigmas || n.minReversals != cur.minReversals ||
+                         n.confirmMs != cur.confirmMs || n.rebaseMs != cur.rebaseMs || n.requireDo != cur.requireDo || n.invert != cur.invert;
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    pendingTune = n; tuneReady = true;
+    if (wantRelearn) relearnReq = true;
+    xSemaphoreGive(stateMutex);
+    if (changed) { flameTuningSave(n); addEvent("FLAME TUNE"); }
+    cur = n;
   }
-  const FlameOut fo = sensors.flameDiag();
-  char buf[520];
+  FlameOut fo; bool dO;
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  fo = flameSnap; dO = flameSnapDo;
+  xSemaphoreGive(stateMutex);
+  char buf[600];
   snprintf(buf, sizeof(buf),
-           "{\"minDelta\":%.0f,\"flicker\":%.1f,\"reversals\":%d,\"confirmMs\":%u,\"rebaseMs\":%u,\"requireDo\":%d,"
+           "{\"minDelta\":%.0f,\"flicker\":%.1f,\"reversals\":%d,\"confirmMs\":%u,\"rebaseMs\":%u,\"requireDo\":%d,\"invert\":%d,"
            "\"live\":{\"usable\":%d,\"ao\":%.0f,\"base\":%.0f,\"dev\":%.0f,\"noise\":%.1f,\"rev\":%d,\"do\":%d,\"pct\":%d,\"critical\":%d,\"why\":%d,\"flick\":%d,\"corr\":%d}}",
-           t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo ? 1 : 0,
-           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, sensors.flameDiagDo() ? 1 : 0, fo.pct, fo.critical ? 1 : 0, (int)fo.why, fo.flicker ? 1 : 0, fo.corroborated ? 1 : 0);
+           cur.minDeltaMv, cur.flickerSigmas, cur.minReversals, (unsigned)cur.confirmMs, (unsigned)cur.rebaseMs, cur.requireDo ? 1 : 0, cur.invert ? 1 : 0,
+           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, dO ? 1 : 0, fo.pct, fo.critical ? 1 : 0, (int)fo.why, fo.flicker ? 1 : 0, fo.corroborated ? 1 : 0);
+  sendJson(200, buf);
+}
+
+static void handleReset() {
+  if (!authOk()) return;
+  bool latched; int wait;
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  latched = snapLatched; wait = snapResetWaitS;
+  xSemaphoreGive(stateMutex);
+  if (!latched) { sendJson(200, "{\"ok\":true,\"latched\":false}"); return; }
+  if (wait > 0) {
+    char b[64]; snprintf(b, sizeof(b), "{\"error\":\"wait\",\"resetWaitS\":%d}", wait);
+    sendJson(409, b); return;
+  }
+  resetReq = 1;
+  sendJson(200, "{\"ok\":true,\"accepted\":true}");
+}
+
+static void handleEvents() {
+  char buf[640];
+  size_t n = 0;
+  n += snprintf(buf + n, sizeof(buf) - n, "{\"events\":[");
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  for (int i = 0; i < eventCount; i++) {
+    const int idx = (eventHead - eventCount + i + EVENT_LOG_SIZE * 2) % EVENT_LOG_SIZE;
+    if (n + 48 >= sizeof(buf)) break;
+    n += snprintf(buf + n, sizeof(buf) - n, "%s{\"t\":%lu,\"e\":\"%s\"}", i ? "," : "", (unsigned long)events[idx].t, events[idx].msg);
+  }
+  xSemaphoreGive(stateMutex);
+  snprintf(buf + n, sizeof(buf) - n, "]}");
   sendJson(200, buf);
 }
 
 static void handleNotFound() {
   const String uri = server.uri();
-  if (uri == "/api/status" || uri == "/api/health" || uri == "/api/contact" || uri == "/api/flame") {     // known path, wrong method
-    server.sendHeader("Allow", uri == "/api/contact" ? "POST" : (uri == "/api/flame" ? "GET, POST" : "GET"));
+  if (uri == "/api/status" || uri == "/api/health" || uri == "/api/contact" || uri == "/api/flame" || uri == "/api/reset" || uri == "/api/events") {     // known path, wrong method
+    server.sendHeader("Allow", (uri == "/api/contact" || uri == "/api/reset") ? "POST" : (uri == "/api/flame" ? "GET, POST" : "GET"));
     sendJson(405, "{\"error\":\"method not allowed\"}");
   } else {
     sendJson(404, "{\"error\":\"not found\"}");
@@ -292,15 +408,33 @@ static void handleNotFound() {
 
 // ---- One protection cycle (protection task only) -----------------------------
 static void protectionCycle(uint32_t now) {
+  if (tuneReady) {
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    sensors.flameTuning() = pendingTune; tuneReady = false;
+    const bool rl = relearnReq; relearnReq = false;
+    xSemaphoreGive(stateMutex);
+    if (rl) sensors.flameRelearn();
+  }
   SensorReadings rd = sensors.sample(now);
+  const bool oilLowNow = oilLowTimer.update(rd.oilValid && rd.oilPct < OIL_LOW_PERCENT, now, OIL_LOW_HOLD_MS);
 
   RiskInput in{rd.tempValid, rd.tempC, rd.currentValid, rd.currentA, rd.voltageValid, rd.voltageV,
-               rd.smoke, rd.flame, rd.oilValid, rd.oilPct, rd.smokePct, rd.flamePct};
+               rd.smoke, rd.flame, rd.oilValid, rd.oilPct, rd.smokePct, rd.flamePct, oilLowNow};
   riskEngine.setFitted(rd.tempSeen, rd.currentSeen, rd.voltageSeen);
+  if (resetReq) {
+    resetReq = 0;
+    if (riskEngine.reset(now)) { tripNv = 0; addEvent("RESET OK"); }
+  }
   lastRisk = riskEngine.update(in, now);
+  if (riskEngine.justLatched()) { tripNv = 1; addEvent("OVERCURRENT LATCH"); }
+  if (lastRisk.status != prevStatus) {
+    addEvent(lastRisk.status == Status::EMERGENCY ? "-> EMERGENCY" : (lastRisk.status == Status::WARNING ? "-> WARNING" : "-> SAFE"));
+    prevStatus = lastRisk.status;
+  }
+  if (bootHold && (int32_t)(now - bootHoldUntil) >= 0) { bootHold = false; addEvent("BOOT HOLD END"); }
 
   // Supply allowed only when armed (boot check + stable valid sensors) and never in EMERGENCY.
-  const bool allow = relayGate.update(now, lastRisk.status, lastRisk.sensorFault);
+  const bool allow = relayGate.update(now, lastRisk.status, lastRisk.sensorFault, bootHold);
   actuators.setRelayAllowed(allow);
   alarmOn = (lastRisk.status == Status::EMERGENCY);
 
@@ -315,16 +449,21 @@ static void protectionCycle(uint32_t now) {
 
   char json[sizeof(statusJson)];
   const uint32_t nextSeq = seq + 1;
-  buildStatusJson(json, sizeof(json), rd, lastRisk, scorePercent(in), actuators.relayAllowed(), alarmOn, nextSeq);
+  buildStatusJson(json, sizeof(json), rd, lastRisk, scorePercent(in), actuators.relayAllowed(), alarmOn, nextSeq, oilLowNow);
 
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   seq = nextSeq;
   lastReadings = rd;
   relayArmed = relayGate.armed();
   strlcpy(statusJson, json, sizeof(statusJson));
+  flameSnap = sensors.flameDiag(); flameSnapDo = sensors.flameDiagDo();
+  lastTune = sensors.flameTuning();
+  snapLatched = lastRisk.latched; snapResetWaitS = (int)((lastRisk.resetWaitMs + 999) / 1000);
+  snapStatus = lastRisk.status; snapTrips = lastRisk.trips;
   xSemaphoreGive(stateMutex);
 
   // Serial log makes the score explainable to judges (115200 baud).
+  if ((logTick++ & 3) == 0 || lastRisk.status != Status::SAFE)
   Serial.printf("seq=%lu %s risk=%d [T%d I%d V%d S%d F%d O%d] relay=%d armed=%d crit=%d fault=%d ok(T%d I%d V%d) smoke=%d%% flame=%d%% mq=%d/%d\n",
     (unsigned long)nextSeq, statusName(lastRisk.status), lastRisk.risk,
     lastRisk.parts.temp, lastRisk.parts.current, lastRisk.parts.voltage,
@@ -466,7 +605,15 @@ void setup() {
   Serial.printf("Reset reason: %s (BROWNOUT = power dip: use a power bank / separate 5V supply)\n", resetReasonName());
 
   stateMutex = xSemaphoreCreateMutex();
+  if (!stateMutex) { Serial.println("FATAL: mutex"); delay(500); ESP.restart(); }
   loadAlertPhone();             // SMS number saved earlier (from the app) or the one in secrets.h
+  {
+    const esp_reset_reason_t rr = esp_reset_reason();
+    if (rr == ESP_RST_PANIC || rr == ESP_RST_INT_WDT || rr == ESP_RST_TASK_WDT || rr == ESP_RST_WDT || rr == ESP_RST_BROWNOUT) {
+      bootHold = true; bootHoldUntil = millis() + BOOT_HOLD_MS;
+    }
+    if (prefs.getBool("trip", false)) { riskEngine.restoreLatched(millis()); prevStatus = Status::EMERGENCY; }
+  }
   sensors.begin();              // includes ACS712 zero calibration (relay is in cutoff = no load current)
 
   // First state is computed from real readings before anyone can request it.
@@ -485,6 +632,8 @@ void setup() {
   server.on("/api/health", HTTP_GET, handleHealth);
   server.on("/api/contact", HTTP_POST, handleContactSet);
   server.on("/api/flame", HTTP_ANY, handleFlame);
+  server.on("/api/reset", HTTP_POST, handleReset);
+  server.on("/api/events", HTTP_GET, handleEvents);
   server.onNotFound(handleNotFound);
   server.begin();
 
@@ -497,14 +646,15 @@ void setup() {
   ble.begin();
   Serial.println("BLE: advertising as " BLE_DEVICE_NAME " (monitor over Bluetooth)");
 #endif
-  xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0);
+  if (xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0) != pdPASS) { Serial.println("FATAL: comm task"); delay(500); ESP.restart(); }
 
   startWatchdog();
-  xTaskCreatePinnedToCore(protectionTask, "stsmn_protect", PROTECTION_TASK_STACK, nullptr,
-                          PROTECTION_TASK_PRIORITY, &protectionHandle, 1);
+  if (xTaskCreatePinnedToCore(protectionTask, "stsmn_protect", PROTECTION_TASK_STACK, nullptr,
+                              PROTECTION_TASK_PRIORITY, &protectionHandle, 1) != pdPASS) { Serial.println("FATAL: protection task"); delay(500); ESP.restart(); }
 }
 
 void loop() {
+  if (tripNv >= 0) { const int v = tripNv; tripNv = -1; prefs.putBool("trip", v == 1); }
   server.handleClient();        // phone is optional; protection runs in its own task and never waits for this
   delay(2);
 }

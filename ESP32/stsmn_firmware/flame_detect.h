@@ -42,12 +42,29 @@ struct FlameTuning {
   uint32_t confirmMs = FLAME_CONFIRM_MS;
   uint32_t rebaseMs = FLAME_REBASE_MS;
   bool requireDo = true;
+  bool invert = !FLAME_AO_DROPS_WITH_FLAME;
+  static constexpr float DELTA_MIN = 10, DELTA_MAX = 300, FLICKER_MIN = 2, FLICKER_MAX = 10;
+  static constexpr int REV_MIN = 2, REV_MAX = 12;
+  static constexpr uint32_t CONFIRM_MIN = 250, CONFIRM_MAX = 2000, REBASE_MIN = 3000, REBASE_MAX = 60000;
+  bool valid() const {
+    return isfinite(minDeltaMv) && minDeltaMv >= DELTA_MIN && minDeltaMv <= DELTA_MAX &&
+           isfinite(flickerSigmas) && flickerSigmas >= FLICKER_MIN && flickerSigmas <= FLICKER_MAX &&
+           minReversals >= REV_MIN && minReversals <= REV_MAX &&
+           confirmMs >= CONFIRM_MIN && confirmMs <= CONFIRM_MAX && rebaseMs >= REBASE_MIN && rebaseMs <= REBASE_MAX;
+  }
   void clampAll() {
-    if (minDeltaMv < 10) minDeltaMv = 10; if (minDeltaMv > 400) minDeltaMv = 400;
-    if (flickerSigmas < 2) flickerSigmas = 2; if (flickerSigmas > 12) flickerSigmas = 12;
-    if (minReversals < 2) minReversals = 2; if (minReversals > 16) minReversals = 16;
-    if (confirmMs < 250) confirmMs = 250; if (confirmMs > 3000) confirmMs = 3000;
-    if (rebaseMs < 3000) rebaseMs = 3000; if (rebaseMs > 60000) rebaseMs = 60000;
+    if (!isfinite(minDeltaMv)) minDeltaMv = FLAME_MIN_DELTA_MV;
+    if (!isfinite(flickerSigmas)) flickerSigmas = FLAME_FLICKER_SIGMAS;
+    if (minDeltaMv < DELTA_MIN) minDeltaMv = DELTA_MIN;
+    if (minDeltaMv > DELTA_MAX) minDeltaMv = DELTA_MAX;
+    if (flickerSigmas < FLICKER_MIN) flickerSigmas = FLICKER_MIN;
+    if (flickerSigmas > FLICKER_MAX) flickerSigmas = FLICKER_MAX;
+    if (minReversals < REV_MIN) minReversals = REV_MIN;
+    if (minReversals > REV_MAX) minReversals = REV_MAX;
+    if (confirmMs < CONFIRM_MIN) confirmMs = CONFIRM_MIN;
+    if (confirmMs > CONFIRM_MAX) confirmMs = CONFIRM_MAX;
+    if (rebaseMs < REBASE_MIN) rebaseMs = REBASE_MIN;
+    if (rebaseMs > REBASE_MAX) rebaseMs = REBASE_MAX;
   }
 };
 
@@ -58,7 +75,10 @@ class FlameDetector {
     baseReady_ = false; dead_ = false; polarityBad_ = false; active_ = false; sticky_ = false;
     initStart_ = 0; initQuietSince_ = 0; initSum_ = 0; initSd_ = 0; initN_ = 0;
     confirmMs_ = 0; belowMs_ = 0; uncorrMs_ = 0; flickerHits_ = 0; histN_ = 0;
+    doMs_ = 0; riseActive_ = false; polEvents_ = 0; polEpisode_ = false; polBadActive_ = false;
   }
+  bool learned() const { return baseReady_; }
+  bool confirmed() const { return sticky_; }
 
   static constexpr int N = 64;
 
@@ -94,8 +114,8 @@ class FlameDetector {
     // ---- baseline learning at boot (needs a quiet AO and no DO) ----
     if (!baseReady_) {
       if (initStart_ == 0) initStart_ = now ? now : 1;
-      (void)doOn;                               // the baseline is learned even if DO is on (bright room): start the device with NO flame in front of it
-      if (sd > FLAME_INIT_MAX_SIGMA_MV) { initQuietSince_ = 0; }
+      if (doOn) { initQuietSince_ = 0; initSum_ = initSd_ = 0; initN_ = 0; }   // never learn a flame/bright source as "normal"
+      else if (sd > FLAME_INIT_MAX_SIGMA_MV) { initQuietSince_ = 0; }
       else { if (initQuietSince_ == 0) initQuietSince_ = now ? now : 1; initSum_ += mean; initSd_ += sd; initN_++; }
       if (initQuietSince_ != 0 && (uint32_t)(now - initQuietSince_) >= FLAME_INIT_MS && initN_ > 0) {
         base_ = initSum_ / initN_;
@@ -114,10 +134,11 @@ class FlameDetector {
       return o;
     }
     if (dead_ && (uint32_t)(now - deadSince_) >= 20000) { relearn(); o.aoUsable = false; o.why = FW_LEARNING; return o; }
-    if (dead_ || polarityBad_) { o.aoUsable = false; o.why = dead_ ? FW_NOISY : FW_POLARITY; o.mean = mean; o.base = base_; return o; }
+    if (polBadActive_ && (int32_t)(now - polBadUntil_) >= 0) { polBadActive_ = false; polEvents_ = 0; }
+    if (dead_ || polBadActive_) { o.aoUsable = false; o.why = dead_ ? FW_NOISY : FW_POLARITY; o.mean = mean; o.base = base_; return o; }
 
     // ---- deviation toward "flame" ----
-    const float sgn = (FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f) * (flipped_ ? -1.0f : 1.0f);
+    const float sgn = tune.invert ? -1.0f : 1.0f;
     const float dev = sgn * (base_ - mean);
     const float enterBase = fmaxf(tune.minDeltaMv, FLAME_ENTER_SIGMAS * noise_);
     const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * tune.minDeltaMv) : enterBase;
@@ -129,10 +150,14 @@ class FlameDetector {
 
     // ---- polarity check against DO ----
     if (doOn) { doMs_ += dt; } else { doMs_ = 0; }
-    if (doOn && doMs_ >= 1500 && dev <= -fmaxf(4.0f * noise_, 0.5f * tune.minDeltaMv)) {
-      o.events |= FE_POLARITY_BAD; o.aoUsable = false;
-      if (!flipped_) { flipped_ = true; active_ = false; sticky_ = false; confirmMs_ = 0; doMs_ = 0; histN_ = 0; o.why = FW_LEARNING; return o; }
-      polarityBad_ = true; o.why = FW_POLARITY; return o;
+    if (!doOn) polEpisode_ = false;
+    if (doOn && doMs_ >= 1500 && !polEpisode_ && dev <= -fmaxf(4.0f * noise_, 0.5f * tune.minDeltaMv)) {
+      polEpisode_ = true;
+      if (++polEvents_ >= 2) {
+        polBadActive_ = true; polBadUntil_ = now + 120000; o.events |= FE_POLARITY_BAD;
+        active_ = false; sticky_ = false; confirmMs_ = 0; histN_ = 0;
+        o.aoUsable = false; o.why = FW_POLARITY; return o;
+      }
     }
 
     // ---- sudden rise (signal-change analysis) ----
@@ -142,11 +167,12 @@ class FlameDetector {
     const bool rapid = histN_ >= H && dev >= enter && (dev - oldest) >= FLAME_RISE_FRAC * enter;
     for (int i = H - 1; i > 0; i--) devHist_[i] = devHist_[i - 1];
     devHist_[0] = dev; if (histN_ < H) histN_++;
-    if (rapid) riseUntil_ = now + FLAME_CORROB_HOLD_MS;
-    const bool riseRecent = (int32_t)(riseUntil_ - now) > 0;
+    if (rapid) { riseActive_ = true; riseUntil_ = now + FLAME_CORROB_HOLD_MS; }
+    if (riseActive_ && (int32_t)(now - riseUntil_) >= 0) riseActive_ = false;
+    const bool riseRecent = riseActive_;
 
     // ---- flicker: direction reversals of AO around its mean, swing >= h ----
-    const float h = fmaxf(tune.flickerSigmas * noise_, 0.03f * tune.flickerSigmas * (dev > 0 ? dev : 0));
+    const float h = fmaxf(tune.flickerSigmas * noise_, FLAME_FLICKER_FRAC_PER_SIGMA * tune.flickerSigmas * (dev > 0 ? dev : 0));
     int rev = 0; int state = 0;
     for (int k = 0; k < count_; k++) {
       const float v = buf_[(idx_ + (N - count_) + k) % N] - mean;     // oldest -> newest
@@ -219,7 +245,8 @@ class FlameDetector {
   int idx_ = 0, count_ = 0;
   int flickerHits_ = 0;
   uint8_t dbuf_[N] = {}; int didx_ = 0, dcount_ = 0;
-  bool flipped_ = false, baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
+  bool baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
+  bool riseActive_ = false, polEpisode_ = false, polBadActive_ = false; int polEvents_ = 0; uint32_t polBadUntil_ = 0;
   float base_ = 0, noise_ = FLAME_NOISE_FLOOR_MV;
   uint32_t deadSince_ = 0, initStart_ = 0, initQuietSince_ = 0; float initSum_ = 0, initSd_ = 0; int initN_ = 0;
   float devHist_[FLAME_RISE_WINDOW_MS / SENSOR_CYCLE_MS] = {}; int histN_ = 0;

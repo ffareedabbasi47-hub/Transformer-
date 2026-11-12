@@ -74,7 +74,10 @@ fun SettingsScreen(
     flameStatus: String?,
     onRefreshFlame: () -> Unit,
     onPushFlame: (com.stsmn.monitor.domain.FlameTuning, Boolean) -> Unit,
+    resetStatus: String?,
+    onReset: () -> Unit,
 ) {
+    var espTok by rememberSaveable { mutableStateOf(settings.espToken) }
     var phoneText by rememberSaveable { mutableStateOf(settings.alertPhone) }
     var waKeyText by rememberSaveable { mutableStateOf(settings.whatsappKey) }
     var contactErr by rememberSaveable { mutableStateOf<String?>(null) }
@@ -175,6 +178,28 @@ fun SettingsScreen(
         }
 
         // ---------------- Realtime cloud ----------------
+        SectionLabel("ESP32 password and over-current lock")
+        AppCard {
+            Text(
+                "Same as the ESP32 Wi-Fi password. Needed to change flame settings, save the alert number or reset the lock. This is a simple password, not encryption.",
+                fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = espTok, onValueChange = { espTok = it.take(64) }, label = { Text("ESP32 password") }, singleLine = true,
+                visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+            )
+            Button(onClick = { onUpdate { it.copy(espToken = espTok) } }, modifier = Modifier.padding(top = 6.dp)) { Text("Save password") }
+            val st = live.status
+            if (st != null && st.latched) {
+                Text(
+                    "OVER-CURRENT LOCK ACTIVE: supply stays cut." + if (st.resetWaitS > 0) " Reset possible in ${st.resetWaitS} s." else " Fix the cause first, then reset.",
+                    fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 10.dp),
+                )
+                Button(onClick = onReset, enabled = st.resetWaitS == 0, modifier = Modifier.fillMaxWidth().padding(top = 6.dp)) { Text("Reset over-current lock") }
+            }
+            resetStatus?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp)) }
+        }
+
         // ---------------- Flame sensor tuning (live on the ESP32) ----------------
         SectionLabel("Flame sensor (live on ESP32)")
         FlameTuningCard(flameTuning, flameLive, flameStatus, live.connection == com.stsmn.monitor.domain.ConnectionState.LIVE || live.connection == com.stsmn.monitor.domain.ConnectionState.STALE, onRefreshFlame, onPushFlame)
@@ -520,6 +545,7 @@ private fun FlameTuningCard(
             com.stsmn.monitor.domain.FlameTuning.REBASE_RANGE.first.toFloat()..com.stsmn.monitor.domain.FlameTuning.REBASE_RANGE.last.toFloat(), 0,
             { local = local.copy(rebaseSec = it.toInt()) }, { onPush(local, false) })
         SwitchRow("DO pin must agree (fewer false alarms)", local.requireDo) { local = local.copy(requireDo = it); onPush(local, false) }
+        SwitchRow("Invert AO direction (only if the AO falls in the dark)", local.invert) { local = local.copy(invert = it); onPush(local, false) }
         OutlinedButton(onClick = { onPush(local, true) }, modifier = Modifier.fillMaxWidth().padding(top = 10.dp)) { Text("Re-learn light now (no flame in front!)") }
         status?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp)) }
     }

@@ -21,7 +21,13 @@ class FlameTuningTest {
 
     @Test fun formIsClampedAndInMs() {
         val f = FlameTuning(minDelta = 9999, flicker = 0.1, reversals = 99, confirmMs = 1, rebaseSec = 500, requireDo = false).toForm(relearn = true)
-        assertEquals("400", f["minDelta"]); assertEquals("2.0", f["flicker"]); assertEquals("16", f["reversals"])
+        assertEquals("300", f["minDelta"]); assertEquals("2.0", f["flicker"]); assertEquals("12", f["reversals"])
         assertEquals("250", f["confirmMs"]); assertEquals("60000", f["rebaseMs"]); assertEquals("0", f["requireDo"]); assertEquals("1", f["relearn"])
+    }
+
+    @Test fun invertIsParsedAndSent() {
+        val (t, _) = FlameTuning.parse(json.replace("\"requireDo\":1,", "\"requireDo\":1,\"invert\":1,"))!!
+        assertTrue(t.invert)
+        assertEquals("1", t.toForm()["invert"])
     }
 }

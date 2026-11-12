@@ -66,6 +66,6 @@ struct HardwareSerial {
 static HardwareSerial Serial;
 static HardwareSerial Serial1;
 static HardwareSerial Serial2;
-struct EspClass { uint32_t getFreeHeap() { return 123456; } };
+struct EspClass { uint32_t getFreeHeap() { return 123456; } void restart() {} };
 static EspClass ESP;
 inline size_t strlcpy(char* d, const char* s, size_t n) { size_t l = strlen(s); if (n) { size_t c = l >= n ? n - 1 : l; memcpy(d, s, c); d[c] = 0; } return l; }

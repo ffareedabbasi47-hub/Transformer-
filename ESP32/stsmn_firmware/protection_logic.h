@@ -13,7 +13,10 @@
 class RelayGate {
  public:
   // Returns true when the supply may be connected. Call once per protection cycle.
-  bool update(uint32_t now, Status status, bool sensorFault) {
+  bool update(uint32_t now, Status status, bool sensorFault) { return update(now, status, sensorFault, false); }
+  // hold = boot hold after an abnormal reset: the supply stays cut until the caller releases it.
+  bool update(uint32_t now, Status status, bool sensorFault, bool hold) {
+    if (hold) { armed_ = false; healthy_ = false; faultActive_ = false; return false; }
     if (status == Status::EMERGENCY) {
       armed_ = false; healthy_ = false; faultActive_ = false;
       return false;

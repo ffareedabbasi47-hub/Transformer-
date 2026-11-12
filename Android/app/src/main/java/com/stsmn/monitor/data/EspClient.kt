@@ -24,10 +24,14 @@ class EspClient(private val binder: WifiNetworkBinder) {
 
     suspend fun fetchFlame(host: String): FetchResult = fetch(host, AppConfig.FLAME_PATH)
 
-    suspend fun postFlame(host: String, form: Map<String, String>): FetchResult = withContext(Dispatchers.IO) {
+    suspend fun postFlame(host: String, form: Map<String, String>): FetchResult = postForm(host, AppConfig.FLAME_PATH, form)
+
+    suspend fun postReset(host: String, token: String): FetchResult = postForm(host, AppConfig.RESET_PATH, mapOf("token" to token))
+
+    private suspend fun postForm(host: String, path: String, form: Map<String, String>): FetchResult = withContext(Dispatchers.IO) {
         var conn: HttpURLConnection? = null
         try {
-            val url = URL("http", host, AppConfig.API_PORT, AppConfig.FLAME_PATH)
+            val url = URL("http", host, AppConfig.API_PORT, path)
             conn = binder.openConnection(url) as? HttpURLConnection
                 ?: return@withContext FetchResult.Failure("Unsupported connection type")
             conn.connectTimeout = AppConfig.CONNECT_TIMEOUT_MS
@@ -41,7 +45,10 @@ class EspClient(private val binder: WifiNetworkBinder) {
             conn.setFixedLengthStreamingMode(body.size)
             conn.outputStream.use { it.write(body) }
             val code = conn.responseCode
-            if (code != HttpURLConnection.HTTP_OK) return@withContext FetchResult.Failure("ESP32 answered HTTP $code (update the ESP32 sketch to v17)")
+            if (code == 401) return@withContext FetchResult.Failure("Wrong ESP32 password (Settings > ESP32 password)")
+            if (code == 429) return@withContext FetchResult.Failure("Too many wrong passwords: wait 30 s")
+            if (code == 409) return@withContext FetchResult.Failure("Not allowed now (wait for the open time / only when SAFE)")
+            if (code != HttpURLConnection.HTTP_OK) return@withContext FetchResult.Failure("ESP32 answered HTTP $code (update the ESP32 sketch)")
             val text = conn.inputStream.use { readLimited(it) } ?: return@withContext FetchResult.Failure("Response too large")
             FetchResult.Body(text)
         } catch (e: SocketTimeoutException) {
@@ -88,7 +95,7 @@ class EspClient(private val binder: WifiNetworkBinder) {
     }
 
     /** POST /api/contact  phone=<number>  (form field). Returns the ESP32's JSON answer. */
-    suspend fun postContact(host: String, phone: String): FetchResult = withContext(Dispatchers.IO) {
+    suspend fun postContact(host: String, phone: String, token: String): FetchResult = withContext(Dispatchers.IO) {
         var conn: HttpURLConnection? = null
         try {
             val url = URL("http", host, AppConfig.API_PORT, AppConfig.CONTACT_PATH)
@@ -101,7 +108,7 @@ class EspClient(private val binder: WifiNetworkBinder) {
             conn.doOutput = true
             conn.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
             conn.setRequestProperty("Connection", "close")
-            val body = ("phone=" + java.net.URLEncoder.encode(phone, "UTF-8")).toByteArray(Charsets.UTF_8)
+            val body = ("phone=" + java.net.URLEncoder.encode(phone, "UTF-8") + "&token=" + java.net.URLEncoder.encode(token, "UTF-8")).toByteArray(Charsets.UTF_8)
             conn.setFixedLengthStreamingMode(body.size)
             conn.outputStream.use { it.write(body) }
             val code = conn.responseCode

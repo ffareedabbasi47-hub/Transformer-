@@ -183,16 +183,15 @@ constexpr bool  FLAME_AO_DROPS_WITH_FLAME = true; // most IR modules: AO voltage
                                                   // against DO at run time and falls back to DO-only if AO moves the other way.
 constexpr int   FLAME_MAINS_HZ        = 50;      // 50 (India/EU) or 60. AO is read continuously (~1 ms) and AVERAGED over one mains ripple
                                                  // period (half a mains cycle = 10 ms at 50 Hz), so lamp ripple (2 x mains) does not alias into fake flicker.
-constexpr uint32_t FLAME_BIN_US       = 10000;   // one averaged AO value every 10 ms (100 Hz) at 50 Hz
+constexpr int FLAME_OVERSAMPLE = 4;   // AO reads averaged per detector sample (one sample per protection-loop iteration)
 constexpr float FLAME_FULL_FRACTION   = 0.5f; // CALIBRATE: AO change from ambient to a strong controlled flame = 100 %
 constexpr float FLAME_MIN_DELTA_MV    = 40.0f;
 constexpr float FLAME_DO_ENTER_RATIO  = 0.35f;
-constexpr float FLAME_STRONG_FRACTION = 0.25f;   // CALIBRATE: smallest AO change that may count (also >= FLAME_ENTER_SIGMAS * noise)
 constexpr float FLAME_NOISE_FLOOR_MV  = 5.0f;    // lowest noise (sigma) the detector assumes
 constexpr float FLAME_ENTER_SIGMAS    = 6.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
 constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
 constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
-constexpr float FLAME_FLICKER_FRAC    = 0.02f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr float FLAME_FLICKER_FRAC_PER_SIGMA = 0.03f;   // flicker swing must be >= this x (strictness) x the deviation
 constexpr uint32_t FLAME_RELEASE_MS = 6000;
 constexpr int   FLAME_DO_MIN_TRANSITIONS = 2;
 constexpr int   FLAME_DO_MAX_TRANSITIONS = 20;
@@ -209,6 +208,19 @@ constexpr float FLAME_INIT_MAX_SIGMA_MV = 40.0f; // noisier than this at boot = 
 constexpr float FLAME_BASELINE_ALPHA  = 0.004f;  // baseline drift per cycle (~60 s time constant), only while quiet
 constexpr uint32_t FLAME_REBASE_MS    = 20000;   // a steady, non-flickering, DO-less change this long = new ambient (sun/lamp)
 constexpr uint32_t FLAME_FALLBACK_HOLD_MS = 10000;
+constexpr bool FLAME_DO_CALIBRATED = false;
+constexpr bool LEVEL_CALIBRATED = false;
+constexpr bool MQ2_CALIBRATED = false;
+constexpr uint32_t TRIP_MIN_OPEN_MS = 10000;
+constexpr bool OIL_LOW_RAISES_WARNING = false;
+constexpr uint32_t OIL_LOW_HOLD_MS = 10000;
+constexpr int AUTH_FAIL_LIMIT = 5;
+constexpr uint32_t AUTH_LOCKOUT_MS = 30000;
+constexpr uint32_t SMS_NEW_EPISODE_MIN_MS = 30000;
+constexpr uint32_t GPS_SENTENCE_TTL_MS = 3000;
+constexpr int SIM_FAILS_BEFORE_REINIT = 3;
+constexpr int EVENT_LOG_SIZE = 16;
+constexpr uint32_t BOOT_HOLD_MS = 15000;
                                                  // the relay); true = DO alone is an EMERGENCY again (flame can no longer be missed, sunlight WILL trigger)
 constexpr bool  FLAME_CALIBRATION_LOG = false;   // true: print AO / baseline / deviation / flicker once per second (calibration)
 constexpr int FLAME_CRIT_PCT    = 40;    // flame signal >= this = real fire = EMERGENCY at once
@@ -372,6 +384,7 @@ struct RiskInput {
   bool flame;
   bool oilValid;     int oilPct;
   int smokePct;      int flamePct;     // signal strength 0..100 (0 = boolean-only caller: smoke/flame then count as 100)
+  bool oilLow;                         // level below OIL_LOW_PERCENT for OIL_LOW_HOLD_MS (optional WARNING floor)
 };
 
 struct RiskBreakdown { int temp, current, voltage, smoke, flame, oil, base; };
@@ -386,6 +399,9 @@ struct RiskResult {
   bool critical;       // a critical sensor condition is active
   bool sensorFault;    // at least one protection sensor is invalid
   RiskBreakdown parts; // for Serial debug / judge explanation
+  bool latched;        // over-current trip: stays EMERGENCY / supply cut until an authorised reset
+  int trips;           // over-current trips since boot
+  uint32_t resetWaitMs;// minimum open time still to wait before a reset is accepted
 };
 
 // 0 points at/below lo, maxPts at/above hi, linear in between.
@@ -434,6 +450,7 @@ class RiskEngine {
   RiskResult update(const RiskInput& in, uint32_t now) {
     RiskResult r;
     r.parts = scoreSensors(in);
+    r.latched = false; r.trips = 0; r.resetWaitMs = 0;
     // Only sensors that are FITTED (config.h HAS_*) can be a fault; an unplugged-by-design sensor is not one.
     r.sensorFault = (fitT_ && HAS_TEMP_SENSOR && !in.tempValid) || (fitC_ && HAS_CURRENT_SENSOR && !in.currentValid) ||
                     (fitV_ && HAS_VOLTAGE_SENSOR && !in.voltageValid);
@@ -447,7 +464,8 @@ class RiskEngine {
     const bool smokeSignal = in.smoke || effSmokePct(in) >= SIGNAL_MIN_PCT;
     const bool flameSignal = in.flame || effFlamePct(in) >= SIGNAL_MIN_PCT;
     const bool smokeAndFire = smokeSignal && flameSignal;
-    r.critical = in.flame || tempCrit || curCrit || smokeHeat || smokeAlone || smokeAndFire;
+    if (curCrit && !latched_) { latched_ = true; latchSince_ = now; trips_++; newLatch_ = true; }
+    r.critical = in.flame || tempCrit || curCrit || latched_ || smokeHeat || smokeAlone || smokeAndFire;
 
     int risk = r.parts.base;
     if (r.sensorFault && risk < FLOOR_SENSOR_FAULT_RISK) risk = FLOOR_SENSOR_FAULT_RISK;
@@ -455,6 +473,7 @@ class RiskEngine {
     const bool stressed = pc.temp >= SENSOR_WARN_PCT || pc.current >= SENSOR_WARN_PCT || pc.voltage >= SENSOR_WARN_PCT;
     if (stressed && risk < FLOOR_STRESS_RISK) risk = FLOOR_STRESS_RISK;
     if ((smokeSignal || flameSignal) && risk < FLOOR_SMOKE_RISK) risk = FLOOR_SMOKE_RISK;
+    if (OIL_LOW_RAISES_WARNING && in.oilLow && risk < FLOOR_STRESS_RISK) risk = FLOOR_STRESS_RISK;
     if (r.critical && risk < FLOOR_CRITICAL_RISK) risk = FLOOR_CRITICAL_RISK;
     r.risk = risk;
 
@@ -468,7 +487,7 @@ class RiskEngine {
         else if (risk < WARNING_EXIT) status_ = Status::SAFE;
         break;
       case Status::EMERGENCY:
-        if (r.critical || risk >= EMERGENCY_EXIT) {
+        if (latched_ || r.critical || risk >= EMERGENCY_EXIT) {
           recovering_ = false;            // still unsafe: restart the recovery clock
         } else {
           if (!recovering_) { recovering_ = true; recoveryStart_ = now; }
@@ -480,12 +499,24 @@ class RiskEngine {
         break;
     }
     r.status = status_;
+    r.latched = latched_; r.trips = trips_;
+    if (latched_) { const uint32_t el = (uint32_t)(now - latchSince_); r.resetWaitMs = el >= TRIP_MIN_OPEN_MS ? 0 : TRIP_MIN_OPEN_MS - el; }
     return r;
   }
   Status status() const { return status_; }
+  bool latched() const { return latched_; }
+  bool justLatched() { const bool v = newLatch_; newLatch_ = false; return v; }
+  void restoreLatched(uint32_t now) { latched_ = true; latchSince_ = now; status_ = Status::EMERGENCY; recovering_ = false; }
+  bool reset(uint32_t now) {
+    if (!latched_) return true;
+    if ((uint32_t)(now - latchSince_) < TRIP_MIN_OPEN_MS) return false;
+    latched_ = false; status_ = Status::SAFE; recovering_ = false; currentCritTimer_.reset();
+    return true;
+  }
 
  private:
   bool fitT_ = true, fitC_ = true, fitV_ = true;
+  bool latched_ = false, newLatch_ = false; int trips_ = 0; uint32_t latchSince_ = 0;
   void enterEmergency() { status_ = Status::EMERGENCY; recovering_ = false; }
   Status status_ = Status::SAFE;
   bool recovering_ = false;
@@ -506,7 +537,10 @@ class RiskEngine {
 class RelayGate {
  public:
   // Returns true when the supply may be connected. Call once per protection cycle.
-  bool update(uint32_t now, Status status, bool sensorFault) {
+  bool update(uint32_t now, Status status, bool sensorFault) { return update(now, status, sensorFault, false); }
+  // hold = boot hold after an abnormal reset: the supply stays cut until the caller releases it.
+  bool update(uint32_t now, Status status, bool sensorFault, bool hold) {
+    if (hold) { armed_ = false; healthy_ = false; faultActive_ = false; return false; }
     if (status == Status::EMERGENCY) {
       armed_ = false; healthy_ = false; faultActive_ = false;
       return false;
@@ -572,12 +606,29 @@ struct FlameTuning {
   uint32_t confirmMs = FLAME_CONFIRM_MS;
   uint32_t rebaseMs = FLAME_REBASE_MS;
   bool requireDo = true;
+  bool invert = !FLAME_AO_DROPS_WITH_FLAME;
+  static constexpr float DELTA_MIN = 10, DELTA_MAX = 300, FLICKER_MIN = 2, FLICKER_MAX = 10;
+  static constexpr int REV_MIN = 2, REV_MAX = 12;
+  static constexpr uint32_t CONFIRM_MIN = 250, CONFIRM_MAX = 2000, REBASE_MIN = 3000, REBASE_MAX = 60000;
+  bool valid() const {
+    return isfinite(minDeltaMv) && minDeltaMv >= DELTA_MIN && minDeltaMv <= DELTA_MAX &&
+           isfinite(flickerSigmas) && flickerSigmas >= FLICKER_MIN && flickerSigmas <= FLICKER_MAX &&
+           minReversals >= REV_MIN && minReversals <= REV_MAX &&
+           confirmMs >= CONFIRM_MIN && confirmMs <= CONFIRM_MAX && rebaseMs >= REBASE_MIN && rebaseMs <= REBASE_MAX;
+  }
   void clampAll() {
-    if (minDeltaMv < 10) minDeltaMv = 10; if (minDeltaMv > 400) minDeltaMv = 400;
-    if (flickerSigmas < 2) flickerSigmas = 2; if (flickerSigmas > 12) flickerSigmas = 12;
-    if (minReversals < 2) minReversals = 2; if (minReversals > 16) minReversals = 16;
-    if (confirmMs < 250) confirmMs = 250; if (confirmMs > 3000) confirmMs = 3000;
-    if (rebaseMs < 3000) rebaseMs = 3000; if (rebaseMs > 60000) rebaseMs = 60000;
+    if (!isfinite(minDeltaMv)) minDeltaMv = FLAME_MIN_DELTA_MV;
+    if (!isfinite(flickerSigmas)) flickerSigmas = FLAME_FLICKER_SIGMAS;
+    if (minDeltaMv < DELTA_MIN) minDeltaMv = DELTA_MIN;
+    if (minDeltaMv > DELTA_MAX) minDeltaMv = DELTA_MAX;
+    if (flickerSigmas < FLICKER_MIN) flickerSigmas = FLICKER_MIN;
+    if (flickerSigmas > FLICKER_MAX) flickerSigmas = FLICKER_MAX;
+    if (minReversals < REV_MIN) minReversals = REV_MIN;
+    if (minReversals > REV_MAX) minReversals = REV_MAX;
+    if (confirmMs < CONFIRM_MIN) confirmMs = CONFIRM_MIN;
+    if (confirmMs > CONFIRM_MAX) confirmMs = CONFIRM_MAX;
+    if (rebaseMs < REBASE_MIN) rebaseMs = REBASE_MIN;
+    if (rebaseMs > REBASE_MAX) rebaseMs = REBASE_MAX;
   }
 };
 
@@ -588,7 +639,10 @@ class FlameDetector {
     baseReady_ = false; dead_ = false; polarityBad_ = false; active_ = false; sticky_ = false;
     initStart_ = 0; initQuietSince_ = 0; initSum_ = 0; initSd_ = 0; initN_ = 0;
     confirmMs_ = 0; belowMs_ = 0; uncorrMs_ = 0; flickerHits_ = 0; histN_ = 0;
+    doMs_ = 0; riseActive_ = false; polEvents_ = 0; polEpisode_ = false; polBadActive_ = false;
   }
+  bool learned() const { return baseReady_; }
+  bool confirmed() const { return sticky_; }
 
   static constexpr int N = 64;
 
@@ -624,8 +678,8 @@ class FlameDetector {
     // ---- baseline learning at boot (needs a quiet AO and no DO) ----
     if (!baseReady_) {
       if (initStart_ == 0) initStart_ = now ? now : 1;
-      (void)doOn;                               // the baseline is learned even if DO is on (bright room): start the device with NO flame in front of it
-      if (sd > FLAME_INIT_MAX_SIGMA_MV) { initQuietSince_ = 0; }
+      if (doOn) { initQuietSince_ = 0; initSum_ = initSd_ = 0; initN_ = 0; }   // never learn a flame/bright source as "normal"
+      else if (sd > FLAME_INIT_MAX_SIGMA_MV) { initQuietSince_ = 0; }
       else { if (initQuietSince_ == 0) initQuietSince_ = now ? now : 1; initSum_ += mean; initSd_ += sd; initN_++; }
       if (initQuietSince_ != 0 && (uint32_t)(now - initQuietSince_) >= FLAME_INIT_MS && initN_ > 0) {
         base_ = initSum_ / initN_;
@@ -644,10 +698,11 @@ class FlameDetector {
       return o;
     }
     if (dead_ && (uint32_t)(now - deadSince_) >= 20000) { relearn(); o.aoUsable = false; o.why = FW_LEARNING; return o; }
-    if (dead_ || polarityBad_) { o.aoUsable = false; o.why = dead_ ? FW_NOISY : FW_POLARITY; o.mean = mean; o.base = base_; return o; }
+    if (polBadActive_ && (int32_t)(now - polBadUntil_) >= 0) { polBadActive_ = false; polEvents_ = 0; }
+    if (dead_ || polBadActive_) { o.aoUsable = false; o.why = dead_ ? FW_NOISY : FW_POLARITY; o.mean = mean; o.base = base_; return o; }
 
     // ---- deviation toward "flame" ----
-    const float sgn = (FLAME_AO_DROPS_WITH_FLAME ? 1.0f : -1.0f) * (flipped_ ? -1.0f : 1.0f);
+    const float sgn = tune.invert ? -1.0f : 1.0f;
     const float dev = sgn * (base_ - mean);
     const float enterBase = fmaxf(tune.minDeltaMv, FLAME_ENTER_SIGMAS * noise_);
     const float enter = doOn ? fmaxf(4.0f * noise_, FLAME_DO_ENTER_RATIO * tune.minDeltaMv) : enterBase;
@@ -659,10 +714,14 @@ class FlameDetector {
 
     // ---- polarity check against DO ----
     if (doOn) { doMs_ += dt; } else { doMs_ = 0; }
-    if (doOn && doMs_ >= 1500 && dev <= -fmaxf(4.0f * noise_, 0.5f * tune.minDeltaMv)) {
-      o.events |= FE_POLARITY_BAD; o.aoUsable = false;
-      if (!flipped_) { flipped_ = true; active_ = false; sticky_ = false; confirmMs_ = 0; doMs_ = 0; histN_ = 0; o.why = FW_LEARNING; return o; }
-      polarityBad_ = true; o.why = FW_POLARITY; return o;
+    if (!doOn) polEpisode_ = false;
+    if (doOn && doMs_ >= 1500 && !polEpisode_ && dev <= -fmaxf(4.0f * noise_, 0.5f * tune.minDeltaMv)) {
+      polEpisode_ = true;
+      if (++polEvents_ >= 2) {
+        polBadActive_ = true; polBadUntil_ = now + 120000; o.events |= FE_POLARITY_BAD;
+        active_ = false; sticky_ = false; confirmMs_ = 0; histN_ = 0;
+        o.aoUsable = false; o.why = FW_POLARITY; return o;
+      }
     }
 
     // ---- sudden rise (signal-change analysis) ----
@@ -672,11 +731,12 @@ class FlameDetector {
     const bool rapid = histN_ >= H && dev >= enter && (dev - oldest) >= FLAME_RISE_FRAC * enter;
     for (int i = H - 1; i > 0; i--) devHist_[i] = devHist_[i - 1];
     devHist_[0] = dev; if (histN_ < H) histN_++;
-    if (rapid) riseUntil_ = now + FLAME_CORROB_HOLD_MS;
-    const bool riseRecent = (int32_t)(riseUntil_ - now) > 0;
+    if (rapid) { riseActive_ = true; riseUntil_ = now + FLAME_CORROB_HOLD_MS; }
+    if (riseActive_ && (int32_t)(now - riseUntil_) >= 0) riseActive_ = false;
+    const bool riseRecent = riseActive_;
 
     // ---- flicker: direction reversals of AO around its mean, swing >= h ----
-    const float h = fmaxf(tune.flickerSigmas * noise_, 0.03f * tune.flickerSigmas * (dev > 0 ? dev : 0));
+    const float h = fmaxf(tune.flickerSigmas * noise_, FLAME_FLICKER_FRAC_PER_SIGMA * tune.flickerSigmas * (dev > 0 ? dev : 0));
     int rev = 0; int state = 0;
     for (int k = 0; k < count_; k++) {
       const float v = buf_[(idx_ + (N - count_) + k) % N] - mean;     // oldest -> newest
@@ -749,7 +809,8 @@ class FlameDetector {
   int idx_ = 0, count_ = 0;
   int flickerHits_ = 0;
   uint8_t dbuf_[N] = {}; int didx_ = 0, dcount_ = 0;
-  bool flipped_ = false, baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
+  bool baseReady_ = false, dead_ = false, polarityBad_ = false, active_ = false, sticky_ = false;
+  bool riseActive_ = false, polEpisode_ = false, polBadActive_ = false; int polEvents_ = 0; uint32_t polBadUntil_ = 0;
   float base_ = 0, noise_ = FLAME_NOISE_FLOOR_MV;
   uint32_t deadSince_ = 0, initStart_ = 0, initQuietSince_ = 0; float initSum_ = 0, initSd_ = 0; int initN_ = 0;
   float devHist_[FLAME_RISE_WINDOW_MS / SENSOR_CYCLE_MS] = {}; int histN_ = 0;
@@ -815,20 +876,25 @@ class SensorHub {
     r_ = SensorReadings{};
   }
 
-  // Continuous AO sampling (call every protection-loop iteration, ~1 ms): readings are averaged over FLAME_BIN_US = one mains-ripple
-  // period (10 ms at 50 Hz) and each average is fed to the detector. Cheap and non-blocking.
+  // One detector sample per protection-loop iteration: FLAME_OVERSAMPLE quick AO reads are averaged. The measured feed rate is kept
+  // (flameRateHz) because the detector's windows are in samples, not seconds.
   void fastFlameSample() {
     if (!HAS_FLAME_ANALOG) return;
     const uint32_t us = micros();
-    if (flameBinN_ == 0) flameBinStart_ = us;
-    flameBinSum_ += (float)analogReadMilliVolts(PIN_FLAME_AO);
-    flameBinN_++;
+    float sum = 0;
+    for (int i = 0; i < FLAME_OVERSAMPLE; i++) sum += (float)analogReadMilliVolts(PIN_FLAME_AO);
+    flameDet_.feed(sum / FLAME_OVERSAMPLE);
     flameDet_.feedDo(digitalRead(PIN_FLAME_DO) == (FLAME_ACTIVE_LOW ? LOW : HIGH));
-    if ((uint32_t)(us - flameBinStart_) >= FLAME_BIN_US) {
-      flameDet_.feed(flameBinSum_ / flameBinN_);
-      flameBinSum_ = 0; flameBinN_ = 0;
+    if (lastFeedUs_ != 0) {
+      const float dt = (float)(uint32_t)(us - lastFeedUs_);
+      if (dt > 0 && dt < 200000.0f) feedPeriodUs_ += 0.05f * (dt - feedPeriodUs_);
     }
+    lastFeedUs_ = us ? us : 1;
   }
+  int flameRateHz() const { return feedPeriodUs_ > 1.0f ? (int)(1000000.0f / feedPeriodUs_ + 0.5f) : 0; }
+  bool flameDo() const { return flameDiagDo_; }
+  bool flameLearned() const { return flameDet_.learned(); }
+  bool flameConfirmed() const { return flameDet_.confirmed(); }
 
   FlameTuning& flameTuning() { return flameDet_.tune; }
   void flameRelearn() { flameDet_.relearn(); }
@@ -929,8 +995,9 @@ class SensorHub {
       if (fo.aoUsable) { fp = fo.pct; flameCrit = fo.critical; }
       else {
         if (flameDo && flameDet_.doChatterNow()) { if (fbChatter_ < 100) fbChatter_++; } else fbChatter_ = 0;
-        if (fbChatter_ >= 2) fbHoldUntil_ = now + FLAME_FALLBACK_HOLD_MS;
-        flameCrit = (int32_t)(fbHoldUntil_ - now) > 0;
+        if (fbChatter_ >= 2) { fbActive_ = true; fbHoldUntil_ = now + FLAME_FALLBACK_HOLD_MS; }
+        if (fbActive_ && (int32_t)(now - fbHoldUntil_) >= 0) fbActive_ = false;
+        flameCrit = fbActive_;
         fp = flameCrit ? 100 : 0;
       }
       flameLog(fo, flameDo);
@@ -947,7 +1014,7 @@ class SensorHub {
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     r_.oilPct = (int)lroundf(pct);
-    r_.oilValid = HAS_LEVEL_SENSOR;
+    r_.oilValid = HAS_LEVEL_SENSOR && lv <= VOLT_ADC_MAX_MV;   // a pin pinned at the ADC rail is a wiring fault, not a level
 
     return r_;
   }
@@ -990,9 +1057,10 @@ class SensorHub {
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
   FlameDetector flameDet_;
-  int fbChatter_ = 0; uint32_t fbHoldUntil_ = 0;
+  int fbChatter_ = 0; uint32_t fbHoldUntil_ = 0; bool fbActive_ = false;
+  uint32_t lastFeedUs_ = 0; float feedPeriodUs_ = 10000.0f;
   FlameOut flameDiag_ = {}; bool flameDiagDo_ = false;
-  uint32_t flameBinStart_ = 0; float flameBinSum_ = 0; int flameBinN_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0, flameStatN_ = 0;
+  bool flameWarned_ = false; uint32_t flameLogN_ = 0, flameStatN_ = 0;
   bool tempPending_ = false;
   uint32_t tempRequestedAt_ = 0, tempLastRequest_ = 0;
   float zeroAdcMv_ = 0;
@@ -1513,7 +1581,29 @@ static volatile bool smsRetryFlag = false;
 // State shared between the protection task (writer) and the HTTP handlers (readers).
 // Guarded by stateMutex; the mutex is NEVER held while sending data over the network.
 static SemaphoreHandle_t stateMutex = nullptr;
-static char statusJson[640] = "";
+static char statusJson[800] = "";
+struct EventEntry { uint32_t t; char msg[24]; };
+static EventEntry events[EVENT_LOG_SIZE];
+static int eventHead = 0, eventCount = 0;
+static FlameOut flameSnap{};
+static bool flameSnapDo = false;
+static bool snapLatched = false;
+static int snapResetWaitS = 0;
+static Status snapStatus = Status::SAFE;
+static int snapTrips = 0;
+static volatile int resetReq = 0;
+static volatile int tripNv = -1;
+static volatile bool tuneReady = false;
+static FlameTuning pendingTune;
+static volatile bool relearnReq = false;
+static FlameTuning lastTune;
+static bool bootHold = false;
+static uint32_t bootHoldUntil = 0;
+static HoldTimer oilLowTimer;
+static uint32_t authFails = 0, authLockUntil = 0;
+static bool authLocked = false;
+static Status prevStatus = Status::SAFE;
+static uint32_t logTick = 0;
 static SensorReadings lastReadings{};
 static bool relayArmed = false;
 static uint32_t seq = 0;
@@ -1522,6 +1612,15 @@ static uint32_t seq = 0;
 static uint32_t lastCycle = 0;
 static RiskResult lastRisk{};
 static bool alarmOn = false;
+
+static void addEvent(const char* m) {
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  EventEntry& e = events[eventHead];
+  e.t = millis() / 1000; strlcpy(e.msg, m, sizeof(e.msg));
+  eventHead = (eventHead + 1) % EVENT_LOG_SIZE;
+  if (eventCount < EVENT_LOG_SIZE) eventCount++;
+  xSemaphoreGive(stateMutex);
+}
 
 // 64-bit uptime: does not wrap after 49.7 days like millis().
 static uint64_t uptimeMs() { return (uint64_t)(esp_timer_get_time() / 1000); }
@@ -1534,7 +1633,7 @@ static void fmtFloat(char* out, size_t n, bool valid, float v, int decimals) {
 
 // Builds into `out` (size n). Field names/types are the contract with the Android app: do not rename.
 static void buildStatusJson(char* out, size_t n, const SensorReadings& s, const RiskResult& r, const RiskPct& pc,
-                            bool relay, bool alarm, uint32_t seqNo) {
+                            bool relay, bool alarm, uint32_t seqNo, bool oilLowNow) {
   char t[16], v[16], c[16], oil[16], pT[8], pI[8], pV[8];
   auto pctS = [](char* o, size_t sz, int p) { if (p < 0) snprintf(o, sz, "null"); else snprintf(o, sz, "%d", p); };
   pctS(pT, sizeof(pT), pc.temp); pctS(pI, sizeof(pI), pc.current); pctS(pV, sizeof(pV), pc.voltage);
@@ -1546,11 +1645,14 @@ static void buildStatusJson(char* out, size_t n, const SensorReadings& s, const 
     "{\"deviceId\":\"%s\",\"fw\":\"%s\",\"uptime\":%llu,\"temperature\":%s,\"voltage\":%s,"
     "\"current\":%s,\"smoke\":%s,\"flame\":%s,\"oilLevel\":%s,\"risk\":%d,"
     "\"status\":\"%s\",\"relay\":%s,\"alarm\":%s,\"seq\":%lu,"
-    "\"pct\":{\"temp\":%s,\"current\":%s,\"voltage\":%s,\"smoke\":%d,\"flame\":%d}}",
+    "\"pct\":{\"temp\":%s,\"current\":%s,\"voltage\":%s,\"smoke\":%d,\"flame\":%d},"
+    "\"latched\":%s,\"trips\":%d,\"resetWaitS\":%d,\"oilLow\":%s,\"uncal\":%s,\"relayVerified\":\"UNKNOWN\"}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), t, v, c,
     s.smoke ? "true" : "false", s.flame ? "true" : "false", oil, r.risk,
     statusName(r.status), relay ? "true" : "false", alarm ? "true" : "false",
-    (unsigned long)seqNo, pT, pI, pV, pc.smoke, pc.flame);
+    (unsigned long)seqNo, pT, pI, pV, pc.smoke, pc.flame,
+    r.latched ? "true" : "false", r.trips, (int)((r.resetWaitMs + 999) / 1000), oilLowNow ? "true" : "false",
+    (!FLAME_DO_CALIBRATED || !LEVEL_CALIBRATED || !MQ2_CALIBRATED) ? "true" : "false");
   // Never serve a half-written JSON: on overflow the app gets an explicit invalid packet (-> STALE), not a wrong value.
   if (written < 0 || written >= (int)n) snprintf(out, n, "{\"error\":\"status buffer overflow\"}");
 }
@@ -1616,7 +1718,7 @@ static void buildHealthJson(char* buf, size_t bufSize) {
     "\"armed\":%s,\"heapFree\":%lu,\"stackFreeBytes\":%lu,"
     "\"gpsFix\":%s,\"gpsSats\":%d,\"lat\":%s,\"lng\":%s,"
     "\"gsmReady\":%s,\"gsmRegistered\":%s,\"gsmSignal\":%d,\"smsEnabled\":%s,\"smsSent\":%lu,\"smsFailed\":%lu,"
-    "\"mq2Mv\":%d,\"mq2BaseMv\":%d,\"alertPhone\":\"%s\",\"resetReason\":\"%s\"}",
+    "\"mq2Mv\":%d,\"mq2BaseMv\":%d,\"alertPhone\":\"%s\",\"resetReason\":\"%s\",\"bootHold\":%s,\"flameRateHz\":%d,\"flameLearned\":%s}",
     STSMN_DEVICE_ID, STSMN_FW_VERSION, (unsigned long long)uptimeMs(), (unsigned long)sq,
     WiFi.softAPgetStationNum(),
     rd.mq2Ready ? "true" : "false", rd.tempValid ? "true" : "false",
@@ -1627,7 +1729,7 @@ static void buildHealthJson(char* buf, size_t bufSize) {
     gpsFix ? "true" : "false", cs.sats, latS, lngS,
     cs.gsmReady ? "true" : "false", cs.gsmRegistered ? "true" : "false", cs.gsmSignal,
     smsEnabled ? "true" : "false", (unsigned long)cs.smsSent, (unsigned long)cs.smsFailed,
-    (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked, resetReasonName());
+    (int)rd.mq2Mv, (int)rd.mq2BaseMv, phoneMasked, resetReasonName(), bootHold ? "true" : "false", sensors.flameRateHz(), sensors.flameLearned() ? "true" : "false");
 }
 
 static void handleHealth() {
@@ -1651,7 +1753,41 @@ static int applyContact(const char* raw, char* masked, size_t maskedSize) {
 }
 
 // POST /api/contact   phone=<number>   (form field).  Empty phone = switch SMS off. Cannot touch the relay or any threshold.
+static bool authOk() {
+  const uint32_t now = millis();
+  if (authLocked && (int32_t)(now - authLockUntil) < 0) { sendJson(429, "{\"error\":\"locked\"}"); return false; }
+  authLocked = false;
+  const String tk = server.arg("token");
+  const char* want = STSMN_API_TOKEN;
+  const size_t wl = strlen(want);
+  uint8_t diff = (tk.length() != wl) ? 1 : 0;
+  for (size_t i = 0; i < wl; i++) diff |= (uint8_t)((i < tk.length() ? tk.c_str()[i] : 0) ^ want[i]);
+  if (diff) {
+    if (++authFails >= (uint32_t)AUTH_FAIL_LIMIT) { authFails = 0; authLocked = true; authLockUntil = now + AUTH_LOCKOUT_MS; }
+    sendJson(401, "{\"error\":\"unauthorized\"}");
+    return false;
+  }
+  authFails = 0;
+  return true;
+}
+
+static bool parseF(const String& v, float& out) {
+  if (v.length() == 0 || v.length() > 16) return false;
+  char* end = nullptr;
+  const float f = strtof(v.c_str(), &end);
+  if (!end || *end != 0 || !isfinite(f)) return false;
+  out = f; return true;
+}
+static bool parseI(const String& v, long& out) {
+  if (v.length() == 0 || v.length() > 10) return false;
+  char* end = nullptr;
+  const long l = strtol(v.c_str(), &end, 10);
+  if (!end || *end != 0) return false;
+  out = l; return true;
+}
+
 static void handleContactSet() {
+  if (!authOk()) return;
   if (!server.hasArg("phone")) { sendJson(400, "{\"error\":\"phone missing\"}"); return; }
   const String raw = server.arg("phone");
   if (raw.length() > 30) { sendJson(400, "{\"error\":\"phone too long\"}"); return; }
@@ -1664,11 +1800,10 @@ static void handleContactSet() {
   sendJson(200, buf);
 }
 
-static void flameTuningSave() {
-  const FlameTuning& t = sensors.flameTuning();
+static void flameTuningSave(const FlameTuning& t) {
   prefs.putFloat("fl_d", t.minDeltaMv); prefs.putFloat("fl_s", t.flickerSigmas);
   prefs.putInt("fl_r", t.minReversals); prefs.putUInt("fl_c", t.confirmMs);
-  prefs.putUInt("fl_b", t.rebaseMs); prefs.putBool("fl_o", t.requireDo);
+  prefs.putUInt("fl_b", t.rebaseMs); prefs.putBool("fl_o", t.requireDo); prefs.putBool("fl_i", t.invert);
 }
 
 static void flameTuningLoad() {
@@ -1677,40 +1812,86 @@ static void flameTuningLoad() {
   t.minDeltaMv = prefs.getFloat("fl_d", t.minDeltaMv); t.flickerSigmas = prefs.getFloat("fl_s", t.flickerSigmas);
   t.minReversals = prefs.getInt("fl_r", t.minReversals); t.confirmMs = prefs.getUInt("fl_c", t.confirmMs);
   t.rebaseMs = prefs.getUInt("fl_b", t.rebaseMs); t.requireDo = prefs.getBool("fl_o", t.requireDo);
+  t.invert = prefs.getBool("fl_i", t.invert);
   t.clampAll();
 }
 
 static void handleFlame() {
-  FlameTuning& t = sensors.flameTuning();
+  FlameTuning cur;
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  cur = tuneReady ? pendingTune : lastTune;
+  const Status stNow = snapStatus;
+  xSemaphoreGive(stateMutex);
   if (server.method() == HTTP_POST) {
-    FlameTuning n = t;
-    if (server.hasArg("minDelta")) n.minDeltaMv = server.arg("minDelta").toFloat();
-    if (server.hasArg("flicker")) n.flickerSigmas = server.arg("flicker").toFloat();
-    if (server.hasArg("reversals")) n.minReversals = server.arg("reversals").toInt();
-    if (server.hasArg("confirmMs")) n.confirmMs = (uint32_t)server.arg("confirmMs").toInt();
-    if (server.hasArg("rebaseMs")) n.rebaseMs = (uint32_t)server.arg("rebaseMs").toInt();
-    if (server.hasArg("requireDo")) n.requireDo = server.arg("requireDo").toInt() != 0;
+    if (!authOk()) return;
+    FlameTuning n = cur;
+    float f; long l;
+    if (server.hasArg("minDelta")) { if (!parseF(server.arg("minDelta"), f) || f < 10 || f > 300) { sendJson(400, "{\"error\":\"minDelta\"}"); return; } n.minDeltaMv = f; }
+    if (server.hasArg("flicker")) { if (!parseF(server.arg("flicker"), f) || f < 2 || f > 10) { sendJson(400, "{\"error\":\"flicker\"}"); return; } n.flickerSigmas = f; }
+    if (server.hasArg("reversals")) { if (!parseI(server.arg("reversals"), l) || l < 2 || l > 12) { sendJson(400, "{\"error\":\"reversals\"}"); return; } n.minReversals = (int)l; }
+    if (server.hasArg("confirmMs")) { if (!parseI(server.arg("confirmMs"), l) || l < 250 || l > 2000) { sendJson(400, "{\"error\":\"confirmMs\"}"); return; } n.confirmMs = (uint32_t)l; }
+    if (server.hasArg("rebaseMs")) { if (!parseI(server.arg("rebaseMs"), l) || l < 3000 || l > 60000) { sendJson(400, "{\"error\":\"rebaseMs\"}"); return; } n.rebaseMs = (uint32_t)l; }
+    if (server.hasArg("requireDo")) { if (!parseI(server.arg("requireDo"), l) || (l != 0 && l != 1)) { sendJson(400, "{\"error\":\"requireDo\"}"); return; } n.requireDo = l != 0; }
+    if (server.hasArg("invert")) { if (!parseI(server.arg("invert"), l) || (l != 0 && l != 1)) { sendJson(400, "{\"error\":\"invert\"}"); return; } n.invert = l != 0; }
+    const bool wantRelearn = server.hasArg("relearn") && server.arg("relearn") == "1";
+    if (wantRelearn && stNow != Status::SAFE) { sendJson(409, "{\"error\":\"relearn only when SAFE\"}"); return; }
     n.clampAll();
-    t = n;
-    flameTuningSave();
-    if (server.hasArg("relearn") && server.arg("relearn").toInt() != 0) sensors.flameRelearn();
-    Serial.printf("FLAME tuning: delta=%.0f flicker=%.1f rev=%d confirm=%u rebase=%u needDO=%d\n",
-                  t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo);
+    const bool changed = n.minDeltaMv != cur.minDeltaMv || n.flickerSigmas != cur.flickerSigmas || n.minReversals != cur.minReversals ||
+                         n.confirmMs != cur.confirmMs || n.rebaseMs != cur.rebaseMs || n.requireDo != cur.requireDo || n.invert != cur.invert;
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    pendingTune = n; tuneReady = true;
+    if (wantRelearn) relearnReq = true;
+    xSemaphoreGive(stateMutex);
+    if (changed) { flameTuningSave(n); addEvent("FLAME TUNE"); }
+    cur = n;
   }
-  const FlameOut fo = sensors.flameDiag();
-  char buf[520];
+  FlameOut fo; bool dO;
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  fo = flameSnap; dO = flameSnapDo;
+  xSemaphoreGive(stateMutex);
+  char buf[600];
   snprintf(buf, sizeof(buf),
-           "{\"minDelta\":%.0f,\"flicker\":%.1f,\"reversals\":%d,\"confirmMs\":%u,\"rebaseMs\":%u,\"requireDo\":%d,"
+           "{\"minDelta\":%.0f,\"flicker\":%.1f,\"reversals\":%d,\"confirmMs\":%u,\"rebaseMs\":%u,\"requireDo\":%d,\"invert\":%d,"
            "\"live\":{\"usable\":%d,\"ao\":%.0f,\"base\":%.0f,\"dev\":%.0f,\"noise\":%.1f,\"rev\":%d,\"do\":%d,\"pct\":%d,\"critical\":%d,\"why\":%d,\"flick\":%d,\"corr\":%d}}",
-           t.minDeltaMv, t.flickerSigmas, t.minReversals, (unsigned)t.confirmMs, (unsigned)t.rebaseMs, t.requireDo ? 1 : 0,
-           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, sensors.flameDiagDo() ? 1 : 0, fo.pct, fo.critical ? 1 : 0, (int)fo.why, fo.flicker ? 1 : 0, fo.corroborated ? 1 : 0);
+           cur.minDeltaMv, cur.flickerSigmas, cur.minReversals, (unsigned)cur.confirmMs, (unsigned)cur.rebaseMs, cur.requireDo ? 1 : 0, cur.invert ? 1 : 0,
+           fo.aoUsable ? 1 : 0, fo.mean, fo.base, fo.dev, fo.noise, fo.reversals, dO ? 1 : 0, fo.pct, fo.critical ? 1 : 0, (int)fo.why, fo.flicker ? 1 : 0, fo.corroborated ? 1 : 0);
+  sendJson(200, buf);
+}
+
+static void handleReset() {
+  if (!authOk()) return;
+  bool latched; int wait;
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  latched = snapLatched; wait = snapResetWaitS;
+  xSemaphoreGive(stateMutex);
+  if (!latched) { sendJson(200, "{\"ok\":true,\"latched\":false}"); return; }
+  if (wait > 0) {
+    char b[64]; snprintf(b, sizeof(b), "{\"error\":\"wait\",\"resetWaitS\":%d}", wait);
+    sendJson(409, b); return;
+  }
+  resetReq = 1;
+  sendJson(200, "{\"ok\":true,\"accepted\":true}");
+}
+
+static void handleEvents() {
+  char buf[640];
+  size_t n = 0;
+  n += snprintf(buf + n, sizeof(buf) - n, "{\"events\":[");
+  xSemaphoreTake(stateMutex, portMAX_DELAY);
+  for (int i = 0; i < eventCount; i++) {
+    const int idx = (eventHead - eventCount + i + EVENT_LOG_SIZE * 2) % EVENT_LOG_SIZE;
+    if (n + 48 >= sizeof(buf)) break;
+    n += snprintf(buf + n, sizeof(buf) - n, "%s{\"t\":%lu,\"e\":\"%s\"}", i ? "," : "", (unsigned long)events[idx].t, events[idx].msg);
+  }
+  xSemaphoreGive(stateMutex);
+  snprintf(buf + n, sizeof(buf) - n, "]}");
   sendJson(200, buf);
 }
 
 static void handleNotFound() {
   const String uri = server.uri();
-  if (uri == "/api/status" || uri == "/api/health" || uri == "/api/contact" || uri == "/api/flame") {     // known path, wrong method
-    server.sendHeader("Allow", uri == "/api/contact" ? "POST" : (uri == "/api/flame" ? "GET, POST" : "GET"));
+  if (uri == "/api/status" || uri == "/api/health" || uri == "/api/contact" || uri == "/api/flame" || uri == "/api/reset" || uri == "/api/events") {     // known path, wrong method
+    server.sendHeader("Allow", (uri == "/api/contact" || uri == "/api/reset") ? "POST" : (uri == "/api/flame" ? "GET, POST" : "GET"));
     sendJson(405, "{\"error\":\"method not allowed\"}");
   } else {
     sendJson(404, "{\"error\":\"not found\"}");
@@ -1719,15 +1900,33 @@ static void handleNotFound() {
 
 // ---- One protection cycle (protection task only) -----------------------------
 static void protectionCycle(uint32_t now) {
+  if (tuneReady) {
+    xSemaphoreTake(stateMutex, portMAX_DELAY);
+    sensors.flameTuning() = pendingTune; tuneReady = false;
+    const bool rl = relearnReq; relearnReq = false;
+    xSemaphoreGive(stateMutex);
+    if (rl) sensors.flameRelearn();
+  }
   SensorReadings rd = sensors.sample(now);
+  const bool oilLowNow = oilLowTimer.update(rd.oilValid && rd.oilPct < OIL_LOW_PERCENT, now, OIL_LOW_HOLD_MS);
 
   RiskInput in{rd.tempValid, rd.tempC, rd.currentValid, rd.currentA, rd.voltageValid, rd.voltageV,
-               rd.smoke, rd.flame, rd.oilValid, rd.oilPct, rd.smokePct, rd.flamePct};
+               rd.smoke, rd.flame, rd.oilValid, rd.oilPct, rd.smokePct, rd.flamePct, oilLowNow};
   riskEngine.setFitted(rd.tempSeen, rd.currentSeen, rd.voltageSeen);
+  if (resetReq) {
+    resetReq = 0;
+    if (riskEngine.reset(now)) { tripNv = 0; addEvent("RESET OK"); }
+  }
   lastRisk = riskEngine.update(in, now);
+  if (riskEngine.justLatched()) { tripNv = 1; addEvent("OVERCURRENT LATCH"); }
+  if (lastRisk.status != prevStatus) {
+    addEvent(lastRisk.status == Status::EMERGENCY ? "-> EMERGENCY" : (lastRisk.status == Status::WARNING ? "-> WARNING" : "-> SAFE"));
+    prevStatus = lastRisk.status;
+  }
+  if (bootHold && (int32_t)(now - bootHoldUntil) >= 0) { bootHold = false; addEvent("BOOT HOLD END"); }
 
   // Supply allowed only when armed (boot check + stable valid sensors) and never in EMERGENCY.
-  const bool allow = relayGate.update(now, lastRisk.status, lastRisk.sensorFault);
+  const bool allow = relayGate.update(now, lastRisk.status, lastRisk.sensorFault, bootHold);
   actuators.setRelayAllowed(allow);
   alarmOn = (lastRisk.status == Status::EMERGENCY);
 
@@ -1742,16 +1941,21 @@ static void protectionCycle(uint32_t now) {
 
   char json[sizeof(statusJson)];
   const uint32_t nextSeq = seq + 1;
-  buildStatusJson(json, sizeof(json), rd, lastRisk, scorePercent(in), actuators.relayAllowed(), alarmOn, nextSeq);
+  buildStatusJson(json, sizeof(json), rd, lastRisk, scorePercent(in), actuators.relayAllowed(), alarmOn, nextSeq, oilLowNow);
 
   xSemaphoreTake(stateMutex, portMAX_DELAY);
   seq = nextSeq;
   lastReadings = rd;
   relayArmed = relayGate.armed();
   strlcpy(statusJson, json, sizeof(statusJson));
+  flameSnap = sensors.flameDiag(); flameSnapDo = sensors.flameDiagDo();
+  lastTune = sensors.flameTuning();
+  snapLatched = lastRisk.latched; snapResetWaitS = (int)((lastRisk.resetWaitMs + 999) / 1000);
+  snapStatus = lastRisk.status; snapTrips = lastRisk.trips;
   xSemaphoreGive(stateMutex);
 
   // Serial log makes the score explainable to judges (115200 baud).
+  if ((logTick++ & 3) == 0 || lastRisk.status != Status::SAFE)
   Serial.printf("seq=%lu %s risk=%d [T%d I%d V%d S%d F%d O%d] relay=%d armed=%d crit=%d fault=%d ok(T%d I%d V%d) smoke=%d%% flame=%d%% mq=%d/%d\n",
     (unsigned long)nextSeq, statusName(lastRisk.status), lastRisk.risk,
     lastRisk.parts.temp, lastRisk.parts.current, lastRisk.parts.voltage,
@@ -1893,7 +2097,15 @@ void setup() {
   Serial.printf("Reset reason: %s (BROWNOUT = power dip: use a power bank / separate 5V supply)\n", resetReasonName());
 
   stateMutex = xSemaphoreCreateMutex();
+  if (!stateMutex) { Serial.println("FATAL: mutex"); delay(500); ESP.restart(); }
   loadAlertPhone();             // SMS number saved earlier (from the app) or the one in secrets.h
+  {
+    const esp_reset_reason_t rr = esp_reset_reason();
+    if (rr == ESP_RST_PANIC || rr == ESP_RST_INT_WDT || rr == ESP_RST_TASK_WDT || rr == ESP_RST_WDT || rr == ESP_RST_BROWNOUT) {
+      bootHold = true; bootHoldUntil = millis() + BOOT_HOLD_MS;
+    }
+    if (prefs.getBool("trip", false)) { riskEngine.restoreLatched(millis()); prevStatus = Status::EMERGENCY; }
+  }
   sensors.begin();              // includes ACS712 zero calibration (relay is in cutoff = no load current)
 
   // First state is computed from real readings before anyone can request it.
@@ -1912,6 +2124,8 @@ void setup() {
   server.on("/api/health", HTTP_GET, handleHealth);
   server.on("/api/contact", HTTP_POST, handleContactSet);
   server.on("/api/flame", HTTP_ANY, handleFlame);
+  server.on("/api/reset", HTTP_POST, handleReset);
+  server.on("/api/events", HTTP_GET, handleEvents);
   server.onNotFound(handleNotFound);
   server.begin();
 
@@ -1924,14 +2138,15 @@ void setup() {
   ble.begin();
   Serial.println("BLE: advertising as " BLE_DEVICE_NAME " (monitor over Bluetooth)");
 #endif
-  xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0);
+  if (xTaskCreatePinnedToCore(commTask, "stsmn_comm", COMM_TASK_STACK, nullptr, 1, nullptr, 0) != pdPASS) { Serial.println("FATAL: comm task"); delay(500); ESP.restart(); }
 
   startWatchdog();
-  xTaskCreatePinnedToCore(protectionTask, "stsmn_protect", PROTECTION_TASK_STACK, nullptr,
-                          PROTECTION_TASK_PRIORITY, &protectionHandle, 1);
+  if (xTaskCreatePinnedToCore(protectionTask, "stsmn_protect", PROTECTION_TASK_STACK, nullptr,
+                              PROTECTION_TASK_PRIORITY, &protectionHandle, 1) != pdPASS) { Serial.println("FATAL: protection task"); delay(500); ESP.restart(); }
 }
 
 void loop() {
+  if (tripNv >= 0) { const int v = tripNv; tripNv = -1; prefs.putBool("trip", v == 1); }
   server.handleClient();        // phone is optional; protection runs in its own task and never waits for this
   delay(2);
 }

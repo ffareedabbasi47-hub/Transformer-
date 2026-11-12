@@ -16,6 +16,7 @@ data class FlameTuning(
     val confirmMs: Int = 500,
     val rebaseSec: Int = 20,
     val requireDo: Boolean = true,
+    val invert: Boolean = false,
 ) {
     fun clamped() = copy(
         minDelta = minDelta.coerceIn(MIN_DELTA_RANGE.first, MIN_DELTA_RANGE.last),
@@ -33,22 +34,23 @@ data class FlameTuning(
             put("confirmMs", it.confirmMs.toString())
             put("rebaseMs", (it.rebaseSec * 1000).toString())
             put("requireDo", if (it.requireDo) "1" else "0")
+            put("invert", if (it.invert) "1" else "0")
             if (relearn) put("relearn", "1")
         }
     }
 
     companion object {
-        val MIN_DELTA_RANGE = 10..400
-        val FLICKER_RANGE = 2.0..12.0
-        val REVERSALS_RANGE = 2..16
-        val CONFIRM_RANGE = 250..3000
+        val MIN_DELTA_RANGE = 10..300
+        val FLICKER_RANGE = 2.0..10.0
+        val REVERSALS_RANGE = 2..12
+        val CONFIRM_RANGE = 250..2000
         val REBASE_RANGE = 3..60
 
         fun parse(json: String): Pair<FlameTuning, FlameLive?>? = try {
             val o = JSONObject(json)
             val t = FlameTuning(
                 minDelta = o.getInt("minDelta"), flicker = o.getDouble("flicker"), reversals = o.getInt("reversals"),
-                confirmMs = o.getInt("confirmMs"), rebaseSec = o.getInt("rebaseMs") / 1000, requireDo = o.getInt("requireDo") != 0,
+                confirmMs = o.getInt("confirmMs"), rebaseSec = o.getInt("rebaseMs") / 1000, requireDo = o.getInt("requireDo") != 0, invert = o.optInt("invert", 0) != 0,
             ).clamped()
             val l = o.optJSONObject("live")?.let {
                 FlameLive(it.getInt("usable") != 0, it.getInt("ao"), it.getInt("base"), it.getInt("dev"), it.getDouble("noise"),

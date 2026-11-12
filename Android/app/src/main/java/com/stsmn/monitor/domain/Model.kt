@@ -36,6 +36,10 @@ data class StsmnStatus(
     val tempPct: Int? = null,
     val currentPct: Int? = null,
     val voltagePct: Int? = null,
+    val latched: Boolean = false,        // over-current lock: stays until reset in the app
+    val resetWaitS: Int = 0,
+    val oilLow: Boolean = false,
+    val uncalibrated: Boolean = false,
 ) {
     fun invalidSensors(): List<String> = buildList {
         if (temperature == null) add("Temperature")

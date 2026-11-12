@@ -31,6 +31,7 @@ struct RiskInput {
   bool flame;
   bool oilValid;     int oilPct;
   int smokePct;      int flamePct;     // signal strength 0..100 (0 = boolean-only caller: smoke/flame then count as 100)
+  bool oilLow;                         // level below OIL_LOW_PERCENT for OIL_LOW_HOLD_MS (optional WARNING floor)
 };
 
 struct RiskBreakdown { int temp, current, voltage, smoke, flame, oil, base; };
@@ -45,6 +46,9 @@ struct RiskResult {
   bool critical;       // a critical sensor condition is active
   bool sensorFault;    // at least one protection sensor is invalid
   RiskBreakdown parts; // for Serial debug / judge explanation
+  bool latched;        // over-current trip: stays EMERGENCY / supply cut until an authorised reset
+  int trips;           // over-current trips since boot
+  uint32_t resetWaitMs;// minimum open time still to wait before a reset is accepted
 };
 
 // 0 points at/below lo, maxPts at/above hi, linear in between.
@@ -93,6 +97,7 @@ class RiskEngine {
   RiskResult update(const RiskInput& in, uint32_t now) {
     RiskResult r;
     r.parts = scoreSensors(in);
+    r.latched = false; r.trips = 0; r.resetWaitMs = 0;
     // Only sensors that are FITTED (config.h HAS_*) can be a fault; an unplugged-by-design sensor is not one.
     r.sensorFault = (fitT_ && HAS_TEMP_SENSOR && !in.tempValid) || (fitC_ && HAS_CURRENT_SENSOR && !in.currentValid) ||
                     (fitV_ && HAS_VOLTAGE_SENSOR && !in.voltageValid);
@@ -106,7 +111,8 @@ class RiskEngine {
     const bool smokeSignal = in.smoke || effSmokePct(in) >= SIGNAL_MIN_PCT;
     const bool flameSignal = in.flame || effFlamePct(in) >= SIGNAL_MIN_PCT;
     const bool smokeAndFire = smokeSignal && flameSignal;
-    r.critical = in.flame || tempCrit || curCrit || smokeHeat || smokeAlone || smokeAndFire;
+    if (curCrit && !latched_) { latched_ = true; latchSince_ = now; trips_++; newLatch_ = true; }
+    r.critical = in.flame || tempCrit || curCrit || latched_ || smokeHeat || smokeAlone || smokeAndFire;
 
     int risk = r.parts.base;
     if (r.sensorFault && risk < FLOOR_SENSOR_FAULT_RISK) risk = FLOOR_SENSOR_FAULT_RISK;
@@ -114,6 +120,7 @@ class RiskEngine {
     const bool stressed = pc.temp >= SENSOR_WARN_PCT || pc.current >= SENSOR_WARN_PCT || pc.voltage >= SENSOR_WARN_PCT;
     if (stressed && risk < FLOOR_STRESS_RISK) risk = FLOOR_STRESS_RISK;
     if ((smokeSignal || flameSignal) && risk < FLOOR_SMOKE_RISK) risk = FLOOR_SMOKE_RISK;
+    if (OIL_LOW_RAISES_WARNING && in.oilLow && risk < FLOOR_STRESS_RISK) risk = FLOOR_STRESS_RISK;
     if (r.critical && risk < FLOOR_CRITICAL_RISK) risk = FLOOR_CRITICAL_RISK;
     r.risk = risk;
 
@@ -127,7 +134,7 @@ class RiskEngine {
         else if (risk < WARNING_EXIT) status_ = Status::SAFE;
         break;
       case Status::EMERGENCY:
-        if (r.critical || risk >= EMERGENCY_EXIT) {
+        if (latched_ || r.critical || risk >= EMERGENCY_EXIT) {
           recovering_ = false;            // still unsafe: restart the recovery clock
         } else {
           if (!recovering_) { recovering_ = true; recoveryStart_ = now; }
@@ -139,12 +146,24 @@ class RiskEngine {
         break;
     }
     r.status = status_;
+    r.latched = latched_; r.trips = trips_;
+    if (latched_) { const uint32_t el = (uint32_t)(now - latchSince_); r.resetWaitMs = el >= TRIP_MIN_OPEN_MS ? 0 : TRIP_MIN_OPEN_MS - el; }
     return r;
   }
   Status status() const { return status_; }
+  bool latched() const { return latched_; }
+  bool justLatched() { const bool v = newLatch_; newLatch_ = false; return v; }
+  void restoreLatched(uint32_t now) { latched_ = true; latchSince_ = now; status_ = Status::EMERGENCY; recovering_ = false; }
+  bool reset(uint32_t now) {
+    if (!latched_) return true;
+    if ((uint32_t)(now - latchSince_) < TRIP_MIN_OPEN_MS) return false;
+    latched_ = false; status_ = Status::SAFE; recovering_ = false; currentCritTimer_.reset();
+    return true;
+  }
 
  private:
   bool fitT_ = true, fitC_ = true, fitV_ = true;
+  bool latched_ = false, newLatch_ = false; int trips_ = 0; uint32_t latchSince_ = 0;
   void enterEmergency() { status_ = Status::EMERGENCY; recovering_ = false; }
   Status status_ = Status::SAFE;
   bool recovering_ = false;

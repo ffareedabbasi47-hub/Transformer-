@@ -66,7 +66,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     _flameLive.value = l
                     _flameStatus.value = null
                 } ?: run { _flameStatus.value = "ESP32 sent an unreadable flame answer" }
-                is FetchResult.Failure -> _flameStatus.value = if (r.message.contains("404") || r.message.contains("405")) "ESP32 sketch is old: upload the new .ino (v17) to use the sliders" else "Flame settings: ${r.message}"
+                is FetchResult.Failure -> _flameStatus.value = if (r.message.contains("404") || r.message.contains("405")) "ESP32 sketch is old: upload the new .ino to use the sliders" else "Flame settings: ${r.message}"
             }
         }
     }
@@ -77,6 +77,17 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             when (val r = repository.flamePost(t.toForm(relearn))) {
                 is FetchResult.Body -> { FlameTuning.parse(r.text)?.let { (nt, l) -> _flameTuning.value = nt; _flameLive.value = l }; _flameStatus.value = "Applied on the ESP32 (saved, survives power-off)" }
                 is FetchResult.Failure -> _flameStatus.value = "Not applied: ${r.message}"
+            }
+        }
+    }
+
+    private val _resetStatus = MutableStateFlow<String?>(null)
+    val resetStatus: StateFlow<String?> = _resetStatus.asStateFlow()
+    fun resetLatch() {
+        viewModelScope.launch {
+            _resetStatus.value = when (val r = repository.resetLatch()) {
+                is FetchResult.Body -> "Reset sent. Supply returns only if all readings are safe."
+                is FetchResult.Failure -> "Reset failed: ${r.message}"
             }
         }
     }

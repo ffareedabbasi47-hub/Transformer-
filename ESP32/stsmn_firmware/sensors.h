@@ -60,20 +60,25 @@ class SensorHub {
     r_ = SensorReadings{};
   }
 
-  // Continuous AO sampling (call every protection-loop iteration, ~1 ms): readings are averaged over FLAME_BIN_US = one mains-ripple
-  // period (10 ms at 50 Hz) and each average is fed to the detector. Cheap and non-blocking.
+  // One detector sample per protection-loop iteration: FLAME_OVERSAMPLE quick AO reads are averaged. The measured feed rate is kept
+  // (flameRateHz) because the detector's windows are in samples, not seconds.
   void fastFlameSample() {
     if (!HAS_FLAME_ANALOG) return;
     const uint32_t us = micros();
-    if (flameBinN_ == 0) flameBinStart_ = us;
-    flameBinSum_ += (float)analogReadMilliVolts(PIN_FLAME_AO);
-    flameBinN_++;
+    float sum = 0;
+    for (int i = 0; i < FLAME_OVERSAMPLE; i++) sum += (float)analogReadMilliVolts(PIN_FLAME_AO);
+    flameDet_.feed(sum / FLAME_OVERSAMPLE);
     flameDet_.feedDo(digitalRead(PIN_FLAME_DO) == (FLAME_ACTIVE_LOW ? LOW : HIGH));
-    if ((uint32_t)(us - flameBinStart_) >= FLAME_BIN_US) {
-      flameDet_.feed(flameBinSum_ / flameBinN_);
-      flameBinSum_ = 0; flameBinN_ = 0;
+    if (lastFeedUs_ != 0) {
+      const float dt = (float)(uint32_t)(us - lastFeedUs_);
+      if (dt > 0 && dt < 200000.0f) feedPeriodUs_ += 0.05f * (dt - feedPeriodUs_);
     }
+    lastFeedUs_ = us ? us : 1;
   }
+  int flameRateHz() const { return feedPeriodUs_ > 1.0f ? (int)(1000000.0f / feedPeriodUs_ + 0.5f) : 0; }
+  bool flameDo() const { return flameDiagDo_; }
+  bool flameLearned() const { return flameDet_.learned(); }
+  bool flameConfirmed() const { return flameDet_.confirmed(); }
 
   FlameTuning& flameTuning() { return flameDet_.tune; }
   void flameRelearn() { flameDet_.relearn(); }
@@ -174,8 +179,9 @@ class SensorHub {
       if (fo.aoUsable) { fp = fo.pct; flameCrit = fo.critical; }
       else {
         if (flameDo && flameDet_.doChatterNow()) { if (fbChatter_ < 100) fbChatter_++; } else fbChatter_ = 0;
-        if (fbChatter_ >= 2) fbHoldUntil_ = now + FLAME_FALLBACK_HOLD_MS;
-        flameCrit = (int32_t)(fbHoldUntil_ - now) > 0;
+        if (fbChatter_ >= 2) { fbActive_ = true; fbHoldUntil_ = now + FLAME_FALLBACK_HOLD_MS; }
+        if (fbActive_ && (int32_t)(now - fbHoldUntil_) >= 0) fbActive_ = false;
+        flameCrit = fbActive_;
         fp = flameCrit ? 100 : 0;
       }
       flameLog(fo, flameDo);
@@ -192,7 +198,7 @@ class SensorHub {
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     r_.oilPct = (int)lroundf(pct);
-    r_.oilValid = HAS_LEVEL_SENSOR;
+    r_.oilValid = HAS_LEVEL_SENSOR && lv <= VOLT_ADC_MAX_MV;   // a pin pinned at the ADC rail is a wiring fault, not a level
 
     return r_;
   }
@@ -235,9 +241,10 @@ class SensorHub {
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
   FlameDetector flameDet_;
-  int fbChatter_ = 0; uint32_t fbHoldUntil_ = 0;
+  int fbChatter_ = 0; uint32_t fbHoldUntil_ = 0; bool fbActive_ = false;
+  uint32_t lastFeedUs_ = 0; float feedPeriodUs_ = 10000.0f;
   FlameOut flameDiag_ = {}; bool flameDiagDo_ = false;
-  uint32_t flameBinStart_ = 0; float flameBinSum_ = 0; int flameBinN_ = 0; bool flameWarned_ = false; uint32_t flameLogN_ = 0, flameStatN_ = 0;
+  bool flameWarned_ = false; uint32_t flameLogN_ = 0, flameStatN_ = 0;
   bool tempPending_ = false;
   uint32_t tempRequestedAt_ = 0, tempLastRequest_ = 0;
   float zeroAdcMv_ = 0;

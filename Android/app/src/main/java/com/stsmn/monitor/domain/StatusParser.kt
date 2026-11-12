@@ -61,6 +61,8 @@ object StatusParser {
                 seq = obj.long("seq", 0L, 9_000_000_000_000_000L),
                 smokePct = pct("smoke"), flamePct = pct("flame"), tempPct = pct("temp"),
                 currentPct = pct("current"), voltagePct = pct("voltage"),
+                latched = obj.optBoolean("latched", false), resetWaitS = obj.optInt("resetWaitS", 0).coerceIn(0, 3600),
+                oilLow = obj.optBoolean("oilLow", false), uncalibrated = obj.optBoolean("uncal", false),
             )
             val anomalies = buildList {
                 if (status == SystemStatus.EMERGENCY && relay) add("Relay fault: EMERGENCY but supply is still ON")

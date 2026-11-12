@@ -146,16 +146,15 @@ constexpr bool  FLAME_AO_DROPS_WITH_FLAME = true; // most IR modules: AO voltage
                                                   // against DO at run time and falls back to DO-only if AO moves the other way.
 constexpr int   FLAME_MAINS_HZ        = 50;      // 50 (India/EU) or 60. AO is read continuously (~1 ms) and AVERAGED over one mains ripple
                                                  // period (half a mains cycle = 10 ms at 50 Hz), so lamp ripple (2 x mains) does not alias into fake flicker.
-constexpr uint32_t FLAME_BIN_US       = 10000;   // one averaged AO value every 10 ms (100 Hz) at 50 Hz
+constexpr int FLAME_OVERSAMPLE = 4;   // AO reads averaged per detector sample (one sample per protection-loop iteration)
 constexpr float FLAME_FULL_FRACTION   = 0.5f; // CALIBRATE: AO change from ambient to a strong controlled flame = 100 %
 constexpr float FLAME_MIN_DELTA_MV    = 40.0f;
 constexpr float FLAME_DO_ENTER_RATIO  = 0.35f;
-constexpr float FLAME_STRONG_FRACTION = 0.25f;   // CALIBRATE: smallest AO change that may count (also >= FLAME_ENTER_SIGMAS * noise)
 constexpr float FLAME_NOISE_FLOOR_MV  = 5.0f;    // lowest noise (sigma) the detector assumes
 constexpr float FLAME_ENTER_SIGMAS    = 6.0f;    // enter threshold = max(MIN_DELTA, this x measured noise)
 constexpr float FLAME_EXIT_RATIO      = 0.5f;    // hysteresis: leave when deviation < enter x this
 constexpr float FLAME_FLICKER_SIGMAS  = 5.0f;    // flicker swing must exceed this x noise ...
-constexpr float FLAME_FLICKER_FRAC    = 0.02f;   // ... and this fraction of the deviation (peak-to-peak)
+constexpr float FLAME_FLICKER_FRAC_PER_SIGMA = 0.03f;   // flicker swing must be >= this x (strictness) x the deviation
 constexpr uint32_t FLAME_RELEASE_MS = 6000;
 constexpr int   FLAME_DO_MIN_TRANSITIONS = 2;
 constexpr int   FLAME_DO_MAX_TRANSITIONS = 20;
@@ -172,6 +171,19 @@ constexpr float FLAME_INIT_MAX_SIGMA_MV = 40.0f; // noisier than this at boot = 
 constexpr float FLAME_BASELINE_ALPHA  = 0.004f;  // baseline drift per cycle (~60 s time constant), only while quiet
 constexpr uint32_t FLAME_REBASE_MS    = 20000;   // a steady, non-flickering, DO-less change this long = new ambient (sun/lamp)
 constexpr uint32_t FLAME_FALLBACK_HOLD_MS = 10000;
+constexpr bool FLAME_DO_CALIBRATED = false;
+constexpr bool LEVEL_CALIBRATED = false;
+constexpr bool MQ2_CALIBRATED = false;
+constexpr uint32_t TRIP_MIN_OPEN_MS = 10000;
+constexpr bool OIL_LOW_RAISES_WARNING = false;
+constexpr uint32_t OIL_LOW_HOLD_MS = 10000;
+constexpr int AUTH_FAIL_LIMIT = 5;
+constexpr uint32_t AUTH_LOCKOUT_MS = 30000;
+constexpr uint32_t SMS_NEW_EPISODE_MIN_MS = 30000;
+constexpr uint32_t GPS_SENTENCE_TTL_MS = 3000;
+constexpr int SIM_FAILS_BEFORE_REINIT = 3;
+constexpr int EVENT_LOG_SIZE = 16;
+constexpr uint32_t BOOT_HOLD_MS = 15000;
                                                  // the relay); true = DO alone is an EMERGENCY again (flame can no longer be missed, sunlight WILL trigger)
 constexpr bool  FLAME_CALIBRATION_LOG = false;   // true: print AO / baseline / deviation / flicker once per second (calibration)
 constexpr int FLAME_CRIT_PCT    = 40;    // flame signal >= this = real fire = EMERGENCY at once

@@ -180,6 +180,8 @@ fun StsmnApp(vm: MainViewModel) {
                         flameStatus = vm.flameStatus.collectAsStateWithLifecycle().value,
                         onRefreshFlame = vm::refreshFlame,
                         onPushFlame = vm::pushFlame,
+                        resetStatus = vm.resetStatus.collectAsStateWithLifecycle().value,
+                        onReset = vm::resetLatch,
                     )
                 }
               }

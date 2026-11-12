@@ -200,13 +200,14 @@ class StsmnRepository(
     }
 
     suspend fun flameGet(): FetchResult = client.fetchFlame(settings.value.deviceHost)
-    suspend fun flamePost(form: Map<String, String>): FetchResult = client.postFlame(settings.value.deviceHost, form)
+    suspend fun flamePost(form: Map<String, String>): FetchResult = client.postFlame(settings.value.deviceHost, form + ("token" to settings.value.espToken))
+    suspend fun resetLatch(): FetchResult = client.postReset(settings.value.deviceHost, settings.value.espToken)
 
     /** Saves the SMS number on the ESP32 (the only thing the app is allowed to write). Never touches relay or thresholds. */
     suspend fun sendAlertPhone(phone: String): FetchResult {
         val s = settings.value
         val b = ble
-        if (!s.useBluetooth || b == null) return client.postContact(s.deviceHost, phone)
+        if (!s.useBluetooth || b == null) return client.postContact(s.deviceHost, phone, s.espToken)
         if (s.blePassword.isEmpty()) return FetchResult.Failure("Enter the device password (Settings > Bluetooth) to save the number over Bluetooth")
         if (b.state.value != BleState.CONNECTED) return FetchResult.Failure("Bluetooth is not connected")
         val reply = CompletableDeferred<BleMessage>()

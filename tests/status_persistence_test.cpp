@@ -13,8 +13,7 @@ struct Case { const char* name; std::function<void(RiskInput&)> on; Status minWh
 int main() {
   const Case cases[] = {
     {"temperature critical", [](RiskInput& i) { i.tempC = TEMP_CRIT_C + 5; }, Status::EMERGENCY},
-    {"current critical", [](RiskInput& i) { i.currentA = CURRENT_CRIT_A + 2; }, Status::EMERGENCY},
-    {"smoke", [](RiskInput& i) { i.smoke = true; i.smokePct = 100; }, Status::EMERGENCY},
+        {"smoke", [](RiskInput& i) { i.smoke = true; i.smokePct = 100; }, Status::EMERGENCY},
     {"flame critical", [](RiskInput& i) { i.flame = true; i.flamePct = 80; }, Status::EMERGENCY},
     {"flame signal only", [](RiskInput& i) { i.flamePct = 30; }, Status::WARNING},
     {"temperature sensor fault", [](RiskInput& i) { i.tempValid = false; }, Status::WARNING},

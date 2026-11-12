@@ -15,6 +15,7 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 data class AppSettings(
     val deviceHost: String = AppConfig.DEFAULT_DEVICE_HOST,
     val useBluetooth: Boolean = false,        // true: talk to the ESP32 over Bluetooth LE (phone keeps its normal internet)
+    val espToken: String = "",               // ESP32 password (same as its Wi-Fi password): required to change settings / reset the over-current lock
     val blePassword: String = "",            // device password, only needed to save the SMS number over Bluetooth
     val deviceName: String = "Demo Transformer",
     val pollIntervalMs: Long = AppConfig.DEFAULT_POLL_INTERVAL_MS,
@@ -69,6 +70,7 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
         profileSchool = n.profileSchool.trim().take(AppConfig.MAX_TEXT_LENGTH),
         alertPhone = n.alertPhone.trim().let { if (it.isEmpty()) "" else AlertContact.normalize(it) ?: old.alertPhone },
         whatsappKey = CloudRules.cleanSecret(n.whatsappKey),
+        espToken = n.espToken.trim().take(64),
         blePassword = n.blePassword.trim().filter { !it.isWhitespace() }.take(64),
     )
 
@@ -107,6 +109,7 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
                 whatsappKey = readSecret("waKey"),
                 useBluetooth = prefs.getBoolean("useBle", d.useBluetooth),
                 blePassword = readSecret("blePw"),
+                espToken = readSecret("espTok"),
             ),
             d,
         )
@@ -150,6 +153,7 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
         writeSecret(editor, "devToken", s.deviceToken)
         writeSecret(editor, "waKey", s.whatsappKey)
         writeSecret(editor, "blePw", s.blePassword)
+        writeSecret(editor, "espTok", s.espToken)
         editor.apply()
     }
 

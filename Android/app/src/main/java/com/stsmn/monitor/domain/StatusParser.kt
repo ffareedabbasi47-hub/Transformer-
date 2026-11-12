@@ -10,12 +10,6 @@ sealed interface ParseResult {
     data class Invalid(val reason: String) : ParseResult
 }
 
-/**
- * Validates every field of the ESP32 JSON contract.
- *  - Missing / wrong-type required field  -> whole packet rejected.
- *  - Sensor value null or outside its physical range -> that sensor becomes "unavailable".
- *  - Unknown extra fields are ignored (forward compatibility).
- */
 object StatusParser {
     private const val MAX_PACKET_CHARS = 4096
 
@@ -36,7 +30,7 @@ object StatusParser {
             val statusText = obj.str("status", 16)
             val status = SystemStatus.parse(statusText) ?: throw FieldError("Unknown status '$statusText'")
             val relay = obj.bool("relay")
-            // Optional strength block: anything missing / null / out of range is simply "not reported".
+
             val pctObj = obj.optJSONObject("pct")
             fun pct(key: String): Int? {
                 val v = pctObj?.opt(key)
@@ -95,7 +89,6 @@ object StatusParser {
         return v.toLong()
     }
 
-    /** Required key; value may be null (= sensor unavailable). Out-of-range -> unavailable. */
     private fun JSONObject.sensor(key: String, min: Double, max: Double): Double? {
         if (!has(key)) throw FieldError("Field '$key' missing")
         val v = opt(key)

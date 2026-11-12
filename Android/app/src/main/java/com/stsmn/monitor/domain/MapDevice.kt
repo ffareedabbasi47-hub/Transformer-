@@ -2,7 +2,6 @@ package com.stsmn.monitor.domain
 
 import com.stsmn.monitor.config.AppConfig
 
-/** Everything the map / fleet list needs about one transformer, whether it came from the server or the local ESP32. */
 data class MapDevice(
     val id: String,
     val name: String,
@@ -22,11 +21,11 @@ data class MapDevice(
     val alarm: Boolean?,
     val ageMs: Long?,
     val isLocal: Boolean,
-    val locationLive: Boolean = false,   // true = position comes from the ESP32's own GPS right now
+    val locationLive: Boolean = false,
 ) {
     val label: String get() = TransformerLabel.from(id)
     val hasLocation: Boolean get() = lat != null && lng != null && SiteLocationRules.isValid(lat, lng)
-    /** Values are only "live" when the state says so; otherwise they are last-known and shown dimmed. */
+
     val isLive: Boolean get() = state == MarkerState.SAFE || state == MarkerState.WARNING || state == MarkerState.EMERGENCY
 }
 
@@ -34,10 +33,6 @@ object MapDevices {
     fun idOf(deviceId: String?): String =
         (deviceId ?: AppConfig.DEFAULT_TRANSFORMER_LABEL).removePrefix(AppConfig.TRANSFORMER_LABEL_PREFIX).uppercase()
 
-    /**
-     * Server devices + this phone's directly connected ESP32. The local reading wins for the same ID because it
-     * is first-hand and keeps working when the internet is down. Sorted most dangerous first, then by ID.
-     */
     fun build(
         live: LiveSnapshot,
         siteLat: Double?, siteLng: Double?, siteIsDemo: Boolean,

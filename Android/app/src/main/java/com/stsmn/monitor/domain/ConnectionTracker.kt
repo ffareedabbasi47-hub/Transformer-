@@ -2,13 +2,6 @@ package com.stsmn.monitor.domain
 
 import com.stsmn.monitor.config.AppConfig
 
-/**
- * Pure connection state machine. LIVE means "a valid, fresh STSMN packet arrived" -
- * being connected to Wi-Fi is NOT enough.
- *
- * IDLE -> CONNECTING (start) -> LIVE (valid packet) -> STALE (no fresh packet)
- * any -> ERROR after repeated failures; a valid packet always returns to LIVE.
- */
 class ConnectionTracker(private val errorAfterFailures: Int = AppConfig.ERROR_AFTER_FAILURES) {
     private var started = false
     private var lastValidAtMs: Long? = null

@@ -8,11 +8,6 @@ import android.net.NetworkRequest
 import java.net.URL
 import java.net.URLConnection
 
-/**
- * The ESP32 access point has no internet, so Android may route traffic over mobile
- * data instead of Wi-Fi. This class tracks the Wi-Fi network and opens connections
- * through it explicitly, so requests to 192.168.4.1 always use the ESP32's Wi-Fi.
- */
 class WifiNetworkBinder(context: Context) {
     private val cm = context.applicationContext.getSystemService(ConnectivityManager::class.java)
 
@@ -35,13 +30,13 @@ class WifiNetworkBinder(context: Context) {
             cm.registerNetworkCallback(request, callback)
             registered = true
         } catch (e: Exception) {
-            // Fall back to the default network; polling still works when Wi-Fi is default.
+
         }
     }
 
     fun stop() {
         if (!registered) return
-        try { cm.unregisterNetworkCallback(callback) } catch (e: Exception) { /* already gone */ }
+        try { cm.unregisterNetworkCallback(callback) } catch (e: Exception) {  }
         registered = false
         wifi = null
     }

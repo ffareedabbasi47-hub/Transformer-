@@ -21,7 +21,6 @@ class MapLogicTest {
     private fun snap(conn: ConnectionState, status: SystemStatus? = SystemStatus.SAFE) =
         LiveSnapshot(connection = conn, status = status?.let { pkt(it) })
 
-    // ---- marker status updates ----
     @Test fun liveStatusesMapToTheirOwnMarker() {
         assertEquals(MarkerState.SAFE, MarkerStateMapper.from(snap(ConnectionState.LIVE, SystemStatus.SAFE)))
         assertEquals(MarkerState.WARNING, MarkerStateMapper.from(snap(ConnectionState.LIVE, SystemStatus.WARNING)))
@@ -29,7 +28,7 @@ class MapLogicTest {
     }
 
     @Test fun oldReadingsAreNeverShownAsLive() {
-        // last packet said EMERGENCY / SAFE, but the link is no longer LIVE
+
         assertEquals(MarkerState.STALE, MarkerStateMapper.from(snap(ConnectionState.STALE, SystemStatus.EMERGENCY)))
         assertEquals(MarkerState.OFFLINE, MarkerStateMapper.from(snap(ConnectionState.ERROR, SystemStatus.SAFE)))
         assertEquals(MarkerState.OFFLINE, MarkerStateMapper.from(snap(ConnectionState.IDLE, SystemStatus.SAFE)))
@@ -40,7 +39,6 @@ class MapLogicTest {
         MarkerState.values().forEach { assertTrue(it.label.isNotBlank()) }
     }
 
-    // ---- API failure / Wi-Fi loss -> OFFLINE through the real state machine ----
     @Test fun wifiLossGoesStaleThenOffline() {
         val t = ConnectionTracker(errorAfterFailures = 3)
         t.start(); t.onValidPacket(0)
@@ -54,7 +52,6 @@ class MapLogicTest {
         assertEquals(MarkerState.OFFLINE, MarkerStateMapper.from(offline))
     }
 
-    // ---- coordinates ----
     @Test fun invalidCoordinatesAreRejected() {
         assertFalse(SiteLocationRules.isValid(91.0, 80.0))
         assertFalse(SiteLocationRules.isValid(26.0, 181.0))
@@ -67,10 +64,9 @@ class MapLogicTest {
         assertTrue(SiteLocationRules.isDemoCoordinate(26.8467, 80.9462))
         assertFalse(SiteLocationRules.isDemoCoordinate(26.85, 80.95))
         assertTrue(SiteLocationRules.isInsideUttarPradesh(26.85, 80.95))
-        assertFalse(SiteLocationRules.isInsideUttarPradesh(28.61, 77.9 - 1.0)) // west of UP box
+        assertFalse(SiteLocationRules.isInsideUttarPradesh(28.61, 77.9 - 1.0))
     }
 
-    // ---- label ----
     @Test fun labelIsStsmnPrefixedDeviceId() {
         assertEquals("STSMN-TR-001", TransformerLabel.from("TR-001"))
         assertEquals("STSMN-TR-001", TransformerLabel.from("STSMN-TR-001"))

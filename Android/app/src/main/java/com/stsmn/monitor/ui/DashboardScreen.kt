@@ -70,7 +70,6 @@ fun DashboardScreen(
 
         HeroCard(live, onConnect)
 
-        // Mockup: red "SUPPLY CUT OFF" strip whenever the relay is open while data is live.
         if (live.isLive && s != null && !s.relay) BigBanner("SUPPLY CUT OFF", StsmnColors.Emergency)
 
         if (live.connection != ConnectionState.LIVE && live.connection != ConnectionState.IDLE) {
@@ -153,7 +152,7 @@ private fun HeroCard(live: LiveSnapshot, onConnect: () -> Unit) {
     Box(
         Modifier.fillMaxWidth().clip(shape)
             .background(MaterialTheme.colorScheme.surface)
-            // one soft status-coloured light from the top-left corner: the only "glow", and it is the status
+
             .background(Brush.radialGradient(listOf(color.copy(alpha = 0.20f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(0f, 0f), radius = 700f))
             .border(1.dp, color.copy(alpha = 0.45f), shape),
     ) {

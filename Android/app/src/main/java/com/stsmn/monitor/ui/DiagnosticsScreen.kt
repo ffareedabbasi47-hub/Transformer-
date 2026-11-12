@@ -28,7 +28,6 @@ import com.stsmn.monitor.domain.ConnectionState
 import com.stsmn.monitor.domain.FleetState
 import com.stsmn.monitor.domain.LiveSnapshot
 
-/** Mockup #8: one checklist line per subsystem, green = OK, amber = unavailable, red = problem. */
 @Composable
 fun DiagnosticsScreen(live: LiveSnapshot, fleet: FleetState, cloudEnabled: Boolean) {
     val s = live.status

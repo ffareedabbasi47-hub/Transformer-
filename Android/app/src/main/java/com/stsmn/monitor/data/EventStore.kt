@@ -17,7 +17,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 
-/** Bounded event history stored as one small JSON file on the phone (newest first). */
 class EventStore(private val file: File) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val writeMutex = Mutex()
@@ -53,7 +52,7 @@ class EventStore(private val file: File) {
                     tmp.writeText(arr.toString())
                     if (!tmp.renameTo(file)) { file.writeText(arr.toString()); tmp.delete() }
                 } catch (e: Exception) {
-                    // History is best-effort; never crash the app because of storage.
+
                 }
             }
         }
@@ -65,11 +64,11 @@ class EventStore(private val file: File) {
             val arr = JSONArray(file.readText())
             buildList {
                 for (i in 0 until arr.length()) {
-                    try { add(fromJson(arr.getJSONObject(i))) } catch (e: Exception) { /* skip bad row */ }
+                    try { add(fromJson(arr.getJSONObject(i))) } catch (e: Exception) {  }
                 }
             }
         } catch (e: Exception) {
-            emptyList() // corrupted file -> start clean
+            emptyList()
         }
     }
 

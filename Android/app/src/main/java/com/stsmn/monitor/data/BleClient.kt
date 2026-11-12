@@ -32,7 +32,6 @@ import java.util.UUID
 
 enum class BleState { OFF, NO_PERMISSION, UNSUPPORTED, IDLE, SCANNING, CONNECTING, CONNECTED }
 
-/** Required runtime permissions (differ before/after Android 12). */
 object BlePermissions {
     fun required(): Array<String> =
         if (Build.VERSION.SDK_INT >= 31) arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT)
@@ -42,11 +41,6 @@ object BlePermissions {
         required().all { context.checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
 }
 
-/**
- * Bluetooth Low Energy link to the ESP32 (Nordic UART service). Viewer only: it receives the same JSON the Wi-Fi API serves
- * and can write one command (the SMS number, protected by the device password). Reconnects by itself while started.
- * All Android callbacks arrive on binder threads; everything is handed over through thread-safe flows.
- */
 @SuppressLint("MissingPermission")
 class BleClient(context: Context) {
     private val app = context.applicationContext
@@ -133,7 +127,7 @@ class BleClient(context: Context) {
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
-                g.requestMtu(185)          // a bigger MTU only speeds things up; the stream also works with 20 bytes
+                g.requestMtu(185)
                 handler.post { g.discoverServices() }
             } else {
                 handler.post {
@@ -162,7 +156,6 @@ class BleClient(context: Context) {
             _state.value = BleState.CONNECTED
         }
 
-        // Android 13+ calls this one; older versions call the deprecated 2-argument one below.
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
             handleChunk(value)
         }
@@ -178,7 +171,6 @@ class BleClient(context: Context) {
         for (line in assembler.feed(String(bytes, Charsets.UTF_8))) _lines.tryEmit(line)
     }
 
-    /** Writes a command to the ESP32 (20-byte pieces, works with the default MTU). False when not connected. Blocking: call off the main thread. */
     fun write(text: String): Boolean {
         val g = gatt ?: return false
         val c = rx ?: return false
@@ -194,15 +186,15 @@ class BleClient(context: Context) {
                 ok = g.writeCharacteristic(c)
             }
             off += 20
-            if (ok && off < data.size) Thread.sleep(80)   // let the previous write finish
+            if (ok && off < data.size) Thread.sleep(80)
         }
         return ok
     }
 
     companion object {
         val SERVICE_UUID: UUID = UUID.fromString("6e400001-b5a3-f393-e0a9-e50e24dcca9e")
-        val RX_UUID: UUID = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")   // phone -> ESP32
-        val TX_UUID: UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")   // ESP32 -> phone
+        val RX_UUID: UUID = UUID.fromString("6e400002-b5a3-f393-e0a9-e50e24dcca9e")
+        val TX_UUID: UUID = UUID.fromString("6e400003-b5a3-f393-e0a9-e50e24dcca9e")
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         const val SCAN_TIMEOUT_MS = 15_000L
         const val RETRY_MS = 3_000L

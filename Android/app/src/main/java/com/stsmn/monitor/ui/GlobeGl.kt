@@ -22,20 +22,14 @@ import kotlin.math.sin
 import kotlin.math.tan
 import kotlin.random.Random
 
-/** Camera shared by the UI thread (gestures, markers) and the GL thread (drawing). */
 class GlobeCam {
     @Volatile var lat = 22.5
     @Volatile var lon = 78.96
     @Volatile var scale = 1f
 }
 
-/** Radius in pixels of the globe for a surface of w x h pixels. Used by drawing AND marker placement so they always agree. */
 fun globeRadiusPx(w: Float, h: Float, scale: Float): Float = min(w, h) * 0.45f * scale
 
-/**
- * Real-time GPU globe (OpenGL ES 2.0): a textured sphere with stars and an atmosphere ring, redrawn every frame so
- * dragging, inertia and zooming are smooth. If OpenGL cannot start, [onFailure] is called once.
- */
 class GlobeSurface(
     ctx: Context,
     private val cam: GlobeCam,
@@ -92,7 +86,7 @@ class GlobeSurface(
                 tex = t[0]
                 buildMeshes()
                 hasTex = false
-                textureDirty = texture != null           // context (re)created: upload again
+                textureDirty = texture != null
                 GLES20.glClearColor(0.012f, 0.020f, 0.045f, 1f)
             } catch (e: Exception) {
                 fail("GL init failed: ${e.message}")
@@ -113,7 +107,6 @@ class GlobeSurface(
                 val sx = 2f * r / w
                 val sy = 2f * r / h
 
-                // 1) stars and atmosphere ring (blended, no depth)
                 GLES20.glDisable(GLES20.GL_DEPTH_TEST)
                 GLES20.glEnable(GLES20.GL_BLEND)
                 GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
@@ -139,7 +132,6 @@ class GlobeSurface(
                 GLES20.glDisableVertexAttribArray(aA)
                 GLES20.glDisable(GLES20.GL_BLEND)
 
-                // 2) the sphere
                 if (!hasTex) return
                 GLES20.glEnable(GLES20.GL_DEPTH_TEST)
                 GLES20.glUseProgram(sphereProg)
@@ -184,7 +176,7 @@ class GlobeSurface(
             var n = 0
             val maxLat = 85.0511 * PI / 180.0
             for (r in 0..rows) {
-                val phi = PI / 2 - PI * r / rows                      // +90 .. -90
+                val phi = PI / 2 - PI * r / rows
                 val pc = phi.coerceIn(-maxLat, maxLat)
                 val tv = (0.5 - ln(tan(PI / 4 + pc / 2)) / (2 * PI)).toFloat()
                 for (c in 0..cols) {
@@ -274,15 +266,14 @@ class GlobeSurface(
         fun floats(a: FloatArray): FloatBuffer =
             ByteBuffer.allocateDirect(a.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(a); position(0) }
 
-        /** Column-major 3x3: Rx(lat) * Ry(-lon); brings the point (lat, lon) to the +Z axis (towards the viewer). */
         fun rotation(latDeg: Double, lonDeg: Double): FloatArray {
             val p = Math.toRadians(latDeg); val l = Math.toRadians(lonDeg)
             val cp = cos(p); val sp = sin(p); val cl = cos(-l); val sl = sin(-l)
-            // Ry(a): [cl 0 sl; 0 1 0; -sl 0 cl], Rx(t): [1 0 0; 0 cp -sp; 0 sp cp]
+
             val m00 = cl;        val m01 = 0.0; val m02 = sl
             val m10 = sp * sl;   val m11 = cp;  val m12 = -sp * cl
             val m20 = -cp * sl;  val m21 = sp;  val m22 = cp * cl
-            // m = Rx * Ry
+
             return floatArrayOf(
                 m00.toFloat(), m10.toFloat(), m20.toFloat(),
                 m01.toFloat(), m11.toFloat(), m21.toFloat(),

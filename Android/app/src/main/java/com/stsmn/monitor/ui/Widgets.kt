@@ -43,16 +43,11 @@ import androidx.compose.ui.unit.sp
 import android.os.SystemClock
 import kotlinx.coroutines.delay
 
-/** Ticks every second with the monotonic clock so "x s ago" labels and ages stay live without any data change. */
 @Composable
 fun rememberElapsedNow(periodMs: Long = 1000L): State<Long> = produceState(initialValue = SystemClock.elapsedRealtime()) {
     while (true) { value = SystemClock.elapsedRealtime(); delay(periodMs) }
 }
 
-/**
- * Card surface used app-wide: a solid deep surface with a hairline border (no blur, no gradient, cheap on weak GPUs).
- * A tint (status cards) shows as a faint wash and a coloured hairline.
- */
 @Composable
 fun Modifier.glass(
     shape: Shape = RoundedCornerShape(LocalCardRadius.current),
@@ -62,12 +57,11 @@ fun Modifier.glass(
     val cs = MaterialTheme.colorScheme
     val tinted = strength > 0.1f
     val fill = if (tinted) tint.copy(alpha = 0.10f).compositeOver(cs.surface) else cs.surface
-    // Raised "titanium" feel: a faint light edge on top of a solid surface (dark theme only), plus a hairline border.
+
     val sheen = if (cs.background.luminance() < 0.5f) Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.04f), Color.Transparent)) else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
     return this.clip(shape).background(fill, shape).background(sheen, shape).border(1.dp, if (tinted) tint.copy(alpha = 0.35f) else cs.outline, shape)
 }
 
-/** Floating map/overlay panel: slightly see-through surface so the map stays visible, with a hairline border. */
 @Composable
 fun Modifier.panel(radius: androidx.compose.ui.unit.Dp = 16.dp, alpha: Float = 0.90f): Modifier {
     val cs = MaterialTheme.colorScheme
@@ -75,7 +69,6 @@ fun Modifier.panel(radius: androidx.compose.ui.unit.Dp = 16.dp, alpha: Float = 0
     return this.clip(shape).background(cs.surface.copy(alpha = alpha), shape).border(1.dp, cs.outline, shape)
 }
 
-/** App-wide backdrop: the theme's top tint fading into its dark (or ivory) base by about half the screen height. */
 @Composable
 fun GlassBackground(content: @Composable () -> Unit) {
     val pal = LocalPalette.current
@@ -86,7 +79,6 @@ fun GlassBackground(content: @Composable () -> Unit) {
     ) { content() }
 }
 
-/** Round icon badge used on tiles. [glyph] is an emoji so no icon library is needed. */
 @Composable
 fun GlyphBadge(glyph: String, color: Color, size: Int = 38) {
     Box(
@@ -95,7 +87,6 @@ fun GlyphBadge(glyph: String, color: Color, size: Int = 38) {
     ) { Text(glyph, fontSize = (size * 0.5f).sp) }
 }
 
-/** Mockup-style glass tile: badge on the left, label + value on the right. */
 @Composable
 fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimmed: Boolean, modifier: Modifier = Modifier, sub: String? = null) {
     Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp))) {
@@ -114,7 +105,6 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
     }
 }
 
-/** Read-only ON/OFF indicator that looks like the mockup's toggles (the app can never switch the relay). */
 @Composable
 fun StateToggle(label: String, on: Boolean?, onColor: Color, offColor: Color, modifier: Modifier = Modifier, dimmed: Boolean = false) {
     val color = when (on) { true -> onColor; false -> offColor; null -> StsmnColors.Stale }
@@ -138,7 +128,6 @@ fun StateToggle(label: String, on: Boolean?, onColor: Color, offColor: Color, mo
     }
 }
 
-/** Tiny line chart of the last readings. Null values break the line (never drawn as a fake 0). */
 @Composable
 fun Sparkline(values: List<Double?>, color: Color, modifier: Modifier = Modifier, fixedMin: Double? = null, fixedMax: Double? = null) {
     Canvas(modifier.fillMaxWidth().height(44.dp)) {
@@ -147,7 +136,7 @@ fun Sparkline(values: List<Double?>, color: Color, modifier: Modifier = Modifier
             drawLine(color.copy(alpha = 0.3f), Offset(0f, size.height / 2), Offset(size.width, size.height / 2), 2.dp.toPx())
             return@Canvas
         }
-        var lo = fixedMin ?: pts.min(); var hi = fixedMax ?: pts.max()   // fixed range for percent charts (0..100)
+        var lo = fixedMin ?: pts.min(); var hi = fixedMax ?: pts.max()
         if (hi - lo < 1e-6) { lo -= 1.0; hi += 1.0 }
         val dx = size.width / (values.size - 1)
         val path = Path()
@@ -162,7 +151,6 @@ fun Sparkline(values: List<Double?>, color: Color, modifier: Modifier = Modifier
     }
 }
 
-/** Gradient hero background colours for a status (mockup: green / amber / red). */
 fun heroGradient(c: Color): List<Color> = listOf(c.copy(alpha = 0.95f), c.copy(alpha = 0.55f))
 
 @Composable
@@ -177,7 +165,6 @@ fun BigBanner(text: String, color: Color, glyph: String = "⚠") {
     }
 }
 
-/** Small line-art transformer (tank, cooling fins, three bushings) drawn with Canvas - no image files needed. */
 @Composable
 fun TransformerArt(tint: Color, modifier: Modifier = Modifier) {
     Canvas(modifier.size(width = 92.dp, height = 84.dp)) {

@@ -61,12 +61,11 @@ import com.stsmn.monitor.MainViewModel
 import com.stsmn.monitor.domain.LocationSource
 import com.stsmn.monitor.domain.MapDevices
 
-/** Bottom bar shows 5 tabs (Material guidance). SENSORS / DIAGNOSTICS / USER are sub-screens opened from Home / Settings. */
 private enum class Tab(val label: String, val icon: ImageVector?, val parent: Tab?) {
     DASHBOARD("Home", Icons.Filled.Home, null),
     HISTORY("History", Icons.Filled.DateRange, null),
     DIAGNOSTICS("Health", Icons.Filled.Build, null),
-    MAP("Map", Icons.Filled.Place, null),   // contains a Map | Fleet list switch
+    MAP("Map", Icons.Filled.Place, null),
     SETTINGS("Settings", Icons.Filled.Settings, null),
     SENSORS("Sensor Data", null, DASHBOARD),
     USER("Profile", null, SETTINGS),
@@ -81,7 +80,7 @@ fun StsmnApp(vm: MainViewModel) {
     val contactStatus by vm.contactStatus.collectAsStateWithLifecycle()
     val whatsappStatus by vm.whatsappStatus.collectAsStateWithLifecycle()
     val appContext = LocalContext.current
-    // Bluetooth needs a runtime permission (Android 12+: Nearby devices). Asked when the person connects over Bluetooth.
+
     val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { vm.connect() }
     val connectWithPerm: () -> Unit = {
         if (settings.useBluetooth && !BlePermissions.granted(appContext)) permLauncher.launch(BlePermissions.required()) else vm.connect()
@@ -108,8 +107,7 @@ fun StsmnApp(vm: MainViewModel) {
             view.keepScreenOn = settings.keepScreenOn
             onDispose { view.keepScreenOn = false }
         }
-        // Back from a sub-screen returns to its parent tab instead of closing the app.
-        // Full-screen map: bottom bar and system bars hidden (only on the Map tab; swipe from an edge to peek at the bars).
+
         val fullNow = fullscreen && current == Tab.MAP
         LaunchedEffect(current) { if (current != Tab.MAP) fullscreen = false }
         DisposableEffect(fullNow) {
@@ -187,13 +185,11 @@ fun StsmnApp(vm: MainViewModel) {
               }
             }
         }
-        } // GlassBackground
+        }
     }
-    } // UiPrefs provider
+    }
 }
 
-
-/** Floating AURELION navigation bar: rounded titanium pill, the active destination gets an accent wash and a small gold marker. */
 @Composable
 private fun AurelionNavBar(tabs: List<Tab>, isSelected: (Tab) -> Boolean, onSelect: (Tab) -> Unit) {
     val cs = MaterialTheme.colorScheme

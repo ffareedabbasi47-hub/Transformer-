@@ -32,11 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.stsmn.monitor.domain.MapDevice
 
-/**
- * Bottom sheet for the selected transformer. Collapsed: identity, status, location type, connection and three key
- * readings. Expanded: every sensor. Only real values are shown; anything the transformer did not send is "—", and
- * readings from a transformer that is not live are dimmed and labelled "last known".
- */
 @Composable
 fun TransformerSheet(d: MapDevice, expanded: Boolean, onToggle: () -> Unit, onClose: () -> Unit, onFlyTo: () -> Unit) {
     val color = markerColor(d.state)
@@ -48,7 +43,7 @@ fun TransformerSheet(d: MapDevice, expanded: Boolean, onToggle: () -> Unit, onCl
     Column(
         Modifier.fillMaxWidth().animateContentSize().panel(22.dp, 0.97f).padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
-        // drag-handle style toggle
+
         Box(Modifier.fillMaxWidth().clickable(onClick = onToggle).padding(vertical = 4.dp), contentAlignment = Alignment.Center) {
             Box(Modifier.size(width = 40.dp, height = 4.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)))
         }

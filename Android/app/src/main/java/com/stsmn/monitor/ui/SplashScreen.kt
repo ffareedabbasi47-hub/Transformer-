@@ -21,7 +21,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Mockup screen 1: shown for ~1.3 s on launch. Pure UI, no data access. */
 @Composable
 fun SplashScreen() {
     val gold = AppTheme.GOLD.palette.accent

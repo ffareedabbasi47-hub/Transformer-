@@ -18,10 +18,6 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.SharingStarted
 import org.json.JSONObject
 
-/**
- * Realtime fleet: ONE socket to WATCH every transformer (viewer key) and, optionally, ONE socket to PUBLISH this
- * phone's own transformer (its private device token). A phone can only ever publish the ID its token belongs to.
- */
 class FleetRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val viewer = RealtimeLink(scope)
@@ -56,7 +52,6 @@ class FleetRepository {
         }
     }
 
-    /** Called whenever settings change. Restarts the sockets only when the cloud settings really changed. */
     fun configure(s: AppSettings) {
         val key = if (s.cloudEnabled && s.serverUrl.isNotEmpty()) CloudKey(s.serverUrl, s.viewerKey, s.cloudDeviceId, s.deviceToken) else null
         if (key == applied) return
@@ -72,7 +67,6 @@ class FleetRepository {
         }
     }
 
-    /** Sends one live sample of this phone's transformer. lat/lng are the configured SITE coordinates, not phone GPS. */
     fun publish(st: StsmnStatus, lat: Double?, lng: Double?, demoLocation: Boolean) {
         val o = JSONObject().put("t", "telemetry").put("seq", st.seq).put("status", st.status.name).put("risk", st.risk)
             .put("smoke", st.smoke).put("flame", st.flame).put("relay", st.relay).put("alarm", st.alarm)

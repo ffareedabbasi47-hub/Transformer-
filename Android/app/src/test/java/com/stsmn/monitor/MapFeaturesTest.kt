@@ -22,7 +22,6 @@ class MapFeaturesTest {
         dev("TR-003", MarkerState.EMERGENCY), dev("TR-004", MarkerState.OFFLINE), dev("TR-005", MarkerState.STALE),
     )
 
-    // ---- layers ----
     @Test fun tileUrlsAreEsriZYX() {
         assertEquals(
             "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/3/2/1",
@@ -38,7 +37,6 @@ class MapFeaturesTest {
         assertFalse(MapLayers.attribution(BaseLayer.STREETS, true).contains("Roads"))
     }
 
-    // ---- search ----
     @Test fun searchFindsByAnyWritingOfTheId() {
         for (q in listOf("tr-001", "TR001", "stsmn-tr-001", " 001 ")) {
             val r = FleetFilter.apply(fleet, q, emptySet())
@@ -50,7 +48,6 @@ class MapFeaturesTest {
 
     @Test fun unknownQueryReturnsNothing() = assertTrue(FleetFilter.apply(fleet, "xyz-999", emptySet()).isEmpty())
 
-    // ---- filters ----
     @Test fun offlineChipIncludesStale() {
         val r = FleetFilter.apply(fleet, "", setOf(StateFilter.OFFLINE))
         assertEquals(setOf("TR-004", "TR-005"), r.map { it.id }.toSet())
@@ -67,7 +64,6 @@ class MapFeaturesTest {
         assertEquals(1, c[StateFilter.EMERGENCY]); assertEquals(2, c[StateFilter.OFFLINE])
     }
 
-    // ---- clustering ----
     private fun item(id: String, lat: Double, lng: Double, s: MarkerState = MarkerState.SAFE) = Clustering.Item(id, lat, lng, s)
 
     @Test fun singleMarkerKeepsExactCoordinates() {
@@ -78,13 +74,13 @@ class MapFeaturesTest {
     }
 
     @Test fun nearbyMergeAtLowZoomAndSplitAtHighZoom() {
-        val pts = listOf(item("A", 26.8467, 80.9462), item("B", 26.8470, 80.9466))      // about 50 m apart
+        val pts = listOf(item("A", 26.8467, 80.9462), item("B", 26.8470, 80.9466))
         assertEquals(1, Clustering.cluster(pts, 10.0, 256.0 * 2.75, 60.0).size)
         assertEquals(2, Clustering.cluster(pts, 19.0, 256.0 * 2.75, 60.0).size)
     }
 
     @Test fun farApartNeverMerge() {
-        val pts = listOf(item("A", 26.85, 80.95), item("B", 28.61, 77.21))               // Lucknow and Delhi
+        val pts = listOf(item("A", 26.85, 80.95), item("B", 28.61, 77.21))
         assertEquals(2, Clustering.cluster(pts, 6.0, 256.0 * 2.75, 60.0).size)
     }
 

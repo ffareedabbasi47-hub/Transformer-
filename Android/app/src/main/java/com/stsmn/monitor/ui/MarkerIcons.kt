@@ -13,7 +13,6 @@ import kotlin.math.max
 
 class MarkerIcon(val drawable: BitmapDrawable, val anchorY: Float)
 
-/** Marker colours: green SAFE, yellow WARNING, red EMERGENCY, grey STALE/OFFLINE. */
 fun markerColorInt(state: MarkerState): Int = when (state) {
     MarkerState.SAFE -> 0xFF2ECC71.toInt()
     MarkerState.WARNING -> 0xFFFFD21F.toInt()
@@ -21,16 +20,12 @@ fun markerColorInt(state: MarkerState): Int = when (state) {
     MarkerState.STALE, MarkerState.OFFLINE -> 0xFF8A94A6.toInt()
 }
 
-/**
- * Draws the marker as one bitmap: a dark label pill (transformer name + STATUS TEXT, and
- * "DEMO LOCATION" when the coordinates are not real) above a coloured dot at the exact position.
- */
 object MarkerIcons {
     private val cache = HashMap<String, MarkerIcon>()
 
     fun get(ctx: Context, title: String, status: String, note: String?, color: Int, selected: Boolean = false): MarkerIcon {
         val key = "$title|$status|$note|$color|$selected"
-        if (cache.size > 200) cache.clear() // bounded: a big fleet can never grow this without limit
+        if (cache.size > 200) cache.clear()
         return cache.getOrPut(key) { render(ctx, title, status, note, color, selected) }
     }
 
@@ -41,8 +36,7 @@ object MarkerIcons {
             textSize = sizeDp * d
             typeface = Typeface.DEFAULT_BOLD
         }
-        // Compact by design: "TR-001" on a small dark chip, the status colour on the dot. The status WORD and the full
-        // name appear on selection and in the bottom sheet. A demo position always keeps its amber "DEMO" tag.
+
         val lines = mutableListOf(title to paint(11f, 0xFFFFFFFF.toInt()))
         if (selected) lines += status to paint(10f, color)
         if (note != null) lines += "DEMO" to paint(9f, 0xFFFFC107.toInt())

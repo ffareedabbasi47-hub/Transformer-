@@ -15,7 +15,6 @@ sealed interface FetchResult {
     data class Failure(val message: String) : FetchResult
 }
 
-/** Minimal HTTP client (built-in HttpURLConnection, no extra dependency). Every call has timeouts. */
 class EspClient(private val binder: WifiNetworkBinder) {
 
     suspend fun fetchStatus(host: String): FetchResult = fetch(host, AppConfig.STATUS_PATH)
@@ -94,7 +93,6 @@ class EspClient(private val binder: WifiNetworkBinder) {
         }
     }
 
-    /** POST /api/contact  phone=<number>  (form field). Returns the ESP32's JSON answer. */
     suspend fun postContact(host: String, phone: String, token: String): FetchResult = withContext(Dispatchers.IO) {
         var conn: HttpURLConnection? = null
         try {

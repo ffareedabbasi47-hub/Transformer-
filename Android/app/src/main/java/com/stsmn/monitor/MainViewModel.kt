@@ -31,7 +31,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.io.File
 
-/** UI -> ViewModel -> Repository -> Network -> ESP32 (PDF app architecture). */
 class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val settingsStore = SettingsStore(app, KeystoreCodec())
     private val eventStore = EventStore(File(app.filesDir, AppConfig.HISTORY_FILE_NAME))
@@ -48,9 +47,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private val notifier = AlertNotifier(app)
     private val whatsApp = WhatsAppSender(app)
     private val _contactStatus = MutableStateFlow<String?>(null)
-    val contactStatus: StateFlow<String?> = _contactStatus.asStateFlow()     // "Saved on ESP32 +91*****48", errors...
+    val contactStatus: StateFlow<String?> = _contactStatus.asStateFlow()
     private val _whatsappStatus = MutableStateFlow<String?>(null)
-    val whatsappStatus: StateFlow<String?> = _whatsappStatus.asStateFlow()  // result of the last automatic WhatsApp
+    val whatsappStatus: StateFlow<String?> = _whatsappStatus.asStateFlow()
     private val _flameTuning = MutableStateFlow<FlameTuning?>(null)
     val flameTuning: StateFlow<FlameTuning?> = _flameTuning.asStateFlow()
     private val _flameLive = MutableStateFlow<FlameLive?>(null)
@@ -100,10 +99,9 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         if (settings.value.autoConnect) { wantConnected = true; repository.start() }
-        // Cloud sockets follow the settings (restarted only when cloud settings actually change).
+
         viewModelScope.launch { settings.collect { fleetRepository.configure(it) } }
-        // Alert for as long as the fault lasts: EMERGENCY rings (insistent, ongoing), WARNING stays visible; both vanish by themselves
-        // as soon as the transformer reports SAFE again. A lost link keeps the last alert (unknown is not safe).
+
         viewModelScope.launch {
             combine(live, fleet) { l, f ->
                 buildMap<String, Triple<SystemStatus, Int?, Boolean?>> {
@@ -134,7 +132,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
-        // Keep the ESP32's SMS number equal to the one saved in the app (re-sent when the ESP32 reports a different/empty one).
+
         viewModelScope.launch {
             live.collect { l ->
                 val phone = settings.value.alertPhone
@@ -145,7 +143,7 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                 syncContactToDevice(phone)
             }
         }
-        // Every NEW valid packet from the ESP32 is relayed live to the server (this phone = gateway for its transformer).
+
         viewModelScope.launch {
             live.collect { l ->
                 val st = l.status ?: return@collect
@@ -159,7 +157,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Saves the alert number (+ optional WhatsApp key). Returns an error text for the form, or null when accepted. */
     fun saveAlertContact(rawPhone: String, whatsappKey: String): String? {
         val trimmed = rawPhone.trim()
         val phone = if (trimmed.isEmpty()) "" else AlertContact.normalize(trimmed)
@@ -176,7 +173,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         return null
     }
 
-    /** Automatic WhatsApp: no buttons. Retries every 30 s (up to 6 times) while the emergency lasts and there is no internet yet. */
     private suspend fun sendWhatsAppWithRetry(id: String, phone: String, text: String, key: String) {
         repeat(6) {
             val err = whatsApp.send(phone, text, key)
@@ -201,7 +197,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun connect() { wantConnected = true; repository.start() }
     fun disconnect() { wantConnected = false; repository.stop() }
 
-    /** Polling only runs while the app is visible ("while the app is active"). */
     fun onForeground(isForeground: Boolean) {
         foreground = isForeground
         if (isForeground) { if (wantConnected) repository.resume() } else repository.pause()

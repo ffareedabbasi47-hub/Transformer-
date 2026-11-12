@@ -46,17 +46,10 @@ import com.stsmn.monitor.domain.FleetState
 import com.stsmn.monitor.domain.MapDevice
 import com.stsmn.monitor.domain.StateFilter
 
-/** Where the flat satellite map should start when it takes over from the globe. */
 private data class MapTarget(val lat: Double, val lon: Double, val zoom: Double)
 
-/** Where the globe should start when it takes over from the flat map (the map's last camera position). */
 private data class GlobeStart(val lat: Double, val lon: Double)
 
-/**
- * The one Map screen. It opens on a native 3D Earth; zooming in or tapping a transformer dives into the satellite map
- * at that place, and "Globe" flies back out from where the map was looking. The left rail holds List, Search/Filter
- * and Full screen; map layers live on the map itself.
- */
 @Composable
 fun EarthScreen(
     devices: List<MapDevice>,
@@ -68,7 +61,7 @@ fun EarthScreen(
     fullscreen: Boolean = false,
     onFullscreen: (Boolean) -> Unit = {},
 ) {
-    var target by remember { mutableStateOf<MapTarget?>(null) }     // null = globe
+    var target by remember { mutableStateOf<MapTarget?>(null) }
     var globeStart by remember { mutableStateOf<GlobeStart?>(null) }
     val lastCam = remember { doubleArrayOf(Double.NaN, Double.NaN, 0.0) }
     var showList by rememberSaveable { mutableStateOf(false) }
@@ -79,7 +72,7 @@ fun EarthScreen(
 
     val visible = FleetFilter.apply(devices, query, active)
     val filtering = query.isNotBlank() || active.isNotEmpty()
-    // Fleet tab "open on map" arrives as selectedId: show that device on the flat map.
+
     val flat = target != null || selectedId != null
 
     BackHandler(enabled = fullscreen) { onFullscreen(false) }
@@ -104,7 +97,6 @@ fun EarthScreen(
             }
         }
 
-        // Left rail: every button has a word on it.
         Column(
             Modifier.align(Alignment.CenterStart).padding(start = 8.dp).panel(16.dp, 0.84f).padding(3.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),

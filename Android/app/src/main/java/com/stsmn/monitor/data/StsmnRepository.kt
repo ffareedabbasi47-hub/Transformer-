@@ -28,11 +28,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
-/**
- * Single source of truth for the ESP32 link. Everything here runs on the main
- * thread (only the HTTP call hops to IO), so there are no data races.
- * The phone is a viewer only: nothing in this class can influence the ESP32.
- */
 class StsmnRepository(
     private val client: EspClient,
     private val binder: WifiNetworkBinder,
@@ -68,24 +63,20 @@ class StsmnRepository(
     private val _snapshot = MutableStateFlow(LiveSnapshot())
     val snapshot: StateFlow<LiveSnapshot> = _snapshot.asStateFlow()
 
-    /** User wants monitoring: start polling. */
     fun start() {
         tracker.start()
         launchJobs()
         publish()
     }
 
-    /** User disconnected: stop polling, state becomes IDLE. */
     fun stop() {
         cancelJobs()
         tracker.stop()
         publish()
     }
 
-    /** App went to background: stop polling but remember that monitoring is wanted. */
     fun pause() { cancelJobs() }
 
-    /** App is active again: resume polling if the user had monitoring on. */
     fun resume() {
         if (tracker.isStarted) { launchJobs(); publish() }
     }
@@ -111,7 +102,6 @@ class StsmnRepository(
         return maxOf(s.staleTimeoutMs, s.pollIntervalMs * AppConfig.MIN_STALE_POLL_MULTIPLE)
     }
 
-    /** Runs the Wi-Fi poller or the Bluetooth link, whichever the settings say, and switches when the setting changes. */
     private suspend fun modeLoop() {
         while (true) {
             if (settings.value.useBluetooth && ble != null) bleLoop() else pollLoop()
@@ -143,12 +133,11 @@ class StsmnRepository(
 
             val failures = tracker.consecutiveFailures
             val wait = if (failures == 0) s.pollIntervalMs
-            else (s.pollIntervalMs * (failures + 1)).coerceAtMost(AppConfig.MAX_BACKOFF_MS) // reconnect backoff
+            else (s.pollIntervalMs * (failures + 1)).coerceAtMost(AppConfig.MAX_BACKOFF_MS)
             delay(wait)
         }
     }
 
-    /** Bluetooth: the ESP32 pushes "ST <status json>" about once a second and "HE <health json>" every few seconds. */
     private suspend fun bleLoop() {
         val b = ble ?: return
         resetForNewHost(); activeHost = null
@@ -157,7 +146,7 @@ class StsmnRepository(
         try {
             while (settings.value.useBluetooth) {
                 if (b.state.value != BleState.CONNECTED) {
-                    tracker.onFailure(); lastError = bleStateText(b.state.value)   // no link: the data ages and the UI goes STALE
+                    tracker.onFailure(); lastError = bleStateText(b.state.value)
                 }
                 publish()
                 delay(2000)
@@ -187,7 +176,6 @@ class StsmnRepository(
         }
     }
 
-    /** Optional extra: ask /api/health for the GPS fix. Any failure here is ignored; it never affects protection data. */
     private suspend fun pollGps(host: String) {
         val now = SystemClock.elapsedRealtime()
         if (now - lastGpsPollMs < AppConfig.GPS_POLL_EVERY_MS) return
@@ -203,7 +191,6 @@ class StsmnRepository(
     suspend fun flamePost(form: Map<String, String>): FetchResult = client.postFlame(settings.value.deviceHost, form + ("token" to settings.value.espToken))
     suspend fun resetLatch(): FetchResult = client.postReset(settings.value.deviceHost, settings.value.espToken)
 
-    /** Saves the SMS number on the ESP32 (the only thing the app is allowed to write). Never touches relay or thresholds. */
     suspend fun sendAlertPhone(phone: String): FetchResult {
         val s = settings.value
         val b = ble
@@ -228,7 +215,7 @@ class StsmnRepository(
             is ParseResult.Valid -> {
                 val st = r.status
                 val prev = lastStatus
-                // Same/older seq without an uptime reset = repeated or stuck packet: NOT fresh data.
+
                 val duplicate = prev != null && st.uptimeMs >= prev.uptimeMs && st.seq <= prev.seq
                 if (duplicate) {
                     duplicates++; lastError = "Duplicate packet (seq ${st.seq})"

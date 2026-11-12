@@ -14,35 +14,34 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
 data class AppSettings(
     val deviceHost: String = AppConfig.DEFAULT_DEVICE_HOST,
-    val useBluetooth: Boolean = false,        // true: talk to the ESP32 over Bluetooth LE (phone keeps its normal internet)
-    val espToken: String = "",               // ESP32 password (same as its Wi-Fi password): required to change settings / reset the over-current lock
-    val blePassword: String = "",            // device password, only needed to save the SMS number over Bluetooth
+    val useBluetooth: Boolean = false,
+    val espToken: String = "",
+    val blePassword: String = "",
     val deviceName: String = "Demo Transformer",
     val pollIntervalMs: Long = AppConfig.DEFAULT_POLL_INTERVAL_MS,
     val staleTimeoutMs: Long = AppConfig.DEFAULT_STALE_TIMEOUT_MS,
     val autoConnect: Boolean = true,
     val themeMode: ThemeMode = ThemeMode.DARK,
     val keepScreenOn: Boolean = true,
-    // Site location of the ONE transformer (fixed coordinates, not the phone's GPS). null = not configured.
+
     val siteLat: Double? = AppConfig.DEMO_LAT,
     val siteLng: Double? = AppConfig.DEMO_LNG,
     val siteSource: LocationSource = LocationSource.DEMO,
-    // Realtime cloud link (optional). Empty/disabled = the app works exactly as before (local ESP32 only).
+
     val cloudEnabled: Boolean = false,
     val serverUrl: String = "",
-    val viewerKey: String = "",       // lets this phone WATCH every transformer
-    val cloudDeviceId: String = "",   // this phone's transformer ID on the server, e.g. TR-001
-    val deviceToken: String = "",     // lets this phone PUBLISH only that one transformer
-    // Local profile shown in the User tab (no login, nothing leaves the phone).
+    val viewerKey: String = "",
+    val cloudDeviceId: String = "",
+    val deviceToken: String = "",
+
     val profileName: String = "Fardeen",
     val profileRole: String = "Class 9 · Project owner",
     val profileSchool: String = "Government High School Ajrara",
-    // Who is alerted: SMS (sent by the ESP32's SIM module, number saved on the device) + WhatsApp. "" = nobody.
+
     val alertPhone: String = "",
-    val whatsappKey: String = "",     // optional CallMeBot key = fully automatic WhatsApp (stored encrypted)
+    val whatsappKey: String = "",
 )
 
-/** Settings in SharedPreferences, validated on every change. */
 class SettingsStore(context: Context, private val codec: SecretCodec) {
     private val prefs = context.applicationContext.getSharedPreferences("stsmn_settings", Context.MODE_PRIVATE)
     private val _settings = MutableStateFlow(load())
@@ -74,7 +73,6 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
         blePassword = n.blePassword.trim().filter { !it.isWhitespace() }.take(64),
     )
 
-    /** Both null = cleared on purpose; otherwise both must be valid, or the previous pair is kept. */
     private fun sanitizeSite(n: AppSettings, old: AppSettings): Pair<Double?, Double?> {
         val lat = n.siteLat
         val lng = n.siteLng
@@ -115,7 +113,6 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
         )
     }
 
-    /** Secrets are stored encrypted under "<name>_enc". An old plaintext value is migrated once and then erased. */
     private fun readSecret(name: String): String {
         prefs.getString(name + "_enc", null)?.let { enc -> return codec.decrypt(enc) ?: "" }
         val legacy = prefs.getString(name, "") ?: ""
@@ -130,7 +127,7 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
     }
 
     private fun writeSecret(e: android.content.SharedPreferences.Editor, name: String, value: String) {
-        e.remove(name) // never keep a plaintext copy
+        e.remove(name)
         val enc = if (value.isEmpty()) "" else codec.encrypt(value)
         if (enc == null) e.remove(name + "_enc") else e.putString(name + "_enc", enc)
     }
@@ -160,10 +157,6 @@ class SettingsStore(context: Context, private val codec: SecretCodec) {
     companion object {
         private val IPV4_REGEX = Regex("""^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$""")
 
-        /**
-         * Only PRIVATE IPv4 addresses (192.168.x.x, 10.x.x.x, 172.16-31.x.x) are accepted: the ESP32 lives on a
-         * local network, so the app can never be pointed at a public/internet host by mistake.
-         */
         fun isValidHost(host: String): Boolean {
             val m = IPV4_REGEX.matchEntire(host.trim()) ?: return false
             val o = m.groupValues.drop(1).map { it.toInt() }

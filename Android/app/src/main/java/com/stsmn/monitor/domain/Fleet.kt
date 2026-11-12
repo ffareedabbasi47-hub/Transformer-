@@ -2,13 +2,10 @@ package com.stsmn.monitor.domain
 
 import org.json.JSONObject
 
-/** How fresh a transformer's data is, as decided by the SERVER (live / stale / offline). */
 enum class FleetLink { LIVE, STALE, OFFLINE }
 
-/** Connection of this phone to the realtime server. */
 enum class CloudState { OFF, CONNECTING, ONLINE, RETRYING, AUTH_FAILED }
 
-/** One transformer as seen by every viewer. [ageAtReceiptMs] + local clock = live age (no phone/server clock skew). */
 data class FleetDevice(
     val id: String,
     val name: String,
@@ -44,7 +41,6 @@ object FleetParser {
     private fun JSONObject.int(k: String): Int? = if (isNull(k) || !has(k)) null else optInt(k)
     private fun JSONObject.bool(k: String): Boolean? = if (isNull(k) || !has(k)) null else optBoolean(k)
 
-    /** Parses one device object from the server. Returns null when the id is missing/invalid (never throws). */
     fun device(o: JSONObject, serverNowMs: Long?, elapsedNowMs: Long): FleetDevice? = try {
         val id = o.optString("id", "")
         if (!CloudRules.isValidDeviceId(id)) null else {
@@ -77,7 +73,6 @@ object FleetParser {
         }
     }
 
-    /** Most dangerous first, so an emergency is never buried in the list. */
     fun severity(m: MarkerState): Int = when (m) {
         MarkerState.EMERGENCY -> 0; MarkerState.WARNING -> 1; MarkerState.STALE -> 2; MarkerState.OFFLINE -> 3; MarkerState.SAFE -> 4
     }

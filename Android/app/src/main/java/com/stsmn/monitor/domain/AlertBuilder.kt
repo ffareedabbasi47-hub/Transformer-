@@ -6,7 +6,6 @@ enum class AlertLevel { INFO, WARNING, CRITICAL }
 
 data class ActiveAlert(val level: AlertLevel, val title: String, val detail: String)
 
-/** Derives the "active alerts" list from the live state (never from stale data). */
 object AlertBuilder {
     fun build(live: LiveSnapshot): List<ActiveAlert> {
         val alerts = mutableListOf<ActiveAlert>()

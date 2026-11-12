@@ -46,7 +46,6 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/** Glass card used everywhere for a consistent look. Pass [container] (a status colour) to tint it. */
 @Composable
 fun AppCard(
     modifier: Modifier = Modifier,
@@ -63,7 +62,7 @@ fun AppCard(
 fun ScreenTitle(title: String, subtitle: String? = null) {
     Column(Modifier.padding(bottom = 6.dp)) {
         Text(title, style = MaterialTheme.typography.headlineMedium, color = MaterialTheme.colorScheme.onBackground)
-        Box(Modifier.padding(top = 6.dp).size(width = 34.dp, height = 2.dp).background(MaterialTheme.colorScheme.primary))   // gold signature line
+        Box(Modifier.padding(top = 6.dp).size(width = 34.dp, height = 2.dp).background(MaterialTheme.colorScheme.primary))
         if (subtitle != null) {
             Text(subtitle, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp))
         }
@@ -115,7 +114,7 @@ fun ConnectionChip(state: ConnectionState) {
         ConnectionState.IDLE -> "NOT CONNECTED"
     }
     val color = connectionColor(state)
-    // The dot pulses only while data is really LIVE, so a static dot never looks "alive".
+
     val pulse by rememberInfiniteTransition(label = "pulse").animateFloat(
         initialValue = 0.35f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(if (LocalReduceMotion.current) 100000 else 900), RepeatMode.Reverse), label = "pulseAlpha",
@@ -133,7 +132,6 @@ fun ConnectionChip(state: ConnectionState) {
     }
 }
 
-/** Semi-circular risk gauge. [risk] == null renders an empty gauge with "--". */
 @Composable
 fun RiskGauge(risk: Int?, color: Color, modifier: Modifier = Modifier) {
     val fraction by animateFloatAsState(targetValue = (risk ?: 0).coerceIn(0, 100) / 100f, label = "risk")
@@ -164,7 +162,6 @@ fun RiskGauge(risk: Int?, color: Color, modifier: Modifier = Modifier) {
     }
 }
 
-/** Small tile used on the dashboard grid. [dimmed] = data is not live. */
 @Composable
 fun SensorTile(
     label: String,
@@ -196,7 +193,6 @@ fun InfoRow(label: String, value: String) {
     }
 }
 
-/** Diagnostic row: label in the body font, value in the monospace "instrument" style. */
 @Composable
 fun TechRow(label: String, value: String) {
     Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -205,7 +201,6 @@ fun TechRow(label: String, value: String) {
     }
 }
 
-// ---------- Formatting helpers ----------
 fun fmtTemp(v: Double?) = v?.let { String.format(Locale.US, "%.1f °C", it) } ?: "N/A"
 fun fmtVolt(v: Double?) = v?.let { String.format(Locale.US, "%.2f V", it) } ?: "N/A"
 fun fmtAmp(v: Double?) = v?.let { String.format(Locale.US, "%.2f A", it) } ?: "N/A"

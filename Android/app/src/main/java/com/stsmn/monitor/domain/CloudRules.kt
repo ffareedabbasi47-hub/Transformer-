@@ -1,10 +1,5 @@
 package com.stsmn.monitor.domain
 
-/**
- * Validation for the realtime-cloud settings. Pure Kotlin so it can be unit-tested.
- * Rule of thumb: internet traffic must be encrypted (wss://). Plain ws:// is accepted ONLY for private
- * LAN addresses (testing the server on your own Wi-Fi), never for a public host.
- */
 object CloudRules {
     private val WSS = Regex("""^wss://[A-Za-z0-9]([A-Za-z0-9.-]{0,120}[A-Za-z0-9])?(:\d{1,5})?(/[A-Za-z0-9._~/-]{0,100})?$""")
     private val WS_PRIVATE = Regex("""^ws://(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})(:\d{1,5})?(/[A-Za-z0-9._~/-]{0,100})?$""")
@@ -21,6 +16,5 @@ object CloudRules {
 
     fun isValidDeviceId(id: String): Boolean = DEVICE_ID.matches(id)
 
-    /** Keys/tokens: printable ASCII, no spaces, max 128 chars. */
     fun cleanSecret(s: String): String = s.filter { it.code in 33..126 }.take(128)
 }

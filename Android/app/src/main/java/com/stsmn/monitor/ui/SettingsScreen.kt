@@ -105,7 +105,6 @@ fun SettingsScreen(
         ScreenTitle("Settings", "Connection, realtime cloud, display")
         OutlinedButton(onClick = onOpenProfile, modifier = Modifier.fillMaxWidth()) { Text("Profile · ${settings.profileName.ifBlank { "Unnamed" }}") }
 
-        // ---------------- Connection ----------------
         SectionLabel("Connection")
         AppCard {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -177,7 +176,6 @@ fun SettingsScreen(
             SwitchRow("Connect automatically on launch", settings.autoConnect) { v -> onUpdate { it.copy(autoConnect = v) } }
         }
 
-        // ---------------- Realtime cloud ----------------
         SectionLabel("ESP32 password and over-current lock")
         AppCard {
             Text(
@@ -200,11 +198,9 @@ fun SettingsScreen(
             resetStatus?.let { Text(it, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp)) }
         }
 
-        // ---------------- Flame sensor tuning (live on the ESP32) ----------------
         SectionLabel("Flame sensor (live on ESP32)")
         FlameTuningCard(flameTuning, flameLive, flameStatus, live.connection == com.stsmn.monitor.domain.ConnectionState.LIVE || live.connection == com.stsmn.monitor.domain.ConnectionState.STALE, onRefreshFlame, onPushFlame)
 
-        // ---------------- Alert contact ----------------
         SectionLabel("Alert number (SMS + WhatsApp)")
         AppCard {
             Text(
@@ -305,7 +301,6 @@ fun SettingsScreen(
             ) { Text("Save cloud settings") }
         }
 
-        // ---------------- Site location (map) ----------------
         SectionLabel("Site location (Live Map)")
         AppCard {
             Text(
@@ -371,7 +366,6 @@ fun SettingsScreen(
             }) { Text("Clear coordinates") }
         }
 
-        // ---------------- Display ----------------
         SectionLabel("Display")
         AppCard {
             Text("Brightness (used by the \"System\" theme)", fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 6.dp))
@@ -386,7 +380,6 @@ fun SettingsScreen(
             SwitchRow("Keep screen on (exhibition)", settings.keepScreenOn) { v -> onUpdate { it.copy(keepScreenOn = v) } }
         }
 
-        // ---------------- Appearance (UI-only options, stored separately from the app settings) ----------------
         val uiStore = LocalUiPrefsStore.current
         if (uiStore != null) {
             val ui = uiStore.current
@@ -445,7 +438,6 @@ fun SettingsScreen(
             )
         }
 
-        // ---------------- Diagnostics ----------------
         SectionLabel("Diagnostics")
         AppCard {
             val s = live.status
@@ -471,7 +463,6 @@ fun SettingsScreen(
             }
         }
 
-        // ---------------- Safety ----------------
         SectionLabel("Safety")
         AppCard {
             Text("Protection runs on the ESP32", fontWeight = FontWeight.Bold)
@@ -482,7 +473,6 @@ fun SettingsScreen(
             )
         }
 
-        // ---------------- Data / About ----------------
         SectionLabel("Data")
         AppCard {
             OutlinedButton(onClick = { confirmClear = true }) { Text("Clear event history") }

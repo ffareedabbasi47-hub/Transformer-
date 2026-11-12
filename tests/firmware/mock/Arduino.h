@@ -41,6 +41,7 @@ class String {
   bool operator==(const char* o) const { return s_ == o; }
   size_t length() const { return s_.size(); }
   const char* c_str() const { return s_.c_str(); }
+  void toCharArray(char* b, unsigned n, unsigned idx = 0) const { snprintf(b, n, "%s", s_.c_str() + idx); }
   long toInt() const { return atol(s_.c_str()); }
   float toFloat() const { return (float)atof(s_.c_str()); }
  private: std::string s_;

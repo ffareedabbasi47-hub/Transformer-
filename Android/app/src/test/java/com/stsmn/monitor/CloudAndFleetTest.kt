@@ -24,7 +24,6 @@ class CloudAndFleetTest {
         id, id, lat, lng, false, link, status, 10, 30.0, 3.7, 0.4, 80, false, false, true, false, 1000L, 0L,
     )
 
-    // ---- server address rules (security: never send keys over plain internet) ----
     @Test fun wssIsAccepted() = assertTrue(CloudRules.isValidServerUrl("wss://stsmn.example.com/ws"))
     @Test fun plainWsToPublicHostIsRejected() = assertFalse(CloudRules.isValidServerUrl("ws://stsmn.example.com/ws"))
     @Test fun plainWsToPrivateLanIsAccepted() = assertTrue(CloudRules.isValidServerUrl("ws://192.168.1.20:8080/ws"))
@@ -43,13 +42,12 @@ class CloudAndFleetTest {
     }
     @Test fun secretsAreCleaned() = assertEquals("abc123", CloudRules.cleanSecret(" abc 12\n3 "))
 
-    // ---- server message parsing ----
     @Test fun parsesDeviceAndComputesAge() {
         val o = JSONObject("""{"id":"TR-002","name":"Second","lat":26.9,"lng":80.9,"link":"live","ts":9000,"status":"WARNING","risk":55,
             "temperature":48.7,"voltage":11.8,"current":3.2,"oilLevel":72,"smoke":false,"flame":false,"relay":true,"alarm":false}""")
         val d = FleetParser.device(o, serverNowMs = 10_000, elapsedNowMs = 500)!!
         assertEquals("TR-002", d.id); assertEquals(SystemStatus.WARNING, d.status); assertEquals(1000L, d.ageAtReceiptMs)
-        assertEquals(1500L, d.ageMs(1000)) // 1000 at receipt + 500 elapsed since
+        assertEquals(1500L, d.ageMs(1000))
     }
     @Test fun nullSensorsStayNull() {
         val d = FleetParser.device(JSONObject("""{"id":"TR-003","link":"offline","temperature":null,"ts":null}"""), null, 0)!!
@@ -63,7 +61,6 @@ class CloudAndFleetTest {
         assertNull(FleetParser.device(JSONObject("""{"id":"TR-004","status":"HACKED"}"""), null, 0)!!.status)
     }
 
-    // ---- marker colour rules ----
     @Test fun liveStatusMapsToColour() {
         assertEquals(MarkerState.EMERGENCY, FleetParser.markerState(dev("TR-1A", FleetLink.LIVE, SystemStatus.EMERGENCY), true))
         assertEquals(MarkerState.SAFE, FleetParser.markerState(dev("TR-1A", FleetLink.LIVE, SystemStatus.SAFE), true))
@@ -75,7 +72,6 @@ class CloudAndFleetTest {
         assertEquals(MarkerState.OFFLINE, FleetParser.markerState(dev("TR-1A", FleetLink.OFFLINE, SystemStatus.SAFE), true))
     }
 
-    // ---- merged list ----
     @Test fun dangerousFirst() {
         val fleet = FleetState(CloudState.ONLINE, listOf(
             dev("TR-001", FleetLink.LIVE, SystemStatus.SAFE), dev("TR-002", FleetLink.LIVE, SystemStatus.EMERGENCY),

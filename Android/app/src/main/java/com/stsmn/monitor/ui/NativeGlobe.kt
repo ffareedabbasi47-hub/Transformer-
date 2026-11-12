@@ -61,7 +61,6 @@ private const val HOME_LAT = 22.5
 private const val HOME_LON = 78.96
 private const val DIVE_SCALE = 2.0f
 
-/** Where the camera is gliding to (button presses); null while the user is steering. */
 private class Glide(val lat: Double, val lon: Double, val scale: Float, val seconds: Double = 1.6) {
     var t0 = -1.0
     var sLat = 0.0; var sLon = 0.0; var sScale = 1f
@@ -69,10 +68,6 @@ private class Glide(val lat: Double, val lon: Double, val scale: Float, val seco
 
 private fun easeInOut(p: Double): Double = if (p < 0.5) 4 * p * p * p else 1 - Math.pow(-2 * p + 2, 3.0) / 2
 
-/**
- * Native 3D Earth drawn on the GPU (OpenGL ES): real satellite imagery on a sphere. Drag to spin (with momentum),
- * pinch to zoom; zooming in far enough continues into the satellite map at the same spot.
- */
 @Composable
 fun NativeGlobe(
     devices: List<MapDevice>,
@@ -95,12 +90,12 @@ fun NativeGlobe(
     }
 
     val cam = remember { GlobeCam().also { c -> if (startLat != null && startLon != null) { c.lat = startLat.coerceIn(-80.0, 80.0); c.lon = startLon; c.scale = startScale } } }
-    var tick by remember { mutableLongStateOf(0L) }          // changes every frame: markers follow the globe
+    var tick by remember { mutableLongStateOf(0L) }
     var moving by remember { mutableStateOf(false) }
     var glide by remember { mutableStateOf<Glide?>(null) }
-    val motion = remember { doubleArrayOf(0.0, 0.0, 0.0) }   // [vLat deg/s, vLon deg/s, last gesture time (s)]
+    val motion = remember { doubleArrayOf(0.0, 0.0, 0.0) }
     var handedOff by remember { mutableStateOf(startScale >= DIVE_SCALE) }
-    // Arriving from the flat map: start close and fly out to the full Earth, centred on where the map was looking.
+
     LaunchedEffect(Unit) { if (startLat != null && startScale > 1f) glide = Glide(cam.lat, cam.lon, 1f, 2.0) }
     val density = LocalDensity.current.density
 
@@ -113,7 +108,6 @@ fun NativeGlobe(
             return (ln(PI * diameter / (256.0 * density)) / ln(2.0)).coerceIn(3.0, 6.0)
         }
 
-        // One animation loop: momentum after a swipe, button glides, and the hand-off to the flat map.
         LaunchedEffect(ready) {
             var last = 0L
             var idleSince = System.nanoTime() / 1e9
@@ -127,7 +121,7 @@ fun NativeGlobe(
                     val g = glide
                     var busy = touching
                     if (touching) {
-                        if (t - motion[2] > 0.05) { motion[0] *= 0.8; motion[1] *= 0.8 }   // finger resting: kill speed
+                        if (t - motion[2] > 0.05) { motion[0] *= 0.8; motion[1] *= 0.8 }
                     } else if (g != null) {
                         if (g.t0 < 0) { g.t0 = t; g.sLat = cam.lat; g.sLon = cam.lon; g.sScale = cam.scale }
                         val p = ((t - g.t0) / g.seconds).coerceIn(0.0, 1.0)
@@ -145,14 +139,14 @@ fun NativeGlobe(
                         motion[0] *= damp; motion[1] *= damp
                         busy = true
                     }
-                    if (touching) { idleSince = t; spun = 99.0 }                       // any touch ends the intro drift for good
+                    if (touching) { idleSince = t; spun = 99.0 }
                     if (!busy && spun < 10.0 && ready && t - idleSince > 5.0 && cam.scale < 1.3f) {
-                        val step = 1.0 * dt                                              // a slow, natural turn (1 deg/s, at most 10 deg)
+                        val step = 1.0 * dt
                         cam.lon = GlobeMath.normLon(cam.lon + step); spun += step
                     }
                     moving = busy
                     tick = now
-                    if (handedOff && cam.scale < 1.8f) handedOff = false      // re-arm after a fly-out
+                    if (handedOff && cam.scale < 1.8f) handedOff = false
                     if (!handedOff && ready && cam.scale >= DIVE_SCALE) {
                         handedOff = true
                         onOpenMap(cam.lat, cam.lon, diveZoom(), null)
@@ -161,7 +155,6 @@ fun NativeGlobe(
             }
         }
 
-        // The GPU globe.
         val owner = LocalLifecycleOwner.current
         var surface by remember { mutableStateOf<GlobeSurface?>(null) }
         DisposableEffect(owner, surface) {
@@ -180,7 +173,6 @@ fun NativeGlobe(
             update = { v -> texture?.let { v.setTexture(it) } },
         )
 
-        // Touch layer (above the GPU view): double-tap flies closer, drag spins, pinch zooms.
         Box(
             Modifier.fillMaxSize().pointerInput(Unit) {
                 detectTapGestures(onDoubleTap = { glide = Glide(cam.lat, cam.lon, (cam.scale * 1.5f).coerceAtMost(DIVE_SCALE + 0.1f), 0.7) })
@@ -205,7 +197,6 @@ fun NativeGlobe(
             },
         )
 
-        // Transformer markers: positions come from the same camera as the GPU picture, so they stay glued to the ground.
         if (ready) {
             devices.filter { it.hasLocation }.forEach { d ->
                 val la = d.lat!!

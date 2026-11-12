@@ -1778,17 +1778,33 @@ static bool authOk() {
 
 static bool parseF(const String& v, float& out) {
   if (v.length() == 0 || v.length() > 16) return false;
-  char* end = nullptr;
-  const float f = strtof(v.c_str(), &end);
-  if (!end || *end != 0 || !isfinite(f)) return false;
-  out = f; return true;
+  char b[20];
+  v.toCharArray(b, sizeof(b));
+  int i = 0, digits = 0;
+  bool neg = false;
+  if (b[i] == '-' || b[i] == '+') { neg = (b[i] == '-'); i++; }
+  float ip = 0, fp = 0, sc = 0.1f;
+  while (b[i] >= '0' && b[i] <= '9') { ip = ip * 10.0f + (float)(b[i] - '0'); i++; digits++; }
+  if (b[i] == '.') {
+    i++;
+    while (b[i] >= '0' && b[i] <= '9') { fp += (float)(b[i] - '0') * sc; sc *= 0.1f; i++; digits++; }
+  }
+  if (digits == 0 || b[i] != 0) return false;
+  out = neg ? -(ip + fp) : (ip + fp);
+  return isfinite(out);
 }
 static bool parseI(const String& v, long& out) {
-  if (v.length() == 0 || v.length() > 10) return false;
-  char* end = nullptr;
-  const long l = strtol(v.c_str(), &end, 10);
-  if (!end || *end != 0) return false;
-  out = l; return true;
+  if (v.length() == 0 || v.length() > 9) return false;
+  char b[12];
+  v.toCharArray(b, sizeof(b));
+  int i = 0, digits = 0;
+  bool neg = false;
+  if (b[i] == '-' || b[i] == '+') { neg = (b[i] == '-'); i++; }
+  long n = 0;
+  while (b[i] >= '0' && b[i] <= '9') { n = n * 10 + (b[i] - '0'); i++; digits++; }
+  if (digits == 0 || b[i] != 0) return false;
+  out = neg ? -n : n;
+  return true;
 }
 
 static void handleContactSet() {

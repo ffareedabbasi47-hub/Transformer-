@@ -1,12 +1,7 @@
 package com.stsmn.monitor.domain
 
-/**
- * Reads the answer of the CallMeBot service. The service often answers HTTP 200 even when it did NOT send anything
- * (wrong key, number not registered, rate limit), so the HTTP code alone must never count as success.
- * Pure logic, unit-tested on the JVM.
- */
 object WhatsAppReply {
-    /** null = the service accepted the message; otherwise a short reason for the person. */
+
     fun classify(httpCode: Int, body: String): String? {
         val text = body.replace(Regex("<[^>]*>"), " ").replace(Regex("\\s+"), " ").trim()
         val low = text.lowercase()

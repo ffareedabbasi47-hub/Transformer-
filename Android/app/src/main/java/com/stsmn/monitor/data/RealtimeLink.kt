@@ -18,16 +18,11 @@ import okhttp3.WebSocketListener
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-/**
- * One authenticated WebSocket with automatic reconnect (1 s -> 15 s backoff).
- * The first message is always the auth message; the link is ONLINE only after the server accepts it.
- * Wrong key (server closes with 1008) -> AUTH_FAILED and a slow 30 s retry, so a typo never hammers the server.
- */
 class RealtimeLink(private val scope: CoroutineScope) {
     private val client = OkHttpClient.Builder()
-        .pingInterval(20, TimeUnit.SECONDS)      // detects dead connections (phone changed network, server died)
+        .pingInterval(20, TimeUnit.SECONDS)
         .connectTimeout(8, TimeUnit.SECONDS)
-        .readTimeout(0, TimeUnit.SECONDS)        // streaming socket; pings handle liveness
+        .readTimeout(0, TimeUnit.SECONDS)
         .build()
 
     private val _state = MutableStateFlow(CloudState.OFF)
@@ -36,7 +31,6 @@ class RealtimeLink(private val scope: CoroutineScope) {
     @Volatile private var socket: WebSocket? = null
     private var job: Job? = null
 
-    /** Called on an OkHttp thread for every valid JSON message after the server accepted us. */
     @Volatile var onMessage: (JSONObject) -> Unit = {}
 
     fun start(url: String, authMessage: String) {
@@ -78,6 +72,5 @@ class RealtimeLink(private val scope: CoroutineScope) {
         _state.value = CloudState.OFF
     }
 
-    /** Returns false when not connected (caller simply drops the sample; the next one is 3 s away). */
     fun send(text: String): Boolean = _state.value == CloudState.ONLINE && (socket?.send(text) ?: false)
 }

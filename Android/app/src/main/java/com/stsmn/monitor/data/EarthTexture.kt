@@ -16,11 +16,6 @@ import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * The picture wrapped around the 3D Earth: a 2048 x 2048 Web-Mercator world image made from 64 real Esri
- * World Imagery tiles (zoom 3). Downloaded once (about 1.5 MB), then served from a file in the app's private
- * storage, so later starts are instant and work without internet.
- */
 object EarthTexture {
     const val SIZE = 2048
     private const val ZOOM = 3
@@ -30,7 +25,6 @@ object EarthTexture {
     private const val CACHE_NAME = "earth_z3_v1.jpg"
     private const val SEA = 0xFF0B3D6E.toInt()
 
-    /** Returns a SIZE x SIZE world bitmap (owned by the caller), or null when nothing usable could be loaded. `onProgress` gets 0..TILE_COUNT. */
     suspend fun load(ctx: Context, onProgress: (Int) -> Unit): Bitmap? = withContext(Dispatchers.IO) {
         val cache = File(ctx.filesDir, CACHE_NAME)
         if (cache.isFile) {
@@ -38,7 +32,7 @@ object EarthTexture {
                 if (b.width == SIZE && b.height == SIZE) return@withContext b
                 b.recycle()
             }
-            cache.delete()                                         // unreadable cache: download again
+            cache.delete()
         }
         val world = Bitmap.createBitmap(SIZE, SIZE, Bitmap.Config.ARGB_8888)
         var ok = false
@@ -54,7 +48,7 @@ object EarthTexture {
                     async {
                         val x = n % GRID
                         val y = n / GRID
-                        val tile = gate.withPermit { fetchTile(x, y) ?: fetchTile(x, y) }   // one retry
+                        val tile = gate.withPermit { fetchTile(x, y) ?: fetchTile(x, y) }
                         synchronized(lock) {
                             if (tile != null) { canvas.drawBitmap(tile, (x * 256).toFloat(), (y * 256).toFloat(), null); tile.recycle() } else failed++
                             done++
@@ -64,7 +58,7 @@ object EarthTexture {
                 }.awaitAll()
             }
             if (failed > 6) { Log.w(TAG, "too many tiles failed: $failed"); return@withContext null }
-            if (failed == 0) {                                     // cache only a complete picture
+            if (failed == 0) {
                 val tmp = File(ctx.filesDir, "$CACHE_NAME.tmp")
                 tmp.outputStream().use { world.compress(Bitmap.CompressFormat.JPEG, 88, it) }
                 if (!tmp.renameTo(cache)) tmp.delete()

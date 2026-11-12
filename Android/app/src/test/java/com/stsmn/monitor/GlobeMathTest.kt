@@ -30,14 +30,14 @@ class GlobeMathTest {
         assertEquals(1024.0, GlobeMath.mercatorRow(0.0, 2048), 1e-6)
         assertEquals(1024.0, GlobeMath.mercatorCol(0.0, 2048), 1e-6)
         assertEquals(0.0, GlobeMath.mercatorCol(-180.0, 2048), 1e-6)
-        assertTrue(GlobeMath.mercatorRow(89.9, 2048) in 0.0..2.0)            // clamped, never negative or NaN
+        assertTrue(GlobeMath.mercatorRow(89.9, 2048) in 0.0..2.0)
         assertTrue(GlobeMath.mercatorRow(-89.9, 2048) in 2046.0..2048.0)
     }
     @Test fun dragMovesSurfaceWithFinger() {
         val (lat, lon) = GlobeMath.dragCenter(0.0, 0.0, dx = 100.0, dy = 0.0, radiusPx = 300.0)
-        assertTrue(lon < 0.0); assertEquals(0.0, lat, 1e-9)               // drag right -> see more of the west
+        assertTrue(lon < 0.0); assertEquals(0.0, lat, 1e-9)
         val (lat2, _) = GlobeMath.dragCenter(79.5, 0.0, 0.0, 500.0, 300.0)
-        assertTrue(lat2 <= 80.0)                                           // latitude is clamped
+        assertTrue(lat2 <= 80.0)
     }
     @Test fun lonWrapsAroundDateline() {
         assertEquals(-170.0, GlobeMath.normLon(190.0), 1e-9)

@@ -11,19 +11,9 @@ import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * Optional, fully automatic WhatsApp through the free CallMeBot service (the person pastes THEIR key in Settings).
- * It needs an internet connection: the ESP32's Wi-Fi has none, so the request is sent over a network that has
- * internet (mobile data). If there is none, or the service says no, the caller shows the reason and the one-tap
- * WhatsApp button stays available.
- */
 class WhatsAppSender(context: Context) {
     private val cm = context.applicationContext.getSystemService(ConnectivityManager::class.java)
 
-    /**
-     * Networks to try, best first: validated internet, then any mobile-data network that has INTERNET (some operators
-     * never get the "validated" flag), then the default network. The ESP32's Wi-Fi (no internet) comes last.
-     */
     private fun candidates(): List<Network> {
         val all = cm.allNetworks.mapNotNull { n -> cm.getNetworkCapabilities(n)?.let { n to it } }
             .filter { (_, c) -> c.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) }
@@ -33,7 +23,6 @@ class WhatsAppSender(context: Context) {
         return (validated + cellular + active).distinct()
     }
 
-    /** Returns null when the service accepted the message, otherwise a short reason. */
     suspend fun send(phone: String, text: String, key: String): String? = withContext(Dispatchers.IO) {
         val nets = candidates()
         if (nets.isEmpty()) return@withContext "no internet (turn on mobile data)"

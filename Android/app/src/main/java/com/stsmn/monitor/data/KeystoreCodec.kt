@@ -9,10 +9,6 @@ import javax.crypto.KeyGenerator
 import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
-/**
- * AES-256-GCM with a key that lives in the Android Keystore (hardware-backed where available) and never leaves it.
- * If anything fails the secret is simply not persisted (the user re-enters it) - there is NO plaintext fallback.
- */
 class KeystoreCodec : SecretCodec {
     private fun key(): SecretKey {
         val ks = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

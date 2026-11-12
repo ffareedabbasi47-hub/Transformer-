@@ -24,19 +24,11 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/*
- * STSMN AURELION - Premium Industrial Intelligence. Design tokens + the user-selectable appearance options.
- * Presentation only: nothing here touches data, networking or business logic. Appearance choices are stored in their
- * own SharedPreferences file ("stsmn_ui"), separate from AppSettings.
- */
-
-/** One complete colour style: accent, a page gradient (top tint fading into the dark base), card and outline colours. */
 class Palette(
     val accent: Color, val gradTop: Color, val base: Color, val card: Color, val outline: Color,
     val light: Boolean = false, val onAccent: Color = Color(0xFF101010),
 )
 
-/** The 12 selectable themes (Settings > Appearance). "System" follows Light/Dark/System in Settings > Display. */
 enum class AppTheme(val label: String, val palette: Palette) {
     EMERALD("Emerald Dark", Palette(Color(0xFF0DB77F), Color(0xFF0B4F3D), Color(0xFF050D0B), Color(0xFF0B1512), Color(0xFF1F302A))),
     SAGE("Sage & Grey", Palette(Color(0xFF85A88C), Color(0xFF3C5142), Color(0xFF121817), Color(0xFF161C19), Color(0xFF2B3731))),
@@ -54,7 +46,6 @@ enum class AppTheme(val label: String, val palette: Palette) {
     companion object { val DEFAULT = GOLD }
 }
 
-/** The palette actually in use (after resolving "System"); read by the page background. */
 val LocalPalette = compositionLocalOf { AppTheme.DEFAULT.palette }
 
 enum class CornerChoice(val label: String, val radius: Dp) { SOFT("Soft", 20.dp), CRISP("Crisp", 10.dp) }
@@ -70,7 +61,6 @@ data class UiPrefs(
     val reduceMotion: Boolean = false,
 )
 
-/** Holds the current [UiPrefs] as Compose state and persists every change. */
 class UiPrefsStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("stsmn_ui", Context.MODE_PRIVATE)
     var current by mutableStateOf(load())
@@ -106,20 +96,16 @@ val LocalUiPrefsStore = compositionLocalOf<UiPrefsStore?> { null }
 val LocalCardRadius = compositionLocalOf { 20.dp }
 val LocalReduceMotion = compositionLocalOf { false }
 
-/** True when the user asked for reduced motion in the app OR turned animations off in Android's developer/accessibility settings. */
 fun systemAnimationsOff(context: Context): Boolean = runCatching {
     Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f) == 0f
 }.getOrDefault(false)
 
-
-/** Typography families. System fonts for now; swap these three to bundled Manrope / Space Grotesk / JetBrains Mono later. */
 object AurelionType {
     val heading: FontFamily = FontFamily.SansSerif
     val number: TextStyle = TextStyle(fontFamily = FontFamily.SansSerif, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum", letterSpacing = (-0.2).sp)
     val mono: TextStyle = TextStyle(fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium, fontSize = 13.sp)
 }
 
-/** Loading skeleton shimmer. Static (no animation) when motion is reduced. */
 @Composable
 fun Modifier.shimmer(): Modifier {
     val base = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant

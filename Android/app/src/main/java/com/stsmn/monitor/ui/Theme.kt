@@ -15,7 +15,7 @@ import com.stsmn.monitor.domain.AlertLevel
 import com.stsmn.monitor.domain.SystemStatus
 
 object StsmnColors {
-    // AURELION status palette: muted, but Warning (amber) and Emergency (rose red) stay instantly distinguishable.
+
     val Safe = Color(0xFF4C9B78)
     val Warning = Color(0xFFD6A34F)
     val Emergency = Color(0xFFD16B70)
@@ -66,7 +66,6 @@ private fun lightScheme(pal: Palette) = lightColorScheme(
     error = Color(0xFFB0444A),
 )
 
-/** Resolves the chosen theme. "System" follows Settings > Display (Light / Dark / System). */
 private fun resolvePalette(theme: AppTheme, mode: ThemeMode, systemDark: Boolean): Palette =
     if (theme != AppTheme.SYSTEM) theme.palette else when (mode) {
         ThemeMode.LIGHT -> AppTheme.IVORY.palette
@@ -92,7 +91,6 @@ fun StsmnTheme(mode: ThemeMode, content: @Composable () -> Unit) {
     }
 }
 
-/** One type scale for the whole app: system font, clear weight steps, slightly open tracking on small caps-style labels. */
 private val StsmnTypography = Typography(
     headlineMedium = TextStyle(fontFamily = AurelionType.heading, fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.3).sp),
     headlineSmall = TextStyle(fontFamily = AurelionType.heading, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = (-0.2).sp),

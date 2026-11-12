@@ -18,7 +18,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent { StsmnApp(viewModel) }
         if (Build.VERSION.SDK_INT >= 33) {
-            registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* denied = just no notifications */ }
+            registerForActivityResult(ActivityResultContracts.RequestPermission()) {  }
                 .launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }

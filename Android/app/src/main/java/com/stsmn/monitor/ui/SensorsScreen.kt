@@ -27,11 +27,11 @@ private data class SensorRow(
     val name: String,
     val value: String,
     val valid: Boolean,
-    val fraction: Float?,   // position inside the sensor's measuring range, null for on/off sensors
+    val fraction: Float?,
     val rangeText: String,
     val accent: Color,
     val trend: List<Double?> = emptyList(),
-    val percentChart: Boolean = false,   // chart is a 0..100 % signal strength: fixed scale so weak vs strong is visible
+    val percentChart: Boolean = false,
 )
 
 @Composable
@@ -72,7 +72,7 @@ fun SensorsScreen(live: LiveSnapshot) {
                 }
             }
             rows.forEach { SensorCard(it, dimmed) }
-            SignalCard(s, dimmed)   // right below the oil level card
+            SignalCard(s, dimmed)
             AppCard {
                 InfoRow("Device", "${s.deviceId} · fw ${s.fw}")
                 InfoRow("ESP32 uptime", fmtUptime(s.uptimeMs))
@@ -81,7 +81,6 @@ fun SensorsScreen(live: LiveSnapshot) {
     }
 }
 
-/** Last readings of a 0..100 % signal; empty (= plain bar instead of a chart) when the firmware does not report it. */
 private fun pctTrend(recent: List<StsmnStatus>, pick: (StsmnStatus) -> Int?): List<Double?> {
     val v = recent.map { pick(it)?.toDouble() }
     return if (v.any { it != null }) v else emptyList()
@@ -130,7 +129,6 @@ private fun SensorCard(r: SensorRow, dimmed: Boolean) {
     }
 }
 
-/** How strong each danger signal is right now (percent of its range), as reported by the ESP32. */
 @Composable
 private fun SignalCard(s: StsmnStatus?, dimmed: Boolean) {
     if (s == null) return
@@ -138,7 +136,7 @@ private fun SignalCard(s: StsmnStatus?, dimmed: Boolean) {
         "Fire (flame)" to s.flamePct, "Smoke / gas" to s.smokePct, "Temperature" to s.tempPct,
         "Current" to s.currentPct, "Voltage" to s.voltagePct,
     )
-    if (rows.all { it.second == null }) return   // older firmware: nothing to show
+    if (rows.all { it.second == null }) return
     AppCard {
         Text("Signal strength", fontWeight = FontWeight.Bold)
         Text(

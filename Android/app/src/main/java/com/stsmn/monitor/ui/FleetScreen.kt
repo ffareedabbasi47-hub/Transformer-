@@ -30,7 +30,6 @@ import com.stsmn.monitor.domain.FleetState
 import com.stsmn.monitor.domain.MapDevice
 import com.stsmn.monitor.domain.MarkerState
 
-/** Every transformer on one screen, most dangerous first. Tap one to see it on the map. */
 @Composable
 fun FleetScreen(
     devices: List<MapDevice>,

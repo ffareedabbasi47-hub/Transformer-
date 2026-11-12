@@ -56,7 +56,6 @@ private fun eventColor(e: EventRecord): Color = when {
 private fun isConnectionEvent(t: EventType) =
     t == EventType.CONNECTION_LOST || t == EventType.CONNECTION_RESTORED || t == EventType.DEVICE_RESTART
 
-/** Mockup screen 6 filters: All / Safe / Warning / Emergency, plus Connection events. */
 private fun matches(filter: Int, e: EventRecord): Boolean = when (filter) {
     1 -> !isConnectionEvent(e.type) && e.status == "SAFE"
     2 -> !isConnectionEvent(e.type) && e.status == "WARNING"

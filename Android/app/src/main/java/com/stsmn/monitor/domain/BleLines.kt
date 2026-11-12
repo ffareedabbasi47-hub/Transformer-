@@ -1,14 +1,9 @@
 package com.stsmn.monitor.domain
 
-/**
- * The ESP32 sends text lines over BLE in small (20 byte) notifications. This puts them back together.
- * Pure logic, unit-tested on the JVM.
- */
 class BleLineAssembler(private val maxLine: Int = 2048) {
     private val sb = StringBuilder()
     private var dropping = false
 
-    /** Feed one notification; returns every COMPLETE line it finished (without the line break). */
     fun feed(chunk: String): List<String> {
         val out = ArrayList<String>()
         for (c in chunk) {
@@ -17,7 +12,7 @@ class BleLineAssembler(private val maxLine: Int = 2048) {
                 sb.setLength(0); dropping = false
             } else if (!dropping) {
                 sb.append(c)
-                if (sb.length > maxLine) { sb.setLength(0); dropping = true }   // runaway line: drop all of it, resync at the next line break
+                if (sb.length > maxLine) { sb.setLength(0); dropping = true }
             }
         }
         return out
@@ -26,7 +21,6 @@ class BleLineAssembler(private val maxLine: Int = 2048) {
     fun reset() { sb.setLength(0); dropping = false }
 }
 
-/** One line of the ESP32 BLE stream: "ST <status json>", "HE <health json>", "OK <text>", "ER <text>". */
 data class BleMessage(val kind: Kind, val payload: String) {
     enum class Kind { STATUS, HEALTH, OK, ERROR }
 
@@ -43,7 +37,6 @@ data class BleMessage(val kind: Kind, val payload: String) {
             }
         }
 
-        /** Command that saves the SMS number over BLE (needs the device password; the number may be empty = SMS off). */
         fun phoneCommand(password: String, phone: String): String = "PHONE $password $phone\n"
     }
 }

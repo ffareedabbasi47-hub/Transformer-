@@ -8,13 +8,8 @@ enum class SystemStatus {
     }
 }
 
-/** PDF connection state machine: IDLE, CONNECTING, LIVE, STALE, ERROR. */
 enum class ConnectionState { IDLE, CONNECTING, LIVE, STALE, ERROR }
 
-/**
- * One validated packet. A null sensor value means "unavailable/invalid" (the ESP32
- * sends null, or the value was outside the sensor's physical range).
- */
 data class StsmnStatus(
     val deviceId: String,
     val fw: String,
@@ -27,16 +22,16 @@ data class StsmnStatus(
     val oilLevel: Int?,
     val risk: Int,
     val status: SystemStatus,
-    val relay: Boolean, // true = supply allowed, false = cutoff
+    val relay: Boolean,
     val alarm: Boolean,
     val seq: Long,
-    // Optional signal strength 0..100 per sensor (newer firmware). null = not reported / sensor not fitted.
+
     val smokePct: Int? = null,
     val flamePct: Int? = null,
     val tempPct: Int? = null,
     val currentPct: Int? = null,
     val voltagePct: Int? = null,
-    val latched: Boolean = false,        // over-current lock: stays until reset in the app
+    val latched: Boolean = false,
     val resetWaitS: Int = 0,
     val oilLow: Boolean = false,
     val uncalibrated: Boolean = false,
@@ -59,7 +54,6 @@ enum class EventType(val label: String) {
     CONNECTION_RESTORED("Connection restored"),
 }
 
-/** PDF fault history record: timestamp, deviceId, event, risk, status, relay, message. */
 data class EventRecord(
     val timestampMs: Long,
     val deviceId: String,
@@ -70,15 +64,14 @@ data class EventRecord(
     val message: String,
 )
 
-/** Everything the UI needs about the live link, in one immutable object. */
 data class LiveSnapshot(
     val connection: ConnectionState = ConnectionState.IDLE,
-    val status: StsmnStatus? = null,          // last VALID packet (may be old)
-    val packetAgeMs: Long? = null,            // null = no valid packet yet
-    val lastValidElapsedMs: Long? = null,     // SystemClock.elapsedRealtime() of the last valid packet (UI ticks age locally)
-    val lastValidWallMs: Long? = null,        // wall-clock time of the last valid packet ("last seen")
+    val status: StsmnStatus? = null,
+    val packetAgeMs: Long? = null,
+    val lastValidElapsedMs: Long? = null,
+    val lastValidWallMs: Long? = null,
     val packetsReceived: Long = 0,
-    val deviceAlertPhone: String? = null,     // masked SMS number the ESP32 reports ("" = none, null = unknown)
+    val deviceAlertPhone: String? = null,
     val parseErrors: Long = 0,
     val networkErrors: Long = 0,
     val duplicatePackets: Long = 0,
@@ -87,11 +80,11 @@ data class LiveSnapshot(
     val anomalies: List<String> = emptyList(),
     val wifiBound: Boolean = false,
     val host: String = "",
-    val viaBluetooth: Boolean = false,        // link is Bluetooth (BLE) instead of the ESP32 Wi-Fi
-    val linkNote: String = "",               // short text about the Bluetooth link state
-    val recent: List<StsmnStatus> = emptyList(), // last valid packets (oldest first) for sparklines
-    val gps: LiveGps? = null,                    // last valid GPS fix from /api/health (null = none yet)
-    val gpsElapsedMs: Long? = null,              // SystemClock.elapsedRealtime() when that fix was received
+    val viaBluetooth: Boolean = false,
+    val linkNote: String = "",
+    val recent: List<StsmnStatus> = emptyList(),
+    val gps: LiveGps? = null,
+    val gpsElapsedMs: Long? = null,
 ) {
     val isLive: Boolean get() = connection == ConnectionState.LIVE
 }

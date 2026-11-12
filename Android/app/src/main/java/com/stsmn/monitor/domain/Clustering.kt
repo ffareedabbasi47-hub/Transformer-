@@ -7,13 +7,12 @@ import kotlin.math.ln
 import kotlin.math.sqrt
 import kotlin.math.tan
 
-/** Groups markers that would overlap on screen. Distances are measured in Web-Mercator pixels, like the map itself. */
 object Clustering {
     data class Item(val id: String, val lat: Double, val lng: Double, val state: MarkerState)
 
     class Cluster(val members: List<Item>, val lat: Double, val lng: Double) {
         val size: Int get() = members.size
-        /** The most serious state inside the group, so one red transformer is never hidden by green ones. */
+
         val worst: MarkerState get() = members.maxByOrNull { severity(it.state) }!!.state
     }
 
@@ -33,12 +32,6 @@ object Clustering {
     private fun lngOf(x: Double, w: Double) = x / w * 360.0 - 180.0
     private fun latOf(y: Double, w: Double) = (2 * atan(exp((0.5 - y / w) * 2 * PI)) - PI / 2) * 180.0 / PI
 
-    /**
-     * @param zoom map zoom level
-     * @param worldPx0 size in pixels of the whole world at zoom 0 (256 x screen density)
-     * @param radiusPx markers closer than this on screen are merged
-     * A single marker is returned at its exact coordinates; a group is placed at the mean position of its members.
-     */
     fun cluster(items: List<Item>, zoom: Double, worldPx0: Double, radiusPx: Double): List<Cluster> {
         val w = worldPx0 * Math.pow(2.0, zoom)
         val sorted = items.sortedBy { it.id }

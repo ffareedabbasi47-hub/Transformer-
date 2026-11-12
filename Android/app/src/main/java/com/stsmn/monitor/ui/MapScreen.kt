@@ -82,7 +82,6 @@ import java.io.File
 
 fun markerColor(state: MarkerState): Color = Color(markerColorInt(state))
 
-/** osmdroid setup: no API key; tiles are cached in app storage so a visited area works offline. */
 private object MapConfig {
     private var done = false
     fun ensure(ctx: Context) {
@@ -91,7 +90,7 @@ private object MapConfig {
         Configuration.getInstance().apply {
             osmdroidBasePath = base
             osmdroidTileCache = File(base, "tiles")
-            userAgentValue = ctx.packageName // required by the OpenStreetMap tile usage policy
+            userAgentValue = ctx.packageName
             tileFileSystemCacheMaxBytes = AppConfig.MAP_TILE_CACHE_BYTES
             tileFileSystemCacheTrimBytes = AppConfig.MAP_TILE_CACHE_BYTES * 3 / 4
         }
@@ -106,7 +105,6 @@ private fun esriSource(name: String, service: String, ext: String, maxZoom: Int)
         baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex)
 }
 
-/** Real pictures drawn natively by osmdroid (no WebView/WebGL). Satellite, terrain and the transparent road overlay are Esri services. */
 private val ESRI_SATELLITE = esriSource("EsriWorldImagery", MapLayers.IMAGERY_SERVICE, ".jpg", 19)
 private val ESRI_TERRAIN = esriSource("EsriWorldTopo", MapLayers.TERRAIN_SERVICE, ".jpg", 19)
 private val ESRI_ROADS = esriSource("EsriRoads", MapLayers.ROADS_SERVICE, ".png", 19)
@@ -121,7 +119,7 @@ private fun createMapView(ctx: Context, onFirstLayout: () -> Unit): MapView {
     MapConfig.ensure(ctx)
     return MapView(ctx).apply {
         setTileSource(ESRI_SATELLITE)
-        overlayManager.tilesOverlay.setLoadingBackgroundColor(0xFF0B3D6E.toInt())   // sea blue while pictures load, never a grey grid
+        overlayManager.tilesOverlay.setLoadingBackgroundColor(0xFF0B3D6E.toInt())
         overlayManager.tilesOverlay.setLoadingLineColor(0xFF0B3D6E.toInt())
         setMultiTouchControls(true)
         setTilesScaledToDpi(true)
@@ -150,11 +148,6 @@ private fun clusterIcon(ctx: Context, n: Int, color: Int): MarkerIcon {
     return MarkerIcon(android.graphics.drawable.BitmapDrawable(ctx.resources, bmp), 0.5f)
 }
 
-/**
- * Keeps ONE osmdroid Marker per visible item (a transformer, or a cluster of nearby ones) and updates it in place.
- * Work happens only when something visible changed, so a 1-second UI tick costs nothing. The selected transformer is
- * never merged into a cluster; a cluster sits at the mean position of its members and a tap zooms into them.
- */
 private class MarkerSet {
     private val markers = HashMap<String, Marker>()
     private val signatures = HashMap<String, String>()
@@ -233,7 +226,7 @@ private fun fitAll(map: MapView, devices: List<MapDevice>) {
         pts.isEmpty() -> map.controller.animateTo(GeoPoint(AppConfig.UP_CENTER_LAT, AppConfig.UP_CENTER_LNG), AppConfig.MAP_INITIAL_ZOOM, 600L)
         pts.size == 1 -> map.controller.animateTo(pts[0], AppConfig.MAP_CENTER_ZOOM, 600L)
         else -> {
-            // Transformers at (almost) the same spot give a zero-size box: centre on them instead of zooming into nothing.
+
             val latSpan = pts.maxOf { it.latitude } - pts.minOf { it.latitude }
             val lngSpan = pts.maxOf { it.longitude } - pts.minOf { it.longitude }
             if (latSpan < 0.0005 && lngSpan < 0.0005) map.controller.animateTo(pts[0], AppConfig.MAP_CENTER_ZOOM, 600L)
@@ -269,7 +262,6 @@ fun MapScreen(
     var sheetExpanded by remember { mutableStateOf(false) }
     val zoomState = remember { mutableDoubleStateOf(AppConfig.MAP_INITIAL_ZOOM) }
 
-    // Pre-flight: which picture servers can this phone really reach? Retried every 15 s while none can.
     var probe by remember { mutableStateOf<TileProbe.Result?>(null) }
     LaunchedEffect(Unit) {
         while (true) {
@@ -279,12 +271,12 @@ fun MapScreen(
             delay(15_000)
         }
     }
-    LaunchedEffect(probe) { if (probe?.choice() == TileProbe.Choice.STREETS) base = BaseLayer.STREETS }   // Esri blocked: use street pictures
+    LaunchedEffect(probe) { if (probe?.choice() == TileProbe.Choice.STREETS) base = BaseLayer.STREETS }
     androidx.compose.runtime.LaunchedEffect(base, mapView) {
         mapView?.setTileSource(sourceFor(base))
         mapView?.invalidate()
     }
-    // Road overlay: transparent Esri road/label tiles on top of the base picture, below the markers.
+
     val roadsOverlay = remember { arrayOfNulls<TilesOverlay>(1) }
     LaunchedEffect(roads, mapView) {
         val m = mapView ?: return@LaunchedEffect
@@ -317,13 +309,12 @@ fun MapScreen(
         onDispose {
             owner.lifecycle.removeObserver(observer)
             mapView?.onPause()
-            mapView?.onDetach() // release tile threads/overlays: the map is rebuilt when the tab is opened again
+            mapView?.onDetach()
             roadsOverlay[0]?.let { o -> mapView?.let { m -> m.overlays.remove(o); o.onDetach(m) }; roadsOverlay[0] = null }
             markerSet.clear()
         }
     }
 
-    // Map failed to start: live data still works through the list card.
     if (mapView == null) {
         Column(
             Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -342,7 +333,6 @@ fun MapScreen(
         return
     }
 
-    // Zoom drives clustering; every move is reported so the globe can fly back out from exactly here.
     DisposableEffect(mapView) {
         fun report() { val c = mapView.mapCenter; cameraCallback(c.latitude, c.longitude, mapView.zoomLevelDouble) }
         val l = object : MapListener {
@@ -352,16 +342,16 @@ fun MapScreen(
         mapView.addMapListener(l)
         onDispose { mapView.removeMapListener(l) }
     }
-    // Focus the camera when a device is picked (from a marker or from the Fleet tab).
+
     DisposableEffectKey(selected?.id, mapReady, initialDeepZoom) {
         if (mapReady && selected != null && selected.hasLocation) {
-            val targetZoom = if (initialDeepZoom) AppConfig.MAP_MAX_ZOOM 
-                             else if (mapView.zoomLevelDouble < AppConfig.MAP_INITIAL_ZOOM) AppConfig.MAP_CENTER_ZOOM 
+            val targetZoom = if (initialDeepZoom) AppConfig.MAP_MAX_ZOOM
+                             else if (mapView.zoomLevelDouble < AppConfig.MAP_INITIAL_ZOOM) AppConfig.MAP_CENTER_ZOOM
                              else mapView.zoomLevelDouble
             mapView.controller.animateTo(GeoPoint(selected.lat!!, selected.lng!!), targetZoom, 600L)
         }
     }
-    // If deep zoom is requested without a selection, center onto first transformer or demo site at 5-feet level
+
     var initialDeepDone by remember { mutableStateOf(false) }
     DisposableEffectKey(mapReady, initialDeepZoom) {
         if (mapReady && initialDeepZoom && !initialDeepDone) {
@@ -371,7 +361,7 @@ fun MapScreen(
             initialDeepDone = true
         }
     }
-    // Coming from the 3D Earth: start exactly where the globe was looking.
+
     val hasStart = startLat != null && startLng != null
     var startDone by remember { mutableStateOf(false) }
     DisposableEffectKey(mapReady, startDone) {
@@ -381,7 +371,7 @@ fun MapScreen(
             startDone = true
         }
     }
-    // Zoom to the whole fleet once, when the first positions are known (only if not deep zooming).
+
     var fitted by remember { mutableStateOf(false) }
     DisposableEffectKey(mapReady, devices.count { it.hasLocation }, fitted) {
         if (mapReady && !fitted && selectedId == null && !hasStart && !initialDeepZoom && devices.any { it.hasLocation }) {
@@ -396,7 +386,6 @@ fun MapScreen(
             update = { m -> markerSet.sync(m, devices, selectedId, zoomState.doubleValue) { id -> onSelect(id) } },
         )
 
-        // ---------------- Top: one compact status row ----------------
         Column(Modifier.align(Alignment.TopCenter).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             SummaryBar(devices, fleet, cloudEnabled)
             if (cloudEnabled && fleet.cloud != CloudState.ONLINE) {
@@ -438,7 +427,6 @@ fun MapScreen(
             }
         }
 
-        // ---------------- Zoom controls (right edge, vertically centred) ----------------
         Column(
             Modifier.align(Alignment.CenterEnd).padding(end = 10.dp).panel(16.dp, 0.86f).padding(3.dp),
             verticalArrangement = Arrangement.spacedBy(2.dp),
@@ -454,7 +442,6 @@ fun MapScreen(
             }
         }
 
-        // ---------------- Bottom: layers, actions, selected-transformer sheet ----------------
         Column(Modifier.align(Alignment.BottomCenter).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!(selected != null && sheetExpanded)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
@@ -503,7 +490,6 @@ private fun ZoomKey(label: String, small: Boolean = false, onClick: () -> Unit) 
     }
 }
 
-/** Layer selector: one base picture + an optional road overlay. */
 @Composable
 private fun LayerPanel(base: BaseLayer, roads: Boolean, onBase: (BaseLayer) -> Unit, onRoads: (Boolean) -> Unit) {
     Column(
@@ -530,7 +516,6 @@ private fun LayerPanel(base: BaseLayer, roads: Boolean, onBase: (BaseLayer) -> U
     }
 }
 
-/** Runs [block] whenever [key1]/[key2]/[key3] change (small wrapper so the effects above read clearly). */
 @Composable
 private fun DisposableEffectKey(key1: Any?, key2: Any?, key3: Any? = null, block: () -> Unit) {
     androidx.compose.runtime.LaunchedEffect(key1, key2, key3) { block() }
@@ -600,7 +585,6 @@ private fun LegendRow(state: MarkerState, text: String) {
     }
 }
 
-/** Detail card for one transformer. Old readings are clearly marked as "last known", never live. */
 @Composable
 fun DeviceCard(d: MapDevice, onClose: (() -> Unit)?, modifier: Modifier = Modifier) {
     val color = markerColor(d.state)

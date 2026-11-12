@@ -2,10 +2,6 @@ package com.stsmn.monitor.domain
 
 import com.stsmn.monitor.config.AppConfig
 
-/**
- * Turns the stream of valid packets into meaningful events only (state changes),
- * so a persisting fault does not create hundreds of duplicate alerts.
- */
 class EventDetector(private val invalidDebouncePackets: Int = AppConfig.SENSOR_INVALID_DEBOUNCE_PACKETS) {
     private var prev: StsmnStatus? = null
     private val invalidStreak = mutableMapOf<String, Int>()

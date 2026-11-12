@@ -12,7 +12,6 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
-/** High-priority phone notification when any transformer enters EMERGENCY (mockup screen 10). */
 class AlertNotifier(context: Context) {
     private val app = context.applicationContext
 
@@ -62,7 +61,7 @@ class AlertNotifier(context: Context) {
             }
             .build()
         n.flags = n.flags or android.app.Notification.FLAG_INSISTENT or android.app.Notification.FLAG_NO_CLEAR
-        try { NotificationManagerCompat.from(app).notify(transformerId.hashCode(), n) } catch (e: SecurityException) { /* permission revoked meanwhile */ }
+        try { NotificationManagerCompat.from(app).notify(transformerId.hashCode(), n) } catch (e: SecurityException) {  }
     }
 
     fun warning(transformerId: String, risk: Int?) {

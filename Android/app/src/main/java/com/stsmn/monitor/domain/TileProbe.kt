@@ -6,10 +6,6 @@ import kotlinx.coroutines.coroutineScope
 import java.net.HttpURLConnection
 import java.net.URL
 
-/**
- * Pre-flight check: before a map is shown, find out which picture servers this phone can really reach
- * (internet present, server not blocked). The choice rules are pure and unit-tested; only [run] touches the network.
- */
 object TileProbe {
     enum class Choice { SATELLITE, STREETS, NONE }
 
@@ -26,7 +22,6 @@ object TileProbe {
     private const val OSM_URL = "https://tile.openstreetmap.org/2/2/1.png"
     private const val TIMEOUT_MS = 3000
 
-    /** Both servers are asked at the same time; the whole check takes at most about 3 seconds. Never throws. */
     suspend fun run(userAgent: String): Result = coroutineScope {
         val esri = async(Dispatchers.IO) { reachable(ESRI_URL, userAgent) }
         val osm = async(Dispatchers.IO) { reachable(OSM_URL, userAgent) }

@@ -21,10 +21,6 @@ import androidx.compose.ui.unit.sp
 import com.stsmn.monitor.data.AppSettings
 import com.stsmn.monitor.domain.LiveSnapshot
 
-/**
- * Mockup screen 2: "Connect to ESP32". Shown on Home only while monitoring is off and nothing has been received yet.
- * The device address itself is edited in Settings (validated there: private IPv4 only).
- */
 @Composable
 fun ConnectScreen(live: LiveSnapshot, settings: AppSettings, onConnect: () -> Unit) {
     Column(

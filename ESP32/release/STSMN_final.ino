@@ -6,6 +6,9 @@
 #include <freertos/semphr.h>
 #include <esp_timer.h>
 #include <esp_system.h>
+#include <stdlib.h>
+#include <string.h>
+#include <math.h>
 #include <Preferences.h>
 
 enum class Status : uint8_t;

@@ -105,6 +105,7 @@ static volatile bool tuneReady = false;
 static FlameTuning pendingTune;
 static volatile bool relearnReq = false;
 static FlameTuning lastTune;
+static FlameTuning savingTune;
 static bool bootHold = false;
 static uint32_t bootHoldUntil = 0;
 static HoldTimer oilLowTimer;
@@ -308,7 +309,8 @@ static void handleContactSet() {
   sendJson(200, buf);
 }
 
-static void flameTuningSave(const FlameTuning& t) {
+static void flameTuningSave() {
+  const FlameTuning& t = savingTune;
   prefs.putFloat("fl_d", t.minDeltaMv); prefs.putFloat("fl_s", t.flickerSigmas);
   prefs.putInt("fl_r", t.minReversals); prefs.putUInt("fl_c", t.confirmMs);
   prefs.putUInt("fl_b", t.rebaseMs); prefs.putBool("fl_o", t.requireDo); prefs.putBool("fl_i", t.invert);
@@ -350,7 +352,7 @@ static void handleFlame() {
     pendingTune = n; tuneReady = true;
     if (wantRelearn) relearnReq = true;
     xSemaphoreGive(stateMutex);
-    if (changed) { flameTuningSave(n); addEvent("FLAME TUNE"); }
+    if (changed) { savingTune = n; flameTuningSave(); addEvent("FLAME TUNE"); }
     cur = n;
   }
   FlameOut fo; bool dO;

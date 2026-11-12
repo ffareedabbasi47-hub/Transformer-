@@ -21,6 +21,7 @@ wifi = '''// ===== Wi-Fi settings: CHANGE THE PASSWORD BELOW (8 to 63 characters
 #define WIFI_AP_PASSWORD "CHANGE_ME_min8chars"
 // Phone that receives the SMS alert, with country code (e.g. "+919876543210"). Leave the X placeholder to switch SMS off.
 #define ALERT_PHONE_NUMBER "+91XXXXXXXXXX"
+#define STSMN_API_TOKEN WIFI_AP_PASSWORD
 '''
 # The Arduino IDE inserts auto-generated function prototypes near the TOP of a .ino file, before the sketch's own types are
 # defined. Forward declarations placed right after the #includes make those prototypes compile (verified by

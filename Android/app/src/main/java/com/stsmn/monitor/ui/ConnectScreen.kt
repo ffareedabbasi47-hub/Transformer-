@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -35,7 +36,7 @@ fun ConnectScreen(live: LiveSnapshot, settings: AppSettings, onConnect: () -> Un
         )
         AppCard {
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("📶", fontSize = 40.sp)
+                RadarPulse(MaterialTheme.colorScheme.primary, Modifier.size(96.dp))
                 Text("Connect to ESP32", fontSize = 20.sp, fontWeight = FontWeight.Bold)
                 OutlinedTextField(
                     value = if (settings.useBluetooth) "${settings.deviceName}  ·  Bluetooth" else "${settings.deviceName}  ·  ${settings.deviceHost}",

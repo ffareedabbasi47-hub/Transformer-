@@ -208,72 +208,100 @@ private fun AurelionNavBar(tabs: List<Tab>, isSelected: (Tab) -> Boolean, onSele
     val reduce = LocalReduceMotion.current
     val n = tabs.size
     val selIndex = tabs.indexOfFirst { isSelected(it) }.coerceAtLeast(0)
-    val posState = androidx.compose.animation.core.animateFloatAsState(
+    val headState = androidx.compose.animation.core.animateFloatAsState(
         targetValue = selIndex.toFloat(),
         animationSpec = if (reduce) androidx.compose.animation.core.tween(0)
-        else androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 150f),
-        label = "drop",
+        else androidx.compose.animation.core.spring(dampingRatio = 0.58f, stiffness = 260f),
+        label = "dropHead",
+    )
+    val tailState = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = selIndex.toFloat(),
+        animationSpec = if (reduce) androidx.compose.animation.core.tween(0)
+        else androidx.compose.animation.core.spring(dampingRatio = 0.9f, stiffness = 95f),
+        label = "dropTail",
     )
     val dark = cs.background.luminance() < 0.5f
     val accent = cs.primary
     Box(Modifier.navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth().panel(28.dp, 0.97f)) {
         Box(
             Modifier.matchParentSize().padding(5.dp).drawBehind {
-                val p = posState.value
+                val hx = headState.value
+                val tx = tailState.value
                 val w = size.width / n
                 val h = size.height
-                val d = kotlin.math.abs(selIndex - p).coerceIn(0f, 1f)
-                val dw = w * 0.94f * (1f + 0.55f * d)
-                val dh = h * (1f - 0.14f * d)
-                val cx = (p + 0.5f) * w
-                val left = cx - dw / 2f
+                val stretch = kotlin.math.abs(hx - tx).coerceIn(0f, 1.6f)
+                val baseW = w * 0.9f
+                val dh = h * (0.9f - 0.07f * stretch)
+                val left = kotlin.math.min(hx, tx) * w + (w - baseW) / 2f
+                val right = kotlin.math.max(hx, tx) * w + (w - baseW) / 2f + baseW
+                val dw = right - left
                 val top = (h - dh) / 2f
-                val rr = androidx.compose.ui.geometry.CornerRadius(dh * 0.5f)
+                val cy = h / 2f
+                val rad = dh / 2f
+                val rr = androidx.compose.ui.geometry.CornerRadius(rad)
                 val white = Color.White
+                val full = androidx.compose.ui.geometry.Size(dw, dh)
+
+                drawOval(
+                    Brush.radialGradient(listOf(Color.Black.copy(alpha = if (dark) 0.55f else 0.22f), Color.Transparent), center = Offset(left + dw / 2f, top + dh + 3.dp.toPx()), radius = dw * 0.55f),
+                    topLeft = Offset(left + dw * 0.05f, top + dh - 2.dp.toPx()), size = androidx.compose.ui.geometry.Size(dw * 0.9f, 10.dp.toPx()),
+                )
                 drawRoundRect(
-                    Brush.radialGradient(listOf(accent.copy(alpha = 0.32f), Color.Transparent), center = Offset(cx, h / 2f), radius = dw),
-                    topLeft = Offset(left - dw * 0.25f, top - dh * 0.25f),
-                    size = androidx.compose.ui.geometry.Size(dw * 1.5f, dh * 1.5f),
+                    Brush.radialGradient(listOf(accent.copy(alpha = 0.30f), Color.Transparent), center = Offset(left + dw / 2f, cy), radius = dw * 0.9f),
+                    topLeft = Offset(left - dw * 0.18f, top - dh * 0.22f), size = androidx.compose.ui.geometry.Size(dw * 1.36f, dh * 1.44f),
                     cornerRadius = androidx.compose.ui.geometry.CornerRadius(dh),
+                )
+                drawRoundRect(white.copy(alpha = if (dark) 0.07f else 0.30f), topLeft = Offset(left, top), size = full, cornerRadius = rr)
+                drawRoundRect(
+                    Brush.radialGradient(
+                        0.55f to Color.Transparent, 1f to (if (dark) Color.Black.copy(alpha = 0.38f) else accent.copy(alpha = 0.30f)),
+                        center = Offset(left + dw / 2f, cy), radius = dw * 0.5f,
+                    ),
+                    topLeft = Offset(left, top), size = full, cornerRadius = rr,
                 )
                 drawRoundRect(
                     Brush.verticalGradient(
-                        listOf(white.copy(alpha = if (dark) 0.26f else 0.7f), accent.copy(alpha = if (dark) 0.20f else 0.26f), white.copy(alpha = if (dark) 0.10f else 0.35f)),
+                        0f to Color.Transparent, 0.62f to Color.Transparent, 1f to white.copy(alpha = if (dark) 0.38f else 0.75f),
                         startY = top, endY = top + dh,
                     ),
-                    topLeft = Offset(left, top), size = androidx.compose.ui.geometry.Size(dw, dh), cornerRadius = rr,
+                    topLeft = Offset(left, top), size = full, cornerRadius = rr,
                 )
                 drawOval(
-                    Brush.radialGradient(listOf(white.copy(alpha = 0.75f), Color.Transparent), center = Offset(left + dw * 0.32f, top + dh * 0.2f), radius = dw * 0.32f),
-                    topLeft = Offset(left + dw * 0.1f, top + dh * 0.05f), size = androidx.compose.ui.geometry.Size(dw * 0.5f, dh * 0.26f),
+                    Brush.radialGradient(listOf(accent.copy(alpha = 0.55f), Color.Transparent), center = Offset(left + dw / 2f, top + dh * 0.94f), radius = dw * 0.34f),
+                    topLeft = Offset(left + dw * 0.22f, top + dh * 0.78f), size = androidx.compose.ui.geometry.Size(dw * 0.56f, dh * 0.2f),
                 )
                 drawOval(
-                    Brush.radialGradient(listOf(accent.copy(alpha = 0.55f), Color.Transparent), center = Offset(cx, top + dh * 0.92f), radius = dw * 0.4f),
-                    topLeft = Offset(cx - dw * 0.32f, top + dh * 0.78f), size = androidx.compose.ui.geometry.Size(dw * 0.64f, dh * 0.18f),
+                    Brush.radialGradient(listOf(white.copy(alpha = 0.92f), white.copy(alpha = 0.25f), Color.Transparent), center = Offset(left + rad * 0.95f, top + dh * 0.22f), radius = rad * 0.9f),
+                    topLeft = Offset(left + rad * 0.35f, top + dh * 0.07f), size = androidx.compose.ui.geometry.Size(rad * 1.25f, dh * 0.26f),
                 )
+                drawCircle(white.copy(alpha = 0.85f), radius = dh * 0.045f, center = Offset(right - rad * 0.75f, top + dh * 0.76f))
                 drawRoundRect(
-                    Brush.linearGradient(listOf(white.copy(alpha = 0.95f), white.copy(alpha = 0.08f), white.copy(alpha = 0.55f)), start = Offset(left, top), end = Offset(left + dw, top + dh)),
-                    topLeft = Offset(left, top), size = androidx.compose.ui.geometry.Size(dw, dh), cornerRadius = rr,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(1.3.dp.toPx()),
+                    Brush.linearGradient(listOf(white.copy(alpha = 0.95f), white.copy(alpha = 0.06f), white.copy(alpha = 0.55f)), start = Offset(left, top), end = Offset(right, top + dh)),
+                    topLeft = Offset(left, top), size = full, cornerRadius = rr,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(1.2.dp.toPx()),
                 )
             },
         )
         Row(Modifier.padding(5.dp).fillMaxWidth()) {
-            tabs.forEach { t ->
+            tabs.forEachIndexed { idx, t ->
                 val sel = isSelected(t)
                 val tint by androidx.compose.animation.animateColorAsState(
                     if (sel) cs.primary else cs.onSurfaceVariant,
                     androidx.compose.animation.core.tween(if (reduce) 0 else 220), label = "navTint",
-                )
-                val scale by androidx.compose.animation.core.animateFloatAsState(
-                    if (sel) 1.14f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 300f), label = "navScale",
                 )
                 Column(
                     Modifier.weight(1f).heightIn(min = 54.dp).clip(RoundedCornerShape(22.dp))
                         .clickable(role = androidx.compose.ui.semantics.Role.Tab) { onSelect(t) }.padding(vertical = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
                 ) {
-                    Icon(t.icon!!, contentDescription = t.label, tint = tint, modifier = Modifier.size(22.dp).graphicsLayer { scaleX = scale; scaleY = scale })
+                    Icon(
+                        t.icon!!, contentDescription = t.label, tint = tint,
+                        modifier = Modifier.size(22.dp).graphicsLayer {
+                            val near = (1f - kotlin.math.abs(headState.value - idx)).coerceIn(0f, 1f)
+                            val sc = 1f + 0.3f * near
+                            scaleX = sc; scaleY = sc
+                        },
+                    )
                     Text(t.label, fontSize = 10.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip, color = tint,
                         fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium, letterSpacing = 0.3.sp)
                 }

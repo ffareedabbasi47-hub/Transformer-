@@ -60,7 +60,7 @@ fun DashboardScreen(
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("STSMN", fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 4.sp, color = MaterialTheme.colorScheme.primary)
+                Text("STSMN", style = androidx.compose.ui.text.TextStyle(brush = Brush.horizontalGradient(listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.onBackground)), fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = 5.sp))
                 val id = s?.deviceId ?: "TR-001"
                 Text("$id · ${settings.deviceName}", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -165,14 +165,16 @@ private fun HeroCard(live: LiveSnapshot, onConnect: () -> Unit) {
     val shape = RoundedCornerShape(LocalCardRadius.current + 4.dp)
     Box(
         Modifier.fillMaxWidth().clip(shape)
-            .background(MaterialTheme.colorScheme.surface)
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.66f))
+            .background(Brush.linearGradient(listOf(Color.White.copy(alpha = 0.10f), Color.Transparent), start = androidx.compose.ui.geometry.Offset(0f, 0f), end = androidx.compose.ui.geometry.Offset(500f, 700f)))
 
             .background(Brush.radialGradient(listOf(color.copy(alpha = 0.20f), Color.Transparent), center = androidx.compose.ui.geometry.Offset(0f, 0f), radius = 700f))
             .border(1.dp, color.copy(alpha = 0.45f), shape),
     ) {
         Column(Modifier.padding(18.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Box(
+                if (!isLive) RadarPulse(MaterialTheme.colorScheme.primary, Modifier.size(64.dp))
+                else Box(
                     Modifier.clip(RoundedCornerShape(16.dp)).background(color.copy(alpha = 0.16f))
                         .border(1.dp, color.copy(alpha = 0.4f), RoundedCornerShape(16.dp)).padding(horizontal = 12.dp, vertical = 8.dp),
                 ) { Text(glyph, fontSize = 26.sp, color = color, fontWeight = FontWeight.Bold) }

@@ -103,17 +103,46 @@ val LocalBottomInset = compositionLocalOf { 0.dp }
 @Composable
 fun GlassBackground(content: @Composable () -> Unit) {
     val pal = LocalPalette.current
+    val reduce = LocalReduceMotion.current
+    val tState = if (reduce) androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0.25f) } as State<Float>
+    else androidx.compose.animation.core.rememberInfiniteTransition(label = "aurora").animateFloat(
+        0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(36000, easing = androidx.compose.animation.core.LinearEasing)), label = "t",
+    )
     Box(
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(0f to pal.gradTop, 0.55f to pal.base, 1f to pal.base),
         ).drawBehind {
+            val t = tState.value
+            val tau = 6.2831855f
             fun orb(c: Color, cx: Float, cy: Float, r: Float, a: Float) =
                 drawCircle(Brush.radialGradient(listOf(c.copy(alpha = a), Color.Transparent), center = Offset(cx, cy), radius = r), radius = r, center = Offset(cx, cy))
-            orb(pal.accent, size.width * 0.85f, size.height * 0.22f, size.width * 0.7f, 0.18f)
-            orb(pal.gradTop, size.width * 0.1f, size.height * 0.55f, size.width * 0.8f, 0.35f)
-            orb(pal.accent, size.width * 0.7f, size.height * 0.88f, size.width * 0.6f, 0.12f)
+            val w = size.width; val h = size.height
+            orb(pal.accent, w * (0.80f + 0.12f * kotlin.math.sin(tau * t)), h * (0.20f + 0.06f * kotlin.math.cos(tau * t)), w * 0.75f, 0.20f)
+            orb(pal.gradTop, w * (0.12f + 0.10f * kotlin.math.cos(tau * (t + 0.3f))), h * (0.55f + 0.08f * kotlin.math.sin(tau * (t + 0.3f))), w * 0.85f, 0.38f)
+            orb(pal.accent, w * (0.65f + 0.15f * kotlin.math.sin(tau * (t + 0.6f))), h * (0.88f + 0.05f * kotlin.math.cos(tau * (t + 0.6f))), w * 0.65f, 0.14f)
+            drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent), startY = 0f, endY = h * 0.25f))
+            drawRect(Brush.radialGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.28f)), center = Offset(w / 2f, h / 2f), radius = h * 0.85f))
         },
     ) { content() }
+}
+
+@Composable
+fun RadarPulse(color: Color, modifier: Modifier = Modifier) {
+    val reduce = LocalReduceMotion.current
+    val tState = if (reduce) androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0.4f) } as State<Float>
+    else androidx.compose.animation.core.rememberInfiniteTransition(label = "radar").animateFloat(
+        0f, 1f, androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween(2600, easing = androidx.compose.animation.core.LinearEasing)), label = "t",
+    )
+    Canvas(modifier) {
+        val c = Offset(size.width / 2f, size.height / 2f)
+        val maxR = size.minDimension / 2f
+        for (k in 0..2) {
+            val ph = (tState.value + k / 3f) % 1f
+            drawCircle(color.copy(alpha = (1f - ph) * 0.55f), radius = maxR * (0.25f + 0.75f * ph), center = c, style = Stroke(2.dp.toPx()))
+        }
+        drawCircle(Brush.radialGradient(listOf(color.copy(alpha = 0.55f), Color.Transparent), center = c, radius = maxR * 0.4f), radius = maxR * 0.4f, center = c)
+        drawCircle(color, radius = maxR * 0.09f, center = c)
+    }
 }
 
 @Composable
@@ -135,7 +164,8 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
             GlyphBadge(glyph, accent)
             Column {
                 Text(label, fontSize = 11.sp, letterSpacing = 0.3.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
-                Text(value, style = AurelionType.number, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = accent, maxLines = 1)
+                if (value == "—") Box(Modifier.padding(top = 4.dp).size(width = 52.dp, height = 18.dp).clip(RoundedCornerShape(6.dp)).shimmer())
+                else Text(value, style = AurelionType.number, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = accent, maxLines = 1)
                 if (sub != null) Text(sub, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }

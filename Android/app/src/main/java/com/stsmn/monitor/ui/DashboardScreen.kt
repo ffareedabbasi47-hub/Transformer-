@@ -223,7 +223,7 @@ private fun SensorGrid(s: StsmnStatus?, dimmed: Boolean) {
             MetricTile(
                 "🛢️", "Oil level", if (s != null) fmtOil(oil) else na,
                 if (oilLow) StsmnColors.Warning else ok, dimmed, Modifier.weight(1f),
-                sub = if (s != null && oil != null && oilLow) "Low" else null,
+                sub = if (s != null && oil != null) (if (oilLow) "Low" else if (oil >= 90) "Full" else "Normal") else null,
             )
         }
     }

@@ -163,6 +163,10 @@ fun GlyphBadge(glyph: String, color: Color, size: Int = 38) {
 @Composable
 fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimmed: Boolean, modifier: Modifier = Modifier, sub: String? = null) {
     Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp), tint = accent, strength = 0.14f)) {
+        if (sub != null && value != "—") Box(
+            Modifier.align(Alignment.TopEnd).padding(top = 3.dp, end = 6.dp).clip(RoundedCornerShape(50)).background(accent.copy(alpha = 0.22f))
+                .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(50)).padding(horizontal = 5.dp, vertical = 0.dp),
+        ) { Text(sub, fontSize = 8.sp, lineHeight = 11.sp, fontWeight = FontWeight.Bold, color = accent, maxLines = 1, softWrap = false) }
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp).alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,
@@ -172,13 +176,7 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
             Column(Modifier.weight(1f)) {
                 Text(label, fontSize = 10.5.sp, letterSpacing = 0.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
                 if (value == "—") Box(Modifier.padding(top = 4.dp).size(width = 52.dp, height = 18.dp).clip(RoundedCornerShape(6.dp)).shimmer())
-                else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(value, style = AurelionType.number, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = accent, maxLines = 1)
-                    if (sub != null) Box(
-                        Modifier.clip(RoundedCornerShape(50)).background(accent.copy(alpha = 0.22f))
-                            .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(50)).padding(horizontal = 7.dp, vertical = 1.dp),
-                    ) { Text(sub, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = accent, maxLines = 1, softWrap = false) }
-                }
+                else Text(value, style = AurelionType.number, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = accent, maxLines = 1)
             }
         }
     }

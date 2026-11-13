@@ -449,7 +449,6 @@ fun MapScreen(
                         }
                         OutlinedButton(
                             onClick = { showLayers = !showLayers },
-                            colors = androidx.compose.material3.ButtonDefaults.outlinedButtonColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f)),
                         ) { Text("Layers · ${base.label}" + if (roads) " + Roads" else "", maxLines = 1, softWrap = false) }
                         Button(onClick = { fitAll(mapView, devices) }, enabled = devices.any { it.hasLocation }) { Text("Show all") }
                     }

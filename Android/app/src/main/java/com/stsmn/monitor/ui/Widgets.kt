@@ -162,17 +162,20 @@ fun GlyphBadge(glyph: String, color: Color, size: Int = 38) {
 @Composable
 fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimmed: Boolean, modifier: Modifier = Modifier, sub: String? = null) {
     Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp), tint = accent, strength = 0.14f)) {
+        if (sub != null) Box(
+            Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 10.dp).clip(RoundedCornerShape(50)).background(accent.copy(alpha = 0.22f))
+                .border(1.dp, accent.copy(alpha = 0.5f), RoundedCornerShape(50)).padding(horizontal = 8.dp, vertical = 2.dp),
+        ) { Text(sub, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = accent, maxLines = 1) }
         Row(
-            Modifier.padding(12.dp).alpha(if (dimmed) 0.45f else 1f),
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp).alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             GlyphBadge(glyph, accent)
-            Column {
-                Text(label, fontSize = 11.sp, letterSpacing = 0.3.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            Column(Modifier.weight(1f)) {
+                Text(label, fontSize = 10.5.sp, letterSpacing = 0.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false)
                 if (value == "—") Box(Modifier.padding(top = 4.dp).size(width = 52.dp, height = 18.dp).clip(RoundedCornerShape(6.dp)).shimmer())
                 else Text(value, style = AurelionType.number, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, color = accent, maxLines = 1)
-                if (sub != null) Text(sub, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -181,7 +184,7 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
 @Composable
 fun StateToggle(label: String, on: Boolean?, onColor: Color, offColor: Color, modifier: Modifier = Modifier, dimmed: Boolean = false) {
     val color = when (on) { true -> onColor; false -> offColor; null -> StsmnColors.Stale }
-    Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp), tint = accent, strength = 0.14f)) {
+    Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp), tint = color, strength = 0.14f)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp).alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,

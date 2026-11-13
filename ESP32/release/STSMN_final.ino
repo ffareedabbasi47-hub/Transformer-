@@ -89,6 +89,9 @@ constexpr uint32_t MQ2_WARMUP_MS       = 60000;
 constexpr uint32_t RECOVERY_MS         = 10000;
 
 constexpr int ADC_SAMPLES_PER_CYCLE = 16;
+constexpr float VOLT_MAX_SPREAD_V   = 1.0f;
+constexpr float LEVEL_MAX_SPREAD_MV = 300.0f;
+constexpr float ADC_DEADBAND_MV     = 80.0f;
 constexpr int AVG_WINDOW_CYCLES     = 8;
 constexpr uint8_t INVALID_AFTER_BAD_CYCLES = 8;
 constexpr uint8_t VALID_AFTER_GOOD_CYCLES  = 4;
@@ -229,6 +232,13 @@ class MovingAverage {
   }
   float value() const { return count_ ? sum_ / (float)count_ : 0.0f; }
   bool hasData() const { return count_ > 0; }
+  size_t count() const { return count_; }
+  float spread() const {
+    if (count_ == 0) return 0.0f;
+    float lo = buf_[0], hi = buf_[0];
+    for (size_t i = 1; i < count_; i++) { if (buf_[i] < lo) lo = buf_[i]; if (buf_[i] > hi) hi = buf_[i]; }
+    return hi - lo;
+  }
   void reset() { idx_ = 0; count_ = 0; sum_ = 0; }
  private:
   float buf_[N] = {0};
@@ -718,7 +728,7 @@ class SensorHub {
   SensorHub()
       : ds_(&oneWire_), tempFilter_(INVALID_AFTER_BAD_CYCLES / 2, VALID_AFTER_GOOD_CYCLES),
         currentFilter_(INVALID_AFTER_BAD_CYCLES, VALID_AFTER_GOOD_CYCLES),
-        voltageFilter_(INVALID_AFTER_BAD_CYCLES, VALID_AFTER_GOOD_CYCLES) {}
+        voltageFilter_(INVALID_AFTER_BAD_CYCLES, VALID_AFTER_GOOD_CYCLES), levelFilter_(INVALID_AFTER_BAD_CYCLES, VALID_AFTER_GOOD_CYCLES) {}
 
   void begin() {
     analogReadResolution(12);
@@ -744,6 +754,7 @@ class SensorHub {
 
     float vMv = readAvgMv(PIN_VOLTAGE, ADC_SAMPLES_PER_CYCLE);
     voltageFilter_.prime(vMv <= VOLT_ADC_MAX_MV);
+    levelFilter_.prime(true);
 
     mq2Start_ = millis();
     r_ = SensorReadings{};
@@ -813,9 +824,11 @@ class SensorHub {
 
     float vMv = readAvgMv(PIN_VOLTAGE, ADC_SAMPLES_PER_CYCLE);
     bool vOk = vMv <= VOLT_ADC_MAX_MV;
+    if (vMv < ADC_DEADBAND_MV) vMv = 0.0f;
+    if (!vOk) voltAvg_.reset();
     if (vOk) voltAvg_.push(vMv / 1000.0f * VOLT_MODULE_RATIO * VOLT_CAL_FACTOR);
-    voltageFilter_.update(vOk);
-    if (!voltageFilter_.valid()) voltAvg_.reset();
+    const bool vStable = voltAvg_.count() < 6 || voltAvg_.spread() <= VOLT_MAX_SPREAD_V;
+    voltageFilter_.update(vOk && vStable);
     r_.voltageV = voltAvg_.value();
     r_.voltageValid = HAS_VOLTAGE_SENSOR && voltageFilter_.valid() && voltAvg_.hasData();
     if (r_.voltageValid) seenV_ = true;
@@ -872,13 +885,15 @@ class SensorHub {
     r_.flame = flameCrit;
 
     float lv = readAvgMv(PIN_LEVEL, ADC_SAMPLES_PER_CYCLE);
+    if (lv < ADC_DEADBAND_MV) lv = 0.0f;
     levelAvg_.push(lv);
+    levelFilter_.update(levelAvg_.count() < 6 || levelAvg_.spread() <= LEVEL_MAX_SPREAD_MV);
     float span = (float)(LEVEL_FULL_MV - LEVEL_DRY_MV);
     float pct = (levelAvg_.value() - LEVEL_DRY_MV) / span * 100.0f;
     if (pct < 0) pct = 0;
     if (pct > 100) pct = 100;
     r_.oilPct = (int)lroundf(pct);
-    r_.oilValid = HAS_LEVEL_SENSOR && lv <= VOLT_ADC_MAX_MV;
+    r_.oilValid = HAS_LEVEL_SENSOR && lv <= VOLT_ADC_MAX_MV && levelFilter_.valid();
 
     return r_;
   }
@@ -917,7 +932,7 @@ class SensorHub {
 
   OneWire oneWire_{PIN_DS18B20};
   DallasTemperature ds_;
-  ValidityFilter tempFilter_, currentFilter_, voltageFilter_;
+  ValidityFilter tempFilter_, currentFilter_, voltageFilter_, levelFilter_;
   MovingAverage<4> tempAvg_;
   MovingAverage<AVG_WINDOW_CYCLES> currentAvg_, voltAvg_, mq2Avg_, levelAvg_;
   FlameDetector flameDet_;

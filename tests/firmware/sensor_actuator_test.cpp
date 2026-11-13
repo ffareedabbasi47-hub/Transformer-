@@ -64,6 +64,17 @@ int main() {
     CHECK(r.voltageValid && r.voltageV > 3.45f && r.voltageV < 3.55f, "voltage recovers without old values mixed in");
   }
   { reset(); SensorHub h; h.begin(); run(h, 3000);
+    SensorReadings r{};
+    for (int i = 0; i < 60; i++) { hw().mv[PIN_VOLTAGE] = (i % 2) ? 150 : 1100; hw().mv[PIN_LEVEL] = (i % 2) ? 300 : 1500; r = run(h, 250); }
+    CHECK(!r.voltageValid, "floating/noisy voltage pin -> no fake number (invalid)");
+    CHECK(!r.oilValid, "floating/noisy level pin -> no fake percentage (invalid)");
+    hw().mv[PIN_VOLTAGE] = 700; hw().mv[PIN_LEVEL] = 900; r = run(h, 6000);
+    CHECK(r.voltageValid && r.voltageV > 3.4f && r.voltageV < 3.6f, "steady voltage valid again");
+    CHECK(r.oilValid, "steady level valid again");
+    hw().mv[PIN_VOLTAGE] = 40; r = run(h, 8000);
+    CHECK(r.voltageValid && fabsf(r.voltageV) < 0.001f, "below ADC dead-band reads 0 V, not a fake value");
+  }
+  { reset(); SensorHub h; h.begin(); run(h, 3000);
     hw().level[PIN_FLAME_DO] = LOW;                         // flame
     SensorReadings r = run(h, 250);
     CHECK(!r.flame, "flame needs debounce (not instant)");

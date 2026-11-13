@@ -219,7 +219,7 @@ private fun AurelionNavBar(tabs: List<Tab>, isSelected: (Tab) -> Boolean, onSele
     )
     val dark = cs.background.luminance() < 0.5f
     val accent = cs.primary
-    Box(Modifier.navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth().panel(28.dp, 0.97f)) {
+    Box(Modifier.navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth().panel(28.dp, 1.3f)) {
         Box(
             Modifier.matchParentSize().padding(5.dp).drawBehind {
                 val hx = headState.value

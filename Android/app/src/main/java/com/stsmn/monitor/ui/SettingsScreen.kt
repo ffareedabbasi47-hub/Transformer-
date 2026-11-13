@@ -426,7 +426,6 @@ fun SettingsScreen(
             AppCard { SwitchRow("Animation kam karo", ui.reduceMotion) { v -> uiStore.update { it.copy(reduceMotion = v) } } }
             OutlinedButton(
                 onClick = { uiStore.update { UiPrefs() } }, modifier = Modifier.fillMaxWidth(),
-                border = androidx.compose.foundation.BorderStroke(1.dp, accent),
             ) { Text("STSMN ke default par wapas", color = accent) }
             Text(
                 "\"System\" theme, Display me chuni hui Light / Dark / System ke hisaab se chalti hai. Appearance sirf app ka look badalti hai.",

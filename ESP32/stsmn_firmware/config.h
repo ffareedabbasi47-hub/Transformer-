@@ -103,6 +103,9 @@ constexpr uint32_t RECOVERY_MS         = 10000;  // stable time before leaving E
 
 // ---------- Filtering / validity --------------------------------------------
 constexpr int ADC_SAMPLES_PER_CYCLE = 16;  // oversampling inside one cycle
+constexpr float VOLT_MAX_SPREAD_V   = 1.0f;  // a steady supply moves less than this in 2 s; more = floating/noisy pin = no valid reading
+constexpr float LEVEL_MAX_SPREAD_MV = 300.0f;
+constexpr float ADC_DEADBAND_MV     = 80.0f;   // ESP32 ADC is not usable below this: treated as 0
 constexpr int AVG_WINDOW_CYCLES     = 8;   // moving average (8 x 250ms = 2s)
 constexpr uint8_t INVALID_AFTER_BAD_CYCLES = 8; // 2 s of bad samples -> invalid
 constexpr uint8_t VALID_AFTER_GOOD_CYCLES  = 4; // 1 s of good samples -> valid again

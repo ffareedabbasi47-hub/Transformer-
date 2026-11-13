@@ -15,6 +15,13 @@ class MovingAverage {
   }
   float value() const { return count_ ? sum_ / (float)count_ : 0.0f; }
   bool hasData() const { return count_ > 0; }
+  size_t count() const { return count_; }
+  float spread() const {
+    if (count_ == 0) return 0.0f;
+    float lo = buf_[0], hi = buf_[0];
+    for (size_t i = 1; i < count_; i++) { if (buf_[i] < lo) lo = buf_[i]; if (buf_[i] > hi) hi = buf_[i]; }
+    return hi - lo;
+  }
   void reset() { idx_ = 0; count_ = 0; sum_ = 0; }
  private:
   float buf_[N] = {0};

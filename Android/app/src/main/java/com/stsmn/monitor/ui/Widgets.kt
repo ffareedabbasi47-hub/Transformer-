@@ -63,6 +63,7 @@ fun Modifier.glass(
     val fill = if (tinted) tint.copy(alpha = 0.10f).compositeOver(cs.surface) else cs.surface
 
     val dark = cs.background.luminance() < 0.5f
+    val accentShadow = cs.primary.copy(alpha = if (dark) 0.07f else 0.05f)
     val sheen = Brush.linearGradient(
         listOf(Color.White.copy(alpha = if (dark) 0.10f else 0.55f), Color.White.copy(alpha = if (dark) 0.02f else 0.10f)),
         start = Offset(0f, 0f), end = Offset(600f, 900f),
@@ -71,7 +72,17 @@ fun Modifier.glass(
         listOf(Color.White.copy(alpha = if (dark) 0.38f else 0.9f), (if (tinted) tint else cs.outline).copy(alpha = 0.25f), Color.White.copy(alpha = if (dark) 0.14f else 0.5f)),
         start = Offset(0f, 0f), end = Offset(500f, 900f),
     )
-    return this.clip(shape).background(fill.copy(alpha = 0.66f), shape).background(sheen, shape).border(1.dp, edge, shape)
+    val glow = Color.White.copy(alpha = if (dark) 0.10f else 0.5f)
+    return this.clip(shape).background(fill.copy(alpha = 0.66f), shape).background(sheen, shape)
+        .drawBehind {
+            drawRect(Brush.radialGradient(listOf(glow, Color.Transparent), center = Offset(size.width * 0.12f, 0f), radius = size.width * 0.85f))
+            drawLine(
+                Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = if (dark) 0.55f else 0.95f), Color.Transparent)),
+                Offset(size.width * 0.08f, 1f), Offset(size.width * 0.92f, 1f), 1.5.dp.toPx(),
+            )
+            drawRect(Brush.verticalGradient(listOf(Color.Transparent, accentShadow), startY = size.height * 0.6f, endY = size.height))
+        }
+        .border(1.dp, edge, shape)
 }
 
 @Composable

@@ -3,6 +3,11 @@ package com.stsmn.monitor.ui
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalContext
 import com.stsmn.monitor.data.BlePermissions
 import androidx.compose.ui.text.font.FontWeight
@@ -201,30 +206,77 @@ fun StsmnApp(vm: MainViewModel) {
 private fun AurelionNavBar(tabs: List<Tab>, isSelected: (Tab) -> Boolean, onSelect: (Tab) -> Unit) {
     val cs = MaterialTheme.colorScheme
     val reduce = LocalReduceMotion.current
-    Row(
-        Modifier.navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth()
-            .panel(28.dp, 0.97f).padding(5.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        tabs.forEach { t ->
-            val sel = isSelected(t)
-            val bg by androidx.compose.animation.animateColorAsState(
-                if (sel) cs.primary.copy(alpha = 0.16f) else Color.Transparent,
-                androidx.compose.animation.core.tween(if (reduce) 0 else 220), label = "navBg",
-            )
-            val tint by androidx.compose.animation.animateColorAsState(
-                if (sel) cs.primary else cs.onSurfaceVariant,
-                androidx.compose.animation.core.tween(if (reduce) 0 else 220), label = "navTint",
-            )
-            Column(
-                Modifier.weight(1f).heightIn(min = 52.dp).clip(RoundedCornerShape(22.dp)).background(bg)
-                    .clickable(role = androidx.compose.ui.semantics.Role.Tab) { onSelect(t) }.padding(vertical = 6.dp),
-                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(t.icon!!, contentDescription = t.label, tint = tint, modifier = Modifier.size(22.dp))
-                Text(t.label, fontSize = 10.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip, color = tint,
-                    fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium, letterSpacing = 0.3.sp)
-                Box(Modifier.padding(top = 2.dp).size(width = if (sel) 14.dp else 0.dp, height = 2.dp).background(cs.primary))
+    val n = tabs.size
+    val selIndex = tabs.indexOfFirst { isSelected(it) }.coerceAtLeast(0)
+    val posState = androidx.compose.animation.core.animateFloatAsState(
+        targetValue = selIndex.toFloat(),
+        animationSpec = if (reduce) androidx.compose.animation.core.tween(0)
+        else androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 150f),
+        label = "drop",
+    )
+    val dark = cs.background.luminance() < 0.5f
+    val accent = cs.primary
+    Box(Modifier.navigationBarsPadding().padding(horizontal = 14.dp, vertical = 10.dp).fillMaxWidth().panel(28.dp, 0.97f)) {
+        Box(
+            Modifier.matchParentSize().padding(5.dp).drawBehind {
+                val p = posState.value
+                val w = size.width / n
+                val h = size.height
+                val d = kotlin.math.abs(selIndex - p).coerceIn(0f, 1f)
+                val dw = w * 0.94f * (1f + 0.55f * d)
+                val dh = h * (1f - 0.14f * d)
+                val cx = (p + 0.5f) * w
+                val left = cx - dw / 2f
+                val top = (h - dh) / 2f
+                val rr = androidx.compose.ui.geometry.CornerRadius(dh * 0.5f)
+                val white = Color.White
+                drawRoundRect(
+                    Brush.radialGradient(listOf(accent.copy(alpha = 0.32f), Color.Transparent), center = Offset(cx, h / 2f), radius = dw),
+                    topLeft = Offset(left - dw * 0.25f, top - dh * 0.25f),
+                    size = androidx.compose.ui.geometry.Size(dw * 1.5f, dh * 1.5f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(dh),
+                )
+                drawRoundRect(
+                    Brush.verticalGradient(
+                        listOf(white.copy(alpha = if (dark) 0.26f else 0.7f), accent.copy(alpha = if (dark) 0.20f else 0.26f), white.copy(alpha = if (dark) 0.10f else 0.35f)),
+                        startY = top, endY = top + dh,
+                    ),
+                    topLeft = Offset(left, top), size = androidx.compose.ui.geometry.Size(dw, dh), cornerRadius = rr,
+                )
+                drawOval(
+                    Brush.radialGradient(listOf(white.copy(alpha = 0.75f), Color.Transparent), center = Offset(left + dw * 0.32f, top + dh * 0.2f), radius = dw * 0.32f),
+                    topLeft = Offset(left + dw * 0.1f, top + dh * 0.05f), size = androidx.compose.ui.geometry.Size(dw * 0.5f, dh * 0.26f),
+                )
+                drawOval(
+                    Brush.radialGradient(listOf(accent.copy(alpha = 0.55f), Color.Transparent), center = Offset(cx, top + dh * 0.92f), radius = dw * 0.4f),
+                    topLeft = Offset(cx - dw * 0.32f, top + dh * 0.78f), size = androidx.compose.ui.geometry.Size(dw * 0.64f, dh * 0.18f),
+                )
+                drawRoundRect(
+                    Brush.linearGradient(listOf(white.copy(alpha = 0.95f), white.copy(alpha = 0.08f), white.copy(alpha = 0.55f)), start = Offset(left, top), end = Offset(left + dw, top + dh)),
+                    topLeft = Offset(left, top), size = androidx.compose.ui.geometry.Size(dw, dh), cornerRadius = rr,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(1.3.dp.toPx()),
+                )
+            },
+        )
+        Row(Modifier.padding(5.dp).fillMaxWidth()) {
+            tabs.forEach { t ->
+                val sel = isSelected(t)
+                val tint by androidx.compose.animation.animateColorAsState(
+                    if (sel) cs.primary else cs.onSurfaceVariant,
+                    androidx.compose.animation.core.tween(if (reduce) 0 else 220), label = "navTint",
+                )
+                val scale by androidx.compose.animation.core.animateFloatAsState(
+                    if (sel) 1.14f else 1f, androidx.compose.animation.core.spring(dampingRatio = 0.5f, stiffness = 300f), label = "navScale",
+                )
+                Column(
+                    Modifier.weight(1f).heightIn(min = 54.dp).clip(RoundedCornerShape(22.dp))
+                        .clickable(role = androidx.compose.ui.semantics.Role.Tab) { onSelect(t) }.padding(vertical = 6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(t.icon!!, contentDescription = t.label, tint = tint, modifier = Modifier.size(22.dp).graphicsLayer { scaleX = scale; scaleY = scale })
+                    Text(t.label, fontSize = 10.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip, color = tint,
+                        fontWeight = if (sel) FontWeight.Bold else FontWeight.Medium, letterSpacing = 0.3.sp)
+                }
             }
         }
     }

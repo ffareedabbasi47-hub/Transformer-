@@ -442,7 +442,7 @@ fun MapScreen(
             }
         }
 
-        Column(Modifier.align(Alignment.BottomCenter).padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.align(Alignment.BottomCenter).padding(12.dp).padding(bottom = LocalBottomInset.current), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (!(selected != null && sheetExpanded)) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                     Legend()

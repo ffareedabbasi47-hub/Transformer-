@@ -251,7 +251,7 @@ fun NativeGlobe(
                 LinearProgressIndicator(progress = { progress / EarthTexture.TILE_COUNT.toFloat() }, modifier = Modifier.size(width = 220.dp, height = 4.dp))
             }
             else -> Column(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp),
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp + LocalBottomInset.current),
                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 if (!moving) Text("Drag to spin · pinch or double-tap to zoom", fontSize = 11.sp, color = Color(0xCCFFFFFF))

@@ -135,7 +135,7 @@ fun StsmnApp(vm: MainViewModel) {
                 )
             },
         ) { padding ->
-            val underNav = current != Tab.MAP
+            val underNav = true
             val contentModifier = if (underNav) Modifier.fillMaxSize().padding(top = padding.calculateTopPadding()) else Modifier.fillMaxSize().padding(padding)
             CompositionLocalProvider(LocalBottomInset provides (if (underNav) padding.calculateBottomPadding() else 0.dp)) {
             Column(contentModifier) {

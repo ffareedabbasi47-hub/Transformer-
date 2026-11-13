@@ -17,7 +17,7 @@ class WhatsAppReplyTest {
         assertNotNull(r); assertTrue(r!!.contains("key"))
     }
     @Test fun notActivated() { assertTrue(WhatsAppReply.classify(200, "ERROR: phone number not registered")!!.contains("activate")) }
-    @Test fun rateLimit() { assertTrue(WhatsAppReply.classify(429, "")!!.contains("rate")) }
-    @Test fun serverDown() { assertTrue(WhatsAppReply.classify(503, "")!!.contains("down")) }
+    @Test fun rateLimit() { assertTrue(WhatsAppReply.classify(429, "")!!.contains("limit")) }
+    @Test fun serverDown() { assertTrue(WhatsAppReply.classify(503, "")!!.contains("band")) }
     @Test fun emptyBodyIsNotSuccess() { assertEquals("service ne HTTP 200 diya, par koi message nahi", WhatsAppReply.classify(200, "")) }
 }

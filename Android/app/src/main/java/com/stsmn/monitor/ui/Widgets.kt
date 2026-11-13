@@ -2,6 +2,7 @@ package com.stsmn.monitor.ui
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -65,12 +66,13 @@ fun Modifier.glass(
 
     val dark = cs.background.luminance() < 0.5f
     val accentShadow = cs.primary.copy(alpha = if (dark) 0.07f else 0.05f)
+    val hueTint = cs.primary.shiftHue(50f).copy(alpha = if (dark) 0.14f else 0.12f)
     val sheen = Brush.linearGradient(
         listOf(Color.White.copy(alpha = if (dark) 0.10f else 0.55f), Color.White.copy(alpha = if (dark) 0.02f else 0.10f)),
         start = Offset(0f, 0f), end = Offset(600f, 900f),
     )
     val edge = Brush.linearGradient(
-        listOf(Color.White.copy(alpha = if (dark) 0.38f else 0.9f), (if (tinted) tint else cs.outline).copy(alpha = 0.25f), Color.White.copy(alpha = if (dark) 0.14f else 0.5f)),
+        listOf(Color.White.copy(alpha = if (dark) 0.38f else 0.9f), (if (tinted) tint else cs.primary).copy(alpha = 0.45f), cs.primary.shiftHue(60f).copy(alpha = if (dark) 0.30f else 0.5f)),
         start = Offset(0f, 0f), end = Offset(500f, 900f),
     )
     val glow = Color.White.copy(alpha = if (dark) 0.10f else 0.5f)
@@ -81,6 +83,7 @@ fun Modifier.glass(
                 Brush.horizontalGradient(listOf(Color.Transparent, Color.White.copy(alpha = if (dark) 0.55f else 0.95f), Color.Transparent)),
                 Offset(size.width * 0.08f, 1f), Offset(size.width * 0.92f, 1f), 1.5.dp.toPx(),
             )
+            drawRect(Brush.linearGradient(listOf(Color.Transparent, hueTint), start = Offset(size.width * 0.3f, 0f), end = Offset(size.width, size.height)))
             drawRect(Brush.verticalGradient(listOf(Color.Transparent, accentShadow), startY = size.height * 0.6f, endY = size.height))
         }
         .border(1.dp, edge, shape)
@@ -121,6 +124,8 @@ fun GlassBackground(content: @Composable () -> Unit) {
             orb(pal.accent, w * (0.80f + 0.12f * kotlin.math.sin(tau * t)), h * (0.20f + 0.06f * kotlin.math.cos(tau * t)), w * 0.75f, 0.20f)
             orb(pal.gradTop, w * (0.12f + 0.10f * kotlin.math.cos(tau * (t + 0.3f))), h * (0.55f + 0.08f * kotlin.math.sin(tau * (t + 0.3f))), w * 0.85f, 0.38f)
             orb(pal.accent, w * (0.65f + 0.15f * kotlin.math.sin(tau * (t + 0.6f))), h * (0.88f + 0.05f * kotlin.math.cos(tau * (t + 0.6f))), w * 0.65f, 0.14f)
+            orb(pal.accent.shiftHue(70f), w * (0.30f + 0.14f * kotlin.math.cos(tau * (t + 0.8f))), h * (0.30f + 0.08f * kotlin.math.sin(tau * (t + 0.8f))), w * 0.6f, 0.16f)
+            orb(pal.accent.shiftHue(-60f), w * (0.90f + 0.08f * kotlin.math.sin(tau * (t + 0.45f))), h * (0.70f + 0.08f * kotlin.math.cos(tau * (t + 0.45f))), w * 0.6f, 0.15f)
             drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent), startY = 0f, endY = h * 0.25f))
             drawRect(Brush.radialGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.28f)), center = Offset(w / 2f, h / 2f), radius = h * 0.85f))
         },
@@ -156,7 +161,7 @@ fun GlyphBadge(glyph: String, color: Color, size: Int = 38) {
 
 @Composable
 fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimmed: Boolean, modifier: Modifier = Modifier, sub: String? = null) {
-    Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp))) {
+    Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp), tint = accent, strength = 0.14f)) {
         Row(
             Modifier.padding(12.dp).alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,
@@ -176,7 +181,7 @@ fun MetricTile(glyph: String, label: String, value: String, accent: Color, dimme
 @Composable
 fun StateToggle(label: String, on: Boolean?, onColor: Color, offColor: Color, modifier: Modifier = Modifier, dimmed: Boolean = false) {
     val color = when (on) { true -> onColor; false -> offColor; null -> StsmnColors.Stale }
-    Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp))) {
+    Box(modifier.glass(RoundedCornerShape(LocalCardRadius.current - 2.dp), tint = accent, strength = 0.14f)) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp).alpha(if (dimmed) 0.45f else 1f),
             verticalAlignment = Alignment.CenterVertically,
@@ -251,6 +256,91 @@ fun TransformerArt(tint: Color, modifier: Modifier = Modifier) {
         for (i in 1..5) {
             val x = w * 0.06f + body.width * i / 6f
             drawLine(tint.copy(alpha = 0.7f), Offset(x, h * 0.42f), Offset(x, h * 0.86f), 2.dp.toPx(), StrokeCap.Round)
+        }
+    }
+}
+
+fun Color.shiftHue(deg: Float): Color {
+    val hsv = FloatArray(3)
+    android.graphics.Color.RGBToHSV((red * 255).toInt(), (green * 255).toInt(), (blue * 255).toInt(), hsv)
+    hsv[0] = (hsv[0] + deg + 360f) % 360f
+    return Color(android.graphics.Color.HSVToColor(hsv)).copy(alpha = alpha)
+}
+
+@Composable
+private fun GlassButtonBase(
+    onClick: () -> Unit, modifier: Modifier, enabled: Boolean, fill: Brush, edge: Brush, contentColor: Color,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit,
+) {
+    val shape = RoundedCornerShape(16.dp)
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val sheen = Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.30f else 0.55f), Color.White.copy(alpha = 0.02f), Color.Transparent))
+    androidx.compose.foundation.layout.Row(
+        modifier.androidxMinHeight().alpha(if (enabled) 1f else 0.4f).clip(shape)
+            .background(fill, shape).background(sheen, shape).border(1.dp, edge, shape)
+            .androidxClickable(enabled, onClick).padding(horizontal = 18.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides contentColor) {
+            androidx.compose.material3.ProvideTextStyle(MaterialTheme.typography.labelLarge) { content() }
+        }
+    }
+}
+
+private fun Modifier.androidxMinHeight(): Modifier = this.then(Modifier.height(44.dp))
+
+private fun Modifier.androidxClickable(enabled: Boolean, onClick: () -> Unit): Modifier =
+    this.then(Modifier.clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick))
+
+@Composable
+fun Button(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    GlassButtonBase(
+        onClick, modifier, enabled,
+        Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.92f), cs.primary.shiftHue(38f).copy(alpha = 0.78f))),
+        Brush.linearGradient(listOf(Color.White.copy(alpha = 0.85f), cs.primary.copy(alpha = 0.3f), Color.White.copy(alpha = 0.4f))),
+        cs.onPrimary, content,
+    )
+}
+
+@Composable
+fun OutlinedButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    GlassButtonBase(
+        onClick, modifier, enabled,
+        Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.16f), cs.primary.shiftHue(38f).copy(alpha = 0.10f))),
+        Brush.linearGradient(listOf(Color.White.copy(alpha = 0.6f), cs.primary.copy(alpha = 0.55f), Color.White.copy(alpha = 0.25f))),
+        cs.primary, content,
+    )
+}
+
+@Composable
+fun TextButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    GlassButtonBase(
+        onClick, modifier, enabled,
+        Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.07f), Color.Transparent)),
+        Brush.linearGradient(listOf(Color.White.copy(alpha = 0.25f), Color.Transparent, Color.White.copy(alpha = 0.12f))),
+        cs.primary, content,
+    )
+}
+
+@Composable
+fun FilterChip(selected: Boolean, onClick: () -> Unit, label: @Composable () -> Unit, modifier: Modifier = Modifier) {
+    val cs = MaterialTheme.colorScheme
+    val shape = RoundedCornerShape(50)
+    val fill = if (selected) Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.55f), cs.primary.shiftHue(38f).copy(alpha = 0.40f)))
+    else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.03f)))
+    val edge = Brush.linearGradient(listOf(Color.White.copy(alpha = if (selected) 0.8f else 0.35f), cs.primary.copy(alpha = if (selected) 0.6f else 0.2f), Color.White.copy(alpha = 0.2f)))
+    Box(
+        modifier.clip(shape).background(fill, shape)
+            .background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.22f), Color.Transparent)), shape)
+            .border(1.dp, edge, shape).clickable(role = androidx.compose.ui.semantics.Role.Tab, onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides (if (selected) cs.onPrimary else cs.onSurface)) {
+            androidx.compose.material3.ProvideTextStyle(MaterialTheme.typography.labelLarge) { label() }
         }
     }
 }

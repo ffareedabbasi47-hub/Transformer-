@@ -82,13 +82,13 @@ int main() {
   }
   { reset(); Actuators a; a.begin();
     if (RELAY_ACTIVE_LOW && RELAY_OPEN_DRAIN_OFF) {
-      CHECK(hw().pinMode_[PIN_RELAY] == INPUT && !a.relayAllowed(), "relay: cut after begin() = pin released (high-impedance)");
+      CHECK(hw().pinMode_[PIN_RELAY] == INPUT_PULLUP && !a.relayAllowed(), "relay: cut after begin() = pin released (weak pull-up high)");
       a.setRelayAllowed(true);
       CHECK(hw().pinMode_[PIN_RELAY] == OUTPUT && hw().level[PIN_RELAY] == LOW && !a.relayMismatch(), "relay: allowed = pin driven LOW");
       a.setRelayAllowed(true);
       CHECK(hw().pinMode_[PIN_RELAY] == OUTPUT && hw().level[PIN_RELAY] == LOW, "relay: repeated 'allowed' calls keep it on");
       a.setRelayAllowed(false);
-      CHECK(hw().pinMode_[PIN_RELAY] == INPUT && !a.relayAllowed() && !a.relayMismatch(), "relay: cut again = released");
+      CHECK(hw().pinMode_[PIN_RELAY] == INPUT_PULLUP && !a.relayAllowed() && !a.relayMismatch(), "relay: cut again = released");
     } else {
       CHECK(hw().firstWriteBeforeMode[PIN_RELAY] == 1, "relay: cut level latched BEFORE the pin becomes an output (no boot pulse)");
       CHECK(hw().level[PIN_RELAY] == (RELAY_ACTIVE_LOW ? HIGH : LOW) && !a.relayAllowed(), "relay: cut after begin()");

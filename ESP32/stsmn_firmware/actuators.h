@@ -12,7 +12,7 @@ class Actuators {
   // Call FIRST in setup(): put the relay into cutoff before anything else.
   void begin() {
     if (RELAY_USES_RELEASE) {
-      pinMode(PIN_RELAY, INPUT);   // released = cutoff (the module's pull-up keeps the relay OFF; same as a dead ESP32)
+      pinMode(PIN_RELAY, INPUT_PULLUP);   // released = cutoff (weak pull-up holds the pin high, the module's own pull-up keeps the relay OFF)
     } else {
       // Latch the CUT level into the output register BEFORE the pin becomes an output, so the relay never
       // sees a pulse of the "energised" level during boot (relevant for active-low modules).
@@ -31,7 +31,7 @@ class Actuators {
   void setRelayAllowed(bool allow) {
     if (RELAY_USES_RELEASE) {
       if (allow && !relayAllowed_) { pinMode(PIN_RELAY, OUTPUT); digitalWrite(PIN_RELAY, LOW); }   // coil energised
-      else if (!allow) pinMode(PIN_RELAY, INPUT);                                                  // released = cutoff
+      else if (!allow) { digitalWrite(PIN_RELAY, HIGH); pinMode(PIN_RELAY, INPUT_PULLUP); }          // released = cutoff, pin held high
     } else {
       const int onLevel  = RELAY_ACTIVE_LOW ? LOW : HIGH;   // coil energized = supply allowed
       const int offLevel = RELAY_ACTIVE_LOW ? HIGH : LOW;

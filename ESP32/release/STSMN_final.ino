@@ -944,7 +944,7 @@ class Actuators {
 
   void begin() {
     if (RELAY_USES_RELEASE) {
-      pinMode(PIN_RELAY, INPUT);
+      pinMode(PIN_RELAY, INPUT_PULLUP);
     } else {
 
       digitalWrite(PIN_RELAY, RELAY_ACTIVE_LOW ? HIGH : LOW);
@@ -962,7 +962,7 @@ class Actuators {
   void setRelayAllowed(bool allow) {
     if (RELAY_USES_RELEASE) {
       if (allow && !relayAllowed_) { pinMode(PIN_RELAY, OUTPUT); digitalWrite(PIN_RELAY, LOW); }
-      else if (!allow) pinMode(PIN_RELAY, INPUT);
+      else if (!allow) { digitalWrite(PIN_RELAY, HIGH); pinMode(PIN_RELAY, INPUT_PULLUP); }
     } else {
       const int onLevel  = RELAY_ACTIVE_LOW ? LOW : HIGH;
       const int offLevel = RELAY_ACTIVE_LOW ? HIGH : LOW;

@@ -168,7 +168,7 @@ constexpr float ACS_DEADBAND_A      = 0.05f;
 constexpr float VOLT_SAFE_MAX_V    = 8.0f;   // 0..8 V = safe
 constexpr float VOLT_PTS_PER_V     = 20.0f;  // above 8 V: +20 risk points per volt (12 V = 80 = EMERGENCY)
 constexpr float VOLT_MODULE_RATIO = 5.0f;  // module divides by 5 (calibrate!)
-constexpr float VOLT_CAL_FACTOR   = 1.00f; // multiply after comparing with a multimeter
+constexpr float VOLT_CAL_FACTOR   = 0.85f; // was reading ~1.5 V high at ~9.8 V; fine-tune: new = old x (multimeter V / app V)
 constexpr int   VOLT_ADC_MAX_MV   = 3100;  // above this the ESP32 ADC saturates
 // ASSUMPTION: demo supply is the 3.7V battery. Change when your supply changes.
 constexpr float NOMINAL_VOLTAGE_V = 3.7f;
@@ -252,8 +252,8 @@ static_assert(PTS_FLAME + PTS_TEMP == PTS_SMOKE, "fire half (flame + temperature
 
 constexpr float TEMP_WARN_C = 40.0f;   // 0 points below, ramps up
 constexpr float TEMP_CRIT_C = 70.0f;   // full points at/above
-constexpr float CURRENT_WARN_A = 2.0f;
-constexpr float CURRENT_CRIT_A = 4.5f;
+constexpr float CURRENT_WARN_A = 0.8f;
+constexpr float CURRENT_CRIT_A = 2.0f;
 constexpr float VOLT_OK_BAND_PCT   = 15.0f;  // +/- % of nominal = no points
 constexpr float VOLT_FULL_BAND_PCT = 40.0f;  // +/- % of nominal = full points
 

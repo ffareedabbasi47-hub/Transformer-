@@ -28,7 +28,7 @@ int main() {
   { reset(); SensorHub h; h.begin(); SensorReadings r = run(h, 3000);
     CHECK(r.tempValid && r.tempC > 29.5f && r.tempC < 30.5f, "normal temperature valid");
     CHECK(r.currentValid && r.currentA == 0.0f, "no load current -> 0 A and valid");
-    CHECK(r.voltageValid && r.voltageV > 3.6f && r.voltageV < 3.8f, "voltage ~3.7 V valid");
+    CHECK(r.voltageValid && r.voltageV > 3.6f * VOLT_CAL_FACTOR && r.voltageV < 3.8f * VOLT_CAL_FACTOR, "voltage ~3.7 V valid");
     CHECK(!r.smoke && !r.mq2Ready, "MQ-2 warm-up: ready=false, smoke=false");
     CHECK(!r.flame, "no flame"); CHECK(r.oilValid, "level reading present");
   }
@@ -61,7 +61,7 @@ int main() {
     SensorReadings r = run(h, 3000);
     CHECK(!r.voltageValid, "voltage ADC saturated -> invalid (not clipped to a fake number)");
     hw().mv[PIN_VOLTAGE] = 700; r = run(h, 1250);
-    CHECK(r.voltageValid && r.voltageV > 3.45f && r.voltageV < 3.55f, "voltage recovers without old values mixed in");
+    CHECK(r.voltageValid && r.voltageV > 3.45f * VOLT_CAL_FACTOR && r.voltageV < 3.55f * VOLT_CAL_FACTOR, "voltage recovers without old values mixed in");
   }
   { reset(); SensorHub h; h.begin(); run(h, 3000);
     SensorReadings r{};
@@ -69,7 +69,7 @@ int main() {
     CHECK(!r.voltageValid, "floating/noisy voltage pin -> no fake number (invalid)");
     CHECK(!r.oilValid, "floating/noisy level pin -> no fake percentage (invalid)");
     hw().mv[PIN_VOLTAGE] = 700; hw().mv[PIN_LEVEL] = 900; r = run(h, 6000);
-    CHECK(r.voltageValid && r.voltageV > 3.4f && r.voltageV < 3.6f, "steady voltage valid again");
+    CHECK(r.voltageValid && r.voltageV > 3.4f * VOLT_CAL_FACTOR && r.voltageV < 3.6f * VOLT_CAL_FACTOR, "steady voltage valid again");
     CHECK(r.oilValid, "steady level valid again");
     hw().mv[PIN_VOLTAGE] = 40; r = run(h, 8000);
     CHECK(r.voltageValid && fabsf(r.voltageV) < 0.001f, "below ADC dead-band reads 0 V, not a fake value");

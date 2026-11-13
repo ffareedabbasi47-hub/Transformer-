@@ -111,7 +111,7 @@ constexpr float ACS_DEADBAND_A      = 0.05f;
 constexpr float VOLT_SAFE_MAX_V    = 8.0f;
 constexpr float VOLT_PTS_PER_V     = 20.0f;
 constexpr float VOLT_MODULE_RATIO = 5.0f;
-constexpr float VOLT_CAL_FACTOR   = 1.00f;
+constexpr float VOLT_CAL_FACTOR   = 0.85f;
 constexpr int   VOLT_ADC_MAX_MV   = 3100;
 
 constexpr float NOMINAL_VOLTAGE_V = 3.7f;
@@ -183,8 +183,8 @@ static_assert(PTS_FLAME + PTS_TEMP == PTS_SMOKE, "fire half (flame + temperature
 
 constexpr float TEMP_WARN_C = 40.0f;
 constexpr float TEMP_CRIT_C = 70.0f;
-constexpr float CURRENT_WARN_A = 2.0f;
-constexpr float CURRENT_CRIT_A = 4.5f;
+constexpr float CURRENT_WARN_A = 0.8f;
+constexpr float CURRENT_CRIT_A = 2.0f;
 constexpr float VOLT_OK_BAND_PCT   = 15.0f;
 constexpr float VOLT_FULL_BAND_PCT = 40.0f;
 

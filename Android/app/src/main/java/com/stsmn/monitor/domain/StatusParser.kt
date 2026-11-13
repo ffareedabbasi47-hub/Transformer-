@@ -16,11 +16,11 @@ object StatusParser {
     private class FieldError(message: String) : Exception(message)
 
     fun parse(raw: String): ParseResult {
-        if (raw.isBlank() || raw.length > MAX_PACKET_CHARS) return ParseResult.Invalid("Empty or oversized packet")
+        if (raw.isBlank() || raw.length > MAX_PACKET_CHARS) return ParseResult.Invalid("Packet khali ya bahut bada hai")
         val obj = try {
             JSONObject(raw)
         } catch (e: JSONException) {
-            return ParseResult.Invalid("Malformed JSON")
+            return ParseResult.Invalid("JSON kharab hai")
         }
         return try {
             val temperature = obj.sensor("temperature", AppConfig.TEMP_MIN_C, AppConfig.TEMP_MAX_C)
@@ -28,7 +28,7 @@ object StatusParser {
             val current = obj.sensor("current", AppConfig.CURRENT_MIN_A, AppConfig.CURRENT_MAX_A)
             val oil = obj.sensor("oilLevel", 0.0, 100.0)
             val statusText = obj.str("status", 16)
-            val status = SystemStatus.parse(statusText) ?: throw FieldError("Unknown status '$statusText'")
+            val status = SystemStatus.parse(statusText) ?: throw FieldError("Status samajh nahi aaya: '$statusText'")
             val relay = obj.bool("relay")
 
             val pctObj = obj.optJSONObject("pct")
@@ -63,37 +63,37 @@ object StatusParser {
             }
             ParseResult.Valid(packet, anomalies)
         } catch (e: FieldError) {
-            ParseResult.Invalid(e.message ?: "Invalid field")
+            ParseResult.Invalid(e.message ?: "Field galat hai")
         }
     }
 
     private fun JSONObject.str(key: String, maxLen: Int): String {
         val v = opt(key)
-        if (v !is String || v.isBlank() || v.length > maxLen) throw FieldError("Field '$key' missing or invalid")
+        if (v !is String || v.isBlank() || v.length > maxLen) throw FieldError("Field '$key' nahi hai ya galat hai")
         return v
     }
 
     private fun JSONObject.bool(key: String): Boolean {
         val v = opt(key)
-        if (v !is Boolean) throw FieldError("Field '$key' must be true/false")
+        if (v !is Boolean) throw FieldError("Field '$key' true/false hona chahiye")
         return v
     }
 
     private fun JSONObject.long(key: String, min: Long, max: Long): Long {
         val v = opt(key)
-        if (v !is Number) throw FieldError("Field '$key' missing or not a number")
+        if (v !is Number) throw FieldError("Field '$key' nahi hai ya number nahi hai")
         val d = v.toDouble()
         if (d.isNaN() || d != Math.floor(d) || d < min.toDouble() || d > max.toDouble()) {
-            throw FieldError("Field '$key' out of range")
+            throw FieldError("Field '$key' range ke bahar hai")
         }
         return v.toLong()
     }
 
     private fun JSONObject.sensor(key: String, min: Double, max: Double): Double? {
-        if (!has(key)) throw FieldError("Field '$key' missing")
+        if (!has(key)) throw FieldError("Field '$key' nahi hai")
         val v = opt(key)
         if (v == null || v == JSONObject.NULL) return null
-        if (v !is Number) throw FieldError("Field '$key' must be a number or null")
+        if (v !is Number) throw FieldError("Field '$key' number ya null hona chahiye")
         val d = v.toDouble()
         if (d.isNaN() || d.isInfinite() || d < min || d > max) return null
         return d

@@ -155,13 +155,13 @@ class StsmnRepository(
     }
 
     private fun bleStateText(s: BleState): String = when (s) {
-        BleState.OFF -> "Bluetooth is off - turn it on"
-        BleState.NO_PERMISSION -> "Bluetooth permission needed (tap Connect)"
-        BleState.UNSUPPORTED -> "This phone has no Bluetooth LE"
-        BleState.SCANNING -> "Searching for the ESP32 (STSMN) over Bluetooth..."
-        BleState.CONNECTING -> "Connecting over Bluetooth..."
-        BleState.CONNECTED -> "Bluetooth connected"
-        BleState.IDLE -> "Bluetooth: waiting to search again"
+        BleState.OFF -> "Bluetooth band hai - chalu karo"
+        BleState.NO_PERMISSION -> "Bluetooth ki permission chahiye (Connect dabao)"
+        BleState.UNSUPPORTED -> "Is phone me Bluetooth LE nahi hai"
+        BleState.SCANNING -> "Bluetooth par ESP32 (STSMN) dhoondh rahe hain..."
+        BleState.CONNECTING -> "Bluetooth se connect ho raha hai..."
+        BleState.CONNECTED -> "Bluetooth connect ho gaya"
+        BleState.IDLE -> "Bluetooth: dobara dhoondhne ka intezaar"
     }
 
     private fun onBleLine(line: String) {
@@ -195,14 +195,14 @@ class StsmnRepository(
         val s = settings.value
         val b = ble
         if (!s.useBluetooth || b == null) return client.postContact(s.deviceHost, phone, s.espToken)
-        if (s.blePassword.isEmpty()) return FetchResult.Failure("Enter the device password (Settings > Bluetooth) to save the number over Bluetooth")
-        if (b.state.value != BleState.CONNECTED) return FetchResult.Failure("Bluetooth is not connected")
+        if (s.blePassword.isEmpty()) return FetchResult.Failure("Bluetooth se number save karne ke liye device password daalo (Settings > Bluetooth)")
+        if (b.state.value != BleState.CONNECTED) return FetchResult.Failure("Bluetooth connect nahi hai")
         val reply = CompletableDeferred<BleMessage>()
         pendingReply = reply
         try {
             val sent = withContext(Dispatchers.IO) { b.write(BleMessage.phoneCommand(s.blePassword, phone)) }
-            if (!sent) return FetchResult.Failure("Could not send over Bluetooth")
-            val m = withTimeoutOrNull(6000) { reply.await() } ?: return FetchResult.Failure("No answer from the ESP32")
+            if (!sent) return FetchResult.Failure("Bluetooth se bhej nahi paye")
+            val m = withTimeoutOrNull(6000) { reply.await() } ?: return FetchResult.Failure("ESP32 ne jawab nahi diya")
             return if (m.kind == BleMessage.Kind.OK) FetchResult.Body(m.payload) else FetchResult.Failure(m.payload)
         } finally { pendingReply = null }
     }
@@ -218,7 +218,7 @@ class StsmnRepository(
 
                 val duplicate = prev != null && st.uptimeMs >= prev.uptimeMs && st.seq <= prev.seq
                 if (duplicate) {
-                    duplicates++; lastError = "Duplicate packet (seq ${st.seq})"
+                    duplicates++; lastError = "Dohra packet (seq ${st.seq})"
                 } else {
                     tracker.onValidPacket(SystemClock.elapsedRealtime())
                     lastStatus = st
@@ -254,11 +254,11 @@ class StsmnRepository(
         val deviceId = lastStatus?.deviceId ?: "device"
         if (live && !wasLive) {
             addConnectionEvent(EventType.CONNECTION_RESTORED,
-                if (everLive) "Valid data received again" else "Connected to $deviceId")
+                if (everLive) "Sahi data dobara mil raha hai" else "$deviceId se connect ho gaya")
             wasLive = true; everLive = true
         } else if (!live && wasLive) {
             if (state == ConnectionState.STALE || state == ConnectionState.ERROR) {
-                addConnectionEvent(EventType.CONNECTION_LOST, "No valid packet from $deviceId")
+                addConnectionEvent(EventType.CONNECTION_LOST, "$deviceId se koi sahi packet nahi aaya")
             }
             wasLive = false
         }

@@ -9,12 +9,12 @@ object WhatsAppReply {
             "error" !in low && "invalid" !in low && "not registered" !in low
         if (httpCode in 200..299 && accepted) return null
         return when {
-            "apikey" in low && ("invalid" in low || "wrong" in low) -> "the WhatsApp key is wrong (get it again from CallMeBot)"
-            "not registered" in low || "not activated" in low || "authorized" in low -> "this number is not activated at CallMeBot (send the activation message first)"
-            "wait" in low || "too many" in low || "limit" in low || httpCode == 429 -> "CallMeBot rate limit - wait a minute"
-            httpCode in 500..599 -> "CallMeBot service is down (HTTP $httpCode)"
+            "apikey" in low && ("invalid" in low || "wrong" in low) -> "WhatsApp key galat hai (CallMeBot se dobara lo)"
+            "not registered" in low || "not activated" in low || "authorized" in low -> "ye number CallMeBot par activate nahi hai (pehle activation message bhejo)"
+            "wait" in low || "too many" in low || "limit" in low || httpCode == 429 -> "CallMeBot ki limit lag gayi - ek minute ruko"
+            httpCode in 500..599 -> "CallMeBot service band hai (HTTP $httpCode)"
             text.isNotEmpty() -> text.take(120)
-            else -> "service answered HTTP $httpCode with no message"
+            else -> "service ne HTTP $httpCode diya, par koi message nahi"
         }
     }
 }

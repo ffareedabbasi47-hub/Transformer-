@@ -32,7 +32,7 @@ class EspClient(private val binder: WifiNetworkBinder) {
         try {
             val url = URL("http", host, AppConfig.API_PORT, path)
             conn = binder.openConnection(url) as? HttpURLConnection
-                ?: return@withContext FetchResult.Failure("Unsupported connection type")
+                ?: return@withContext FetchResult.Failure("Ye connection type chalta nahi")
             conn.connectTimeout = AppConfig.CONNECT_TIMEOUT_MS
             conn.readTimeout = AppConfig.READ_TIMEOUT_MS
             conn.useCaches = false
@@ -44,20 +44,20 @@ class EspClient(private val binder: WifiNetworkBinder) {
             conn.setFixedLengthStreamingMode(body.size)
             conn.outputStream.use { it.write(body) }
             val code = conn.responseCode
-            if (code == 401) return@withContext FetchResult.Failure("Wrong ESP32 password (Settings > ESP32 password)")
-            if (code == 429) return@withContext FetchResult.Failure("Too many wrong passwords: wait 30 s")
-            if (code == 409) return@withContext FetchResult.Failure("Not allowed now (wait for the open time / only when SAFE)")
-            if (code != HttpURLConnection.HTTP_OK) return@withContext FetchResult.Failure("ESP32 answered HTTP $code (update the ESP32 sketch)")
-            val text = conn.inputStream.use { readLimited(it) } ?: return@withContext FetchResult.Failure("Response too large")
+            if (code == 401) return@withContext FetchResult.Failure("ESP32 ka password galat hai (Settings > ESP32 password)")
+            if (code == 429) return@withContext FetchResult.Failure("Bahut baar galat password daala: 30 second ruko")
+            if (code == 409) return@withContext FetchResult.Failure("Abhi allowed nahi hai (thoda ruko / ye sirf SAFE me hota hai)")
+            if (code != HttpURLConnection.HTTP_OK) return@withContext FetchResult.Failure("ESP32 ne HTTP $code diya (ESP32 ka sketch update karo)")
+            val text = conn.inputStream.use { readLimited(it) } ?: return@withContext FetchResult.Failure("Jawab bahut bada hai")
             FetchResult.Body(text)
         } catch (e: SocketTimeoutException) {
             FetchResult.Failure("Timeout")
         } catch (e: IOException) {
-            FetchResult.Failure("Network error: ${e.message ?: e.javaClass.simpleName}")
+            FetchResult.Failure("Network ki dikkat: ${e.message ?: e.javaClass.simpleName}")
         } catch (e: SecurityException) {
-            FetchResult.Failure("Network permission denied")
+            FetchResult.Failure("Network ki permission nahi mili")
         } catch (e: IllegalArgumentException) {
-            FetchResult.Failure("Invalid device address")
+            FetchResult.Failure("Device ka address galat hai")
         } finally {
             conn?.disconnect()
         }
@@ -68,7 +68,7 @@ class EspClient(private val binder: WifiNetworkBinder) {
         try {
             val url = URL("http", host, AppConfig.API_PORT, path)
             conn = binder.openConnection(url) as? HttpURLConnection
-                ?: return@withContext FetchResult.Failure("Unsupported connection type")
+                ?: return@withContext FetchResult.Failure("Ye connection type chalta nahi")
             conn.connectTimeout = AppConfig.CONNECT_TIMEOUT_MS
             conn.readTimeout = AppConfig.READ_TIMEOUT_MS
             conn.useCaches = false
@@ -78,16 +78,16 @@ class EspClient(private val binder: WifiNetworkBinder) {
             val code = conn.responseCode
             if (code != HttpURLConnection.HTTP_OK) return@withContext FetchResult.Failure("HTTP $code")
             val text = conn.inputStream.use { readLimited(it) }
-                ?: return@withContext FetchResult.Failure("Response too large")
+                ?: return@withContext FetchResult.Failure("Jawab bahut bada hai")
             FetchResult.Body(text)
         } catch (e: SocketTimeoutException) {
             FetchResult.Failure("Timeout")
         } catch (e: IOException) {
-            FetchResult.Failure("Network error: ${e.message ?: e.javaClass.simpleName}")
+            FetchResult.Failure("Network ki dikkat: ${e.message ?: e.javaClass.simpleName}")
         } catch (e: SecurityException) {
-            FetchResult.Failure("Network permission denied")
+            FetchResult.Failure("Network ki permission nahi mili")
         } catch (e: IllegalArgumentException) {
-            FetchResult.Failure("Invalid device address")
+            FetchResult.Failure("Device ka address galat hai")
         } finally {
             conn?.disconnect()
         }
@@ -98,7 +98,7 @@ class EspClient(private val binder: WifiNetworkBinder) {
         try {
             val url = URL("http", host, AppConfig.API_PORT, AppConfig.CONTACT_PATH)
             conn = binder.openConnection(url) as? HttpURLConnection
-                ?: return@withContext FetchResult.Failure("Unsupported connection type")
+                ?: return@withContext FetchResult.Failure("Ye connection type chalta nahi")
             conn.connectTimeout = AppConfig.CONNECT_TIMEOUT_MS
             conn.readTimeout = AppConfig.READ_TIMEOUT_MS
             conn.useCaches = false
@@ -110,17 +110,17 @@ class EspClient(private val binder: WifiNetworkBinder) {
             conn.setFixedLengthStreamingMode(body.size)
             conn.outputStream.use { it.write(body) }
             val code = conn.responseCode
-            if (code != HttpURLConnection.HTTP_OK) return@withContext FetchResult.Failure("ESP32 answered HTTP $code")
-            val text = conn.inputStream.use { readLimited(it) } ?: return@withContext FetchResult.Failure("Response too large")
+            if (code != HttpURLConnection.HTTP_OK) return@withContext FetchResult.Failure("ESP32 ne HTTP $code diya")
+            val text = conn.inputStream.use { readLimited(it) } ?: return@withContext FetchResult.Failure("Jawab bahut bada hai")
             FetchResult.Body(text)
         } catch (e: SocketTimeoutException) {
             FetchResult.Failure("Timeout")
         } catch (e: IOException) {
-            FetchResult.Failure("Network error: ${e.message ?: e.javaClass.simpleName}")
+            FetchResult.Failure("Network ki dikkat: ${e.message ?: e.javaClass.simpleName}")
         } catch (e: SecurityException) {
-            FetchResult.Failure("Network permission denied")
+            FetchResult.Failure("Network ki permission nahi mili")
         } catch (e: IllegalArgumentException) {
-            FetchResult.Failure("Invalid device address")
+            FetchResult.Failure("Device ka address galat hai")
         } finally {
             conn?.disconnect()
         }

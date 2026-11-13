@@ -64,8 +64,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
                     if (_flameTuning.value == null) _flameTuning.value = t
                     _flameLive.value = l
                     _flameStatus.value = null
-                } ?: run { _flameStatus.value = "ESP32 sent an unreadable flame answer" }
-                is FetchResult.Failure -> _flameStatus.value = if (r.message.contains("404") || r.message.contains("405")) "ESP32 sketch is old: upload the new .ino to use the sliders" else "Flame settings: ${r.message}"
+                } ?: run { _flameStatus.value = "ESP32 ka flame jawab padha nahi ja saka" }
+                is FetchResult.Failure -> _flameStatus.value = if (r.message.contains("404") || r.message.contains("405")) "ESP32 ka sketch purana hai: sliders chalane ke liye naya .ino upload karo" else "Flame settings: ${r.message}"
             }
         }
     }
@@ -74,8 +74,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
         _flameTuning.value = t.clamped()
         viewModelScope.launch {
             when (val r = repository.flamePost(t.toForm(relearn))) {
-                is FetchResult.Body -> { FlameTuning.parse(r.text)?.let { (nt, l) -> _flameTuning.value = nt; _flameLive.value = l }; _flameStatus.value = "Applied on the ESP32 (saved, survives power-off)" }
-                is FetchResult.Failure -> _flameStatus.value = "Not applied: ${r.message}"
+                is FetchResult.Body -> { FlameTuning.parse(r.text)?.let { (nt, l) -> _flameTuning.value = nt; _flameLive.value = l }; _flameStatus.value = "ESP32 par lag gaya (save hai, power band hone par bhi rahega)" }
+                is FetchResult.Failure -> _flameStatus.value = "Nahi laga: ${r.message}"
             }
         }
     }
@@ -85,8 +85,8 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun resetLatch() {
         viewModelScope.launch {
             _resetStatus.value = when (val r = repository.resetLatch()) {
-                is FetchResult.Body -> "Reset sent. Supply returns only if all readings are safe."
-                is FetchResult.Failure -> "Reset failed: ${r.message}"
+                is FetchResult.Body -> "Reset bhej diya. Supply tabhi wapas aayegi jab saari readings safe hongi."
+                is FetchResult.Failure -> "Reset nahi hua: ${r.message}"
             }
         }
     }
@@ -160,15 +160,15 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     fun saveAlertContact(rawPhone: String, whatsappKey: String): String? {
         val trimmed = rawPhone.trim()
         val phone = if (trimmed.isEmpty()) "" else AlertContact.normalize(trimmed)
-            ?: return "That is not a valid mobile number. Example: 75050 45948 or +91 75050 45948"
+            ?: return "Ye sahi mobile number nahi hai. Jaise: 75050 45948 ya +91 75050 45948"
         updateSettings { it.copy(alertPhone = phone, whatsappKey = whatsappKey.trim()) }
-        if (phone.isEmpty()) { _contactStatus.value = "Alert number removed from the app. Removing it on the ESP32 too..." }
-        else _contactStatus.value = "Saved in the app: ${AlertContact.mask(phone)}. Sending to the ESP32..."
+        if (phone.isEmpty()) { _contactStatus.value = "Alert number app se hata diya. ESP32 se bhi hata rahe hain..." }
+        else _contactStatus.value = "App me save ho gaya: ${AlertContact.mask(phone)}. ESP32 ko bhej rahe hain..."
         syncContactToDevice(phone)
         val key = whatsappKey.trim()
         if (phone.isNotEmpty() && key.isNotEmpty()) viewModelScope.launch {
             val err = whatsApp.send(phone, "STSMN: automatic WhatsApp alerts are connected to this number.", key)
-            _whatsappStatus.value = if (err == null) "WhatsApp is connected: a confirmation message was sent." else "WhatsApp key saved, but the confirmation was not sent: $err"
+            _whatsappStatus.value = if (err == null) "WhatsApp jud gaya: ek confirmation message bhej diya." else "WhatsApp key save ho gayi, par confirmation nahi gaya: $err"
         }
         return null
     }
@@ -176,20 +176,20 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun sendWhatsAppWithRetry(id: String, phone: String, text: String, key: String) {
         repeat(6) {
             val err = whatsApp.send(phone, text, key)
-            if (err == null) { _whatsappStatus.value = "WhatsApp alert sent automatically ($id)"; return }
-            _whatsappStatus.value = "WhatsApp alert not sent yet: $err. Retrying..."
+            if (err == null) { _whatsappStatus.value = "WhatsApp alert apne aap bhej diya ($id)"; return }
+            _whatsappStatus.value = "WhatsApp alert abhi nahi gaya: $err. Dobara koshish kar rahe hain..."
             if (alertLevels[id] != SystemStatus.EMERGENCY) return
             delay(30_000L)
         }
-        _whatsappStatus.value = "WhatsApp alert could not be sent (check internet and the key)."
+        _whatsappStatus.value = "WhatsApp alert nahi bhej paye (internet aur key check karo)."
     }
 
     private fun syncContactToDevice(phone: String) {
         lastContactSyncMs = SystemClock.elapsedRealtime()
         viewModelScope.launch {
             _contactStatus.value = when (val r = repository.sendAlertPhone(phone)) {
-                is FetchResult.Body -> if (phone.isEmpty()) "SMS switched off on the ESP32." else "SMS number saved on the ESP32: ${AlertContact.mask(phone)}. SMS and WhatsApp alerts go to this number."
-                is FetchResult.Failure -> "Saved in the app. ESP32 not reachable (${r.message}); it is sent automatically when the app is connected."
+                is FetchResult.Body -> if (phone.isEmpty()) "ESP32 par SMS band kar diya." else "ESP32 par SMS number save ho gaya: ${AlertContact.mask(phone)}. SMS aur WhatsApp alert isi number par jayenge."
+                is FetchResult.Failure -> "App me save ho gaya. ESP32 tak pahunch nahi paye (${r.message}); app connect hote hi apne aap bhej diya jayega."
             }
         }
     }

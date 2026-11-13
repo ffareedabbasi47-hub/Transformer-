@@ -43,7 +43,7 @@ fun UserScreen(settings: AppSettings, onSave: (name: String, role: String, schoo
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        ScreenTitle("User", "Local profile – no login, nothing leaves this phone")
+        ScreenTitle("User", "Local profile – login nahi, kuch bhi phone se bahar nahi jata")
 
         AppCard {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -58,44 +58,45 @@ fun UserScreen(settings: AppSettings, onSave: (name: String, role: String, schoo
                     )
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(settings.profileName.ifBlank { "Unnamed" }, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    Text(settings.profileName.ifBlank { "Naam nahi daala" }, fontSize = 20.sp, fontWeight = FontWeight.Bold)
                     Text(settings.profileRole, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(settings.profileSchool, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (editing) {
                 val fieldModifier = Modifier.fillMaxWidth().padding(top = 10.dp)
-                OutlinedTextField(name, { name = it.take(AppConfig.MAX_TEXT_LENGTH) }, label = { Text("Name") }, singleLine = true, modifier = fieldModifier)
-                OutlinedTextField(role, { role = it.take(AppConfig.MAX_TEXT_LENGTH) }, label = { Text("Class / role") }, singleLine = true, modifier = fieldModifier)
+                OutlinedTextField(name, { name = it.take(AppConfig.MAX_TEXT_LENGTH) }, label = { Text("Naam") }, singleLine = true, modifier = fieldModifier)
+                OutlinedTextField(role, { role = it.take(AppConfig.MAX_TEXT_LENGTH) }, label = { Text("Class / kaam") }, singleLine = true, modifier = fieldModifier)
                 OutlinedTextField(school, { school = it.take(AppConfig.MAX_TEXT_LENGTH) }, label = { Text("School") }, singleLine = true, modifier = fieldModifier)
                 Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onSave(name, role, school); editing = false }) { Text("Save") }
+                    Button(onClick = { onSave(name, role, school); editing = false }) { Text("Save karo") }
                     OutlinedButton(onClick = {
                         name = settings.profileName; role = settings.profileRole; school = settings.profileSchool
                         editing = false
                     }) { Text("Cancel") }
                 }
             } else {
-                OutlinedButton(onClick = { editing = true }, modifier = Modifier.padding(top = 12.dp)) { Text("Edit profile") }
+                OutlinedButton(onClick = { editing = true }, modifier = Modifier.padding(top = 12.dp)) { Text("Profile badlo") }
             }
         }
 
-        SectionLabel("About the project")
+        SectionLabel("Project ke baare me")
         AppCard {
             Text("Smart Transformer Safety & Monitoring Network", fontWeight = FontWeight.Bold)
             Text(
-                "Sensors → ESP32 → Wi-Fi → this app. The ESP32 measures temperature, voltage, current, smoke, flame " +
-                    "and level, calculates a 0–100 risk score and cuts the supply by itself in an emergency. " +
-                    "This phone is only the monitoring dashboard.",
+                "Sensors → ESP32 → Wi-Fi → ye app. ESP32 temperature, voltage, current, smoke, flame " +
+                    "aur level naapta hai, 0–100 ka risk score nikalta hai aur emergency me supply khud kaat deta hai. " +
+                    "Ye phone sirf monitoring dashboard hai.",
                 fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
             )
         }
 
-        SectionLabel("How the risk score works")
+        SectionLabel("Risk score kaise banta hai")
         AppCard {
             Text(
-                "Each sensor adds a bounded number of points: temperature 0–25, current 0–25, voltage 0–15, smoke 0–15, " +
-                    "flame 0–20, oil level 0–10. The total is limited to 100. It is a transparent formula – not machine learning.",
+                "Har sensor kuch points jodta hai: temperature 0–25, current 0–25, smoke 0–15, flame 0–20, oil level 0–10. " +
+                    "Voltage 8 V tak safe hai, uske upar har 1 V par 20 points (12 V par 80 = EMERGENCY). " +
+                    "Total 100 se zyada nahi hota. Ye saaf formula hai – machine learning nahi.",
                 fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -105,14 +106,14 @@ fun UserScreen(settings: AppSettings, onSave: (name: String, role: String, schoo
             }
         }
 
-        SectionLabel("Demo guide for judges")
+        SectionLabel("Judges ke liye demo guide")
         AppCard {
             Text("A · Safe", fontWeight = FontWeight.Bold, color = StsmnColors.Safe)
-            Text("All readings normal → SAFE, low risk, relay ON.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Saari readings normal → SAFE, risk kam, relay ON.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("B · Warning", fontWeight = FontWeight.Bold, color = StsmnColors.Warning, modifier = Modifier.padding(top = 8.dp))
-            Text("A controlled abnormal value raises risk → WARNING and an event is logged.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Ek kaabu me rakhi hui gadbad se risk badhta hai → WARNING aur event log hota hai.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text("C · Emergency", fontWeight = FontWeight.Bold, color = StsmnColors.Emergency, modifier = Modifier.padding(top = 8.dp))
-            Text("A safe simulated critical input → ESP32 cuts the relay, buzzer + red LED turn on.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Ek surakshit nakli critical input → ESP32 relay kaat deta hai, buzzer aur red LED chalu ho jaate hain.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 "“Phone sirf monitoring dashboard hai. Main safety decision ESP32 par rakha hai, " +
                     "isliye app band hone par bhi local protection logic kaam karta hai.”",

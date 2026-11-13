@@ -59,7 +59,7 @@ fun SensorsScreen(live: LiveSnapshot) {
     )
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).padding(bottom = LocalBottomInset.current),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenTitle("Sensor Data", "Exact readings, validity and the last ${AppConfig.TREND_POINTS} samples")

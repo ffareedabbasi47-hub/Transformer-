@@ -73,7 +73,7 @@ fun HistoryScreen(live: LiveSnapshot, events: List<EventRecord>, onClear: () -> 
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 16.dp + LocalBottomInset.current),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item { ScreenTitle("History", "Active alerts and past events (stored on this phone)") }

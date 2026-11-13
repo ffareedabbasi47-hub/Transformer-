@@ -7,6 +7,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.material3.Typography
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
@@ -37,7 +38,7 @@ fun alertColor(l: AlertLevel): Color = when (l) {
 
 private fun darkScheme(pal: Palette) = darkColorScheme(
     primary = pal.accent,
-    onPrimary = pal.onAccent,
+    onPrimary = if (pal.accent.luminance() > 0.4f) Color(0xFF101010) else Color.White,
     secondary = Color(0xFFB8C0C8),
     tertiary = Color(0xFF9C78C9),
     background = pal.base,
@@ -53,7 +54,7 @@ private fun darkScheme(pal: Palette) = darkColorScheme(
 
 private fun lightScheme(pal: Palette) = lightColorScheme(
     primary = pal.accent,
-    onPrimary = pal.onAccent,
+    onPrimary = if (pal.accent.luminance() > 0.4f) Color(0xFF101010) else Color.White,
     secondary = Color(0xFF5E6770),
     background = pal.base,
     onBackground = Color(0xFF1B1530),
@@ -87,7 +88,14 @@ fun StsmnTheme(mode: ThemeMode, content: @Composable () -> Unit) {
         LocalReduceMotion provides reduce,
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(base.density, base.fontScale * prefs.textSize.factor),
     ) {
-        MaterialTheme(colorScheme = if (pal.light) lightScheme(pal) else darkScheme(pal), typography = StsmnTypography, content = content)
+        val isLight = pal.base.luminance() > 0.5f
+        val scheme = if (isLight) lightScheme(pal) else darkScheme(pal)
+        MaterialTheme(colorScheme = scheme, typography = StsmnTypography) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.material3.LocalContentColor provides scheme.onBackground,
+                content = content,
+            )
+        }
     }
 }
 

@@ -317,7 +317,7 @@ fun MapScreen(
 
     if (mapView == null) {
         Column(
-            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).padding(bottom = LocalBottomInset.current),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             ScreenTitle("Live Map", "${devices.size} transformer(s)")

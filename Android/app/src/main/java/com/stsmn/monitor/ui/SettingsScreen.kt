@@ -99,7 +99,7 @@ fun SettingsScreen(
     var cloudErr by rememberSaveable { mutableStateOf(false) }
 
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).padding(bottom = LocalBottomInset.current),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenTitle("Settings", "Connection, realtime cloud aur display")

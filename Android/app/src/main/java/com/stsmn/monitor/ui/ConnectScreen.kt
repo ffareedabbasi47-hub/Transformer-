@@ -24,7 +24,7 @@ import com.stsmn.monitor.domain.LiveSnapshot
 @Composable
 fun ConnectScreen(live: LiveSnapshot, settings: AppSettings, onConnect: () -> Unit) {
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp).padding(bottom = LocalBottomInset.current),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {

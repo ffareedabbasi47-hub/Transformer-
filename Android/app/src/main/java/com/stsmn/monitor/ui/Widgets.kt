@@ -38,7 +38,11 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.sp
 import android.os.SystemClock
 import kotlinx.coroutines.delay
@@ -58,16 +62,32 @@ fun Modifier.glass(
     val tinted = strength > 0.1f
     val fill = if (tinted) tint.copy(alpha = 0.10f).compositeOver(cs.surface) else cs.surface
 
-    val sheen = if (cs.background.luminance() < 0.5f) Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.04f), Color.Transparent)) else Brush.verticalGradient(listOf(Color.Transparent, Color.Transparent))
-    return this.clip(shape).background(fill, shape).background(sheen, shape).border(1.dp, if (tinted) tint.copy(alpha = 0.35f) else cs.outline, shape)
+    val dark = cs.background.luminance() < 0.5f
+    val sheen = Brush.linearGradient(
+        listOf(Color.White.copy(alpha = if (dark) 0.10f else 0.55f), Color.White.copy(alpha = if (dark) 0.02f else 0.10f)),
+        start = Offset(0f, 0f), end = Offset(600f, 900f),
+    )
+    val edge = Brush.linearGradient(
+        listOf(Color.White.copy(alpha = if (dark) 0.38f else 0.9f), (if (tinted) tint else cs.outline).copy(alpha = 0.25f), Color.White.copy(alpha = if (dark) 0.14f else 0.5f)),
+        start = Offset(0f, 0f), end = Offset(500f, 900f),
+    )
+    return this.clip(shape).background(fill.copy(alpha = 0.66f), shape).background(sheen, shape).border(1.dp, edge, shape)
 }
 
 @Composable
 fun Modifier.panel(radius: androidx.compose.ui.unit.Dp = 16.dp, alpha: Float = 0.90f): Modifier {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(radius)
-    return this.clip(shape).background(cs.surface.copy(alpha = alpha), shape).border(1.dp, cs.outline, shape)
+    val dark = cs.background.luminance() < 0.5f
+    val sheen = Brush.verticalGradient(listOf(Color.White.copy(alpha = if (dark) 0.14f else 0.6f), Color.White.copy(alpha = if (dark) 0.03f else 0.12f)))
+    val edge = Brush.linearGradient(
+        listOf(Color.White.copy(alpha = if (dark) 0.45f else 0.95f), cs.outline.copy(alpha = 0.35f), Color.White.copy(alpha = if (dark) 0.18f else 0.55f)),
+        start = Offset(0f, 0f), end = Offset(900f, 200f),
+    )
+    return this.clip(shape).background(cs.surface.copy(alpha = alpha * 0.7f), shape).background(sheen, shape).border(1.dp, edge, shape)
 }
+
+val LocalBottomInset = compositionLocalOf { 0.dp }
 
 @Composable
 fun GlassBackground(content: @Composable () -> Unit) {
@@ -75,7 +95,13 @@ fun GlassBackground(content: @Composable () -> Unit) {
     Box(
         Modifier.fillMaxSize().background(
             Brush.verticalGradient(0f to pal.gradTop, 0.55f to pal.base, 1f to pal.base),
-        ),
+        ).drawBehind {
+            fun orb(c: Color, cx: Float, cy: Float, r: Float, a: Float) =
+                drawCircle(Brush.radialGradient(listOf(c.copy(alpha = a), Color.Transparent), center = Offset(cx, cy), radius = r), radius = r, center = Offset(cx, cy))
+            orb(pal.accent, size.width * 0.85f, size.height * 0.22f, size.width * 0.7f, 0.18f)
+            orb(pal.gradTop, size.width * 0.1f, size.height * 0.55f, size.width * 0.8f, 0.35f)
+            orb(pal.accent, size.width * 0.7f, size.height * 0.88f, size.width * 0.6f, 0.12f)
+        },
     ) { content() }
 }
 

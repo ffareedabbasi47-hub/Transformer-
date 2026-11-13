@@ -35,7 +35,7 @@ fun DiagnosticsScreen(live: LiveSnapshot, fleet: FleetState, cloudEnabled: Boole
     val age = live.lastValidElapsedMs?.let { (nowElapsed - it).coerceAtLeast(0L) }
     val have = s != null
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).padding(bottom = LocalBottomInset.current),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         ScreenTitle("Diagnostics", "Health of every part of the system")

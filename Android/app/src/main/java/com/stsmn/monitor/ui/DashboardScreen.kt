@@ -55,7 +55,7 @@ fun DashboardScreen(
     val nowElapsed by rememberElapsedNow()
     val ageMs = live.lastValidElapsedMs?.let { (nowElapsed - it).coerceAtLeast(0L) }
     Column(
-        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).padding(bottom = LocalBottomInset.current),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

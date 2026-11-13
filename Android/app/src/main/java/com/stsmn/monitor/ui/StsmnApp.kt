@@ -126,6 +126,7 @@ fun StsmnApp(vm: MainViewModel) {
         GlassBackground {
         Scaffold(
             containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onBackground,
             bottomBar = {
                 if (!fullNow) AurelionNavBar(
                     tabs = Tab.values().filter { it.icon != null },
@@ -134,7 +135,10 @@ fun StsmnApp(vm: MainViewModel) {
                 )
             },
         ) { padding ->
-            Column(Modifier.fillMaxSize().padding(padding)) {
+            val underNav = current != Tab.MAP
+            val contentModifier = if (underNav) Modifier.fillMaxSize().padding(top = padding.calculateTopPadding()) else Modifier.fillMaxSize().padding(padding)
+            CompositionLocalProvider(LocalBottomInset provides (if (underNav) padding.calculateBottomPadding() else 0.dp)) {
+            Column(contentModifier) {
               if (current.parent != null) {
                   TextButton(onClick = { tab = current.parent!!.ordinal }, modifier = Modifier.padding(start = 8.dp)) {
                       Text("‹  ${current.parent!!.label}")
@@ -185,6 +189,7 @@ fun StsmnApp(vm: MainViewModel) {
                     )
                 }
               }
+            }
             }
         }
         }

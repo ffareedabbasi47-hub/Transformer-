@@ -179,7 +179,7 @@ private fun SearchPanel(
         modifier.fillMaxWidth().panel(18.dp, 0.97f).padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 value = query, onValueChange = onQuery, singleLine = true, modifier = Modifier.weight(1f),
                 placeholder = { Text("Search transformer (e.g. TR-001)") },

@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -66,13 +67,13 @@ fun Modifier.glass(
 
     val dark = cs.background.luminance() < 0.5f
     val accentShadow = cs.primary.copy(alpha = if (dark) 0.07f else 0.05f)
-    val hueTint = cs.primary.shiftHue(50f).copy(alpha = if (dark) 0.14f else 0.12f)
+    val hueTint = cs.primary.copy(alpha = if (dark) 0.14f else 0.12f)
     val sheen = Brush.linearGradient(
         listOf(Color.White.copy(alpha = if (dark) 0.10f else 0.55f), Color.White.copy(alpha = if (dark) 0.02f else 0.10f)),
         start = Offset(0f, 0f), end = Offset(600f, 900f),
     )
     val edge = Brush.linearGradient(
-        listOf(Color.White.copy(alpha = if (dark) 0.38f else 0.9f), (if (tinted) tint else cs.primary).copy(alpha = 0.45f), cs.primary.shiftHue(60f).copy(alpha = if (dark) 0.30f else 0.5f)),
+        listOf(Color.White.copy(alpha = if (dark) 0.38f else 0.9f), (if (tinted) tint else cs.primary).copy(alpha = 0.45f), cs.primary.copy(alpha = if (dark) 0.30f else 0.5f)),
         start = Offset(0f, 0f), end = Offset(500f, 900f),
     )
     val glow = Color.White.copy(alpha = if (dark) 0.10f else 0.5f)
@@ -124,8 +125,8 @@ fun GlassBackground(content: @Composable () -> Unit) {
             orb(pal.accent, w * (0.80f + 0.12f * kotlin.math.sin(tau * t)), h * (0.20f + 0.06f * kotlin.math.cos(tau * t)), w * 0.75f, 0.20f)
             orb(pal.gradTop, w * (0.12f + 0.10f * kotlin.math.cos(tau * (t + 0.3f))), h * (0.55f + 0.08f * kotlin.math.sin(tau * (t + 0.3f))), w * 0.85f, 0.38f)
             orb(pal.accent, w * (0.65f + 0.15f * kotlin.math.sin(tau * (t + 0.6f))), h * (0.88f + 0.05f * kotlin.math.cos(tau * (t + 0.6f))), w * 0.65f, 0.14f)
-            orb(pal.accent.shiftHue(70f), w * (0.30f + 0.14f * kotlin.math.cos(tau * (t + 0.8f))), h * (0.30f + 0.08f * kotlin.math.sin(tau * (t + 0.8f))), w * 0.6f, 0.16f)
-            orb(pal.accent.shiftHue(-60f), w * (0.90f + 0.08f * kotlin.math.sin(tau * (t + 0.45f))), h * (0.70f + 0.08f * kotlin.math.cos(tau * (t + 0.45f))), w * 0.6f, 0.15f)
+            orb(pal.accent, w * (0.30f + 0.14f * kotlin.math.cos(tau * (t + 0.8f))), h * (0.30f + 0.08f * kotlin.math.sin(tau * (t + 0.8f))), w * 0.6f, 0.16f)
+            orb(pal.accent, w * (0.90f + 0.08f * kotlin.math.sin(tau * (t + 0.45f))), h * (0.70f + 0.08f * kotlin.math.cos(tau * (t + 0.45f))), w * 0.6f, 0.15f)
             drawRect(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent), startY = 0f, endY = h * 0.25f))
             drawRect(Brush.radialGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.28f)), center = Offset(w / 2f, h / 2f), radius = h * 0.85f))
         },
@@ -281,7 +282,7 @@ private fun GlassButtonBase(
     androidx.compose.foundation.layout.Row(
         modifier.androidxMinHeight().alpha(if (enabled) 1f else 0.4f).clip(shape)
             .background(fill, shape).background(sheen, shape).border(1.dp, edge, shape)
-            .androidxClickable(enabled, onClick).padding(horizontal = 18.dp, vertical = 10.dp),
+            .androidxClickable(enabled, onClick).padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
     ) {
         androidx.compose.runtime.CompositionLocalProvider(androidx.compose.material3.LocalContentColor provides contentColor) {
@@ -290,7 +291,7 @@ private fun GlassButtonBase(
     }
 }
 
-private fun Modifier.androidxMinHeight(): Modifier = this.then(Modifier.height(44.dp))
+private fun Modifier.androidxMinHeight(): Modifier = this.then(Modifier.heightIn(min = 44.dp))
 
 private fun Modifier.androidxClickable(enabled: Boolean, onClick: () -> Unit): Modifier =
     this.then(Modifier.clickable(enabled = enabled, role = androidx.compose.ui.semantics.Role.Button, onClick = onClick))
@@ -300,7 +301,7 @@ fun Button(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean 
     val cs = MaterialTheme.colorScheme
     GlassButtonBase(
         onClick, modifier, enabled,
-        Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.92f), cs.primary.shiftHue(38f).copy(alpha = 0.78f))),
+        Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.92f), cs.primary.copy(alpha = 0.78f))),
         Brush.linearGradient(listOf(Color.White.copy(alpha = 0.85f), cs.primary.copy(alpha = 0.3f), Color.White.copy(alpha = 0.4f))),
         cs.onPrimary, content,
     )
@@ -311,7 +312,7 @@ fun OutlinedButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: 
     val cs = MaterialTheme.colorScheme
     GlassButtonBase(
         onClick, modifier, enabled,
-        Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.16f), cs.primary.shiftHue(38f).copy(alpha = 0.10f))),
+        Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.16f), cs.primary.copy(alpha = 0.10f))),
         Brush.linearGradient(listOf(Color.White.copy(alpha = 0.6f), cs.primary.copy(alpha = 0.55f), Color.White.copy(alpha = 0.25f))),
         cs.primary, content,
     )
@@ -332,7 +333,7 @@ fun TextButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Bool
 fun FilterChip(selected: Boolean, onClick: () -> Unit, label: @Composable () -> Unit, modifier: Modifier = Modifier) {
     val cs = MaterialTheme.colorScheme
     val shape = RoundedCornerShape(50)
-    val fill = if (selected) Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.55f), cs.primary.shiftHue(38f).copy(alpha = 0.40f)))
+    val fill = if (selected) Brush.linearGradient(listOf(cs.primary.copy(alpha = 0.55f), cs.primary.copy(alpha = 0.40f)))
     else Brush.linearGradient(listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.03f)))
     val edge = Brush.linearGradient(listOf(Color.White.copy(alpha = if (selected) 0.8f else 0.35f), cs.primary.copy(alpha = if (selected) 0.6f else 0.2f), Color.White.copy(alpha = 0.2f)))
     Box(

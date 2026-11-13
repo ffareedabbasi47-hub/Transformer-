@@ -38,7 +38,7 @@ fun alertColor(l: AlertLevel): Color = when (l) {
 
 private fun darkScheme(pal: Palette) = darkColorScheme(
     primary = pal.accent,
-    onPrimary = if (pal.accent.luminance() > 0.4f) Color(0xFF101010) else Color.White,
+    onPrimary = pal.onAccent,
     secondary = Color(0xFFB8C0C8),
     tertiary = Color(0xFF9C78C9),
     background = pal.base,
@@ -54,7 +54,7 @@ private fun darkScheme(pal: Palette) = darkColorScheme(
 
 private fun lightScheme(pal: Palette) = lightColorScheme(
     primary = pal.accent,
-    onPrimary = if (pal.accent.luminance() > 0.4f) Color(0xFF101010) else Color.White,
+    onPrimary = pal.onAccent,
     secondary = Color(0xFF5E6770),
     background = pal.base,
     onBackground = Color(0xFF1B1530),
@@ -88,7 +88,7 @@ fun StsmnTheme(mode: ThemeMode, content: @Composable () -> Unit) {
         LocalReduceMotion provides reduce,
         androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(base.density, base.fontScale * prefs.textSize.factor),
     ) {
-        val isLight = pal.base.luminance() > 0.5f
+        val isLight = pal.light
         val scheme = if (isLight) lightScheme(pal) else darkScheme(pal)
         MaterialTheme(colorScheme = scheme, typography = StsmnTypography) {
             androidx.compose.runtime.CompositionLocalProvider(

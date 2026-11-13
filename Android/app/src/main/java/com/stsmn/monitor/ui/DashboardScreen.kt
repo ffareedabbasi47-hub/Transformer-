@@ -105,7 +105,7 @@ fun DashboardScreen(
         SensorGrid(s, dimmed = !live.isLive)
 
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            StateToggle("Relay", s?.relay, StsmnColors.Safe, StsmnColors.Emergency, Modifier.weight(1f), dimmed = !live.isLive)
+            StateToggle("Relay", s?.relay, MaterialTheme.colorScheme.primary, StsmnColors.Emergency, Modifier.weight(1f), dimmed = !live.isLive)
             StateToggle("Alarm", s?.alarm, StsmnColors.Emergency, StsmnColors.Stale, Modifier.weight(1f), dimmed = !live.isLive)
         }
 
@@ -200,29 +200,30 @@ private fun HeroCard(live: LiveSnapshot, onConnect: () -> Unit) {
 @Composable
 private fun SensorGrid(s: StsmnStatus?, dimmed: Boolean) {
     val na = "—"
+    val ok = MaterialTheme.colorScheme.primary
     val oil = s?.oilLevel
     val oilLow = oil != null && oil < AppConfig.OIL_LOW_PERCENT
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricTile("🌡️", "Temperature", if (s != null) fmtTemp(s.temperature) else na, StsmnColors.Warning, dimmed, Modifier.weight(1f))
-            MetricTile("⚡", "Voltage", if (s != null) fmtVolt(s.voltage) else na, StsmnColors.Info, dimmed, Modifier.weight(1f))
+            MetricTile("🌡️", "Temperature", if (s != null) fmtTemp(s.temperature) else na, ok, dimmed, Modifier.weight(1f))
+            MetricTile("⚡", "Voltage", if (s != null) fmtVolt(s.voltage) else na, ok, dimmed, Modifier.weight(1f))
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            MetricTile("〰️", "Current", if (s != null) fmtAmp(s.current) else na, StsmnColors.Info, dimmed, Modifier.weight(1f))
+            MetricTile("〰️", "Current", if (s != null) fmtAmp(s.current) else na, ok, dimmed, Modifier.weight(1f))
             MetricTile(
                 "💨", "Smoke", if (s == null) na else if (s.smoke) "Detected" else "Normal",
-                if (s?.smoke == true) StsmnColors.Emergency else StsmnColors.Safe, dimmed, Modifier.weight(1f),
+                if (s?.smoke == true) StsmnColors.Emergency else ok, dimmed, Modifier.weight(1f),
             )
         }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             MetricTile(
-                "🔥", "Flame", if (s == null) na else if (s.flame) "Detected" else "Not detected",
-                if (s?.flame == true) StsmnColors.Emergency else StsmnColors.Safe, dimmed, Modifier.weight(1f),
+                "🔥", "Flame", if (s == null) na else if (s.flame) "Detected" else "None",
+                if (s?.flame == true) StsmnColors.Emergency else ok, dimmed, Modifier.weight(1f),
             )
             MetricTile(
-                "🛢️", "Oil level (demo)", if (s != null) fmtOil(oil) else na,
-                if (oilLow) StsmnColors.Warning else StsmnColors.Safe, dimmed, Modifier.weight(1f),
-                sub = if (s != null && oil != null) (if (oilLow) "Low" else "Normal") else null,
+                "🛢️", "Oil level", if (s != null) fmtOil(oil) else na,
+                if (oilLow) StsmnColors.Warning else ok, dimmed, Modifier.weight(1f),
+                sub = if (s != null && oil != null && oilLow) "Low" else null,
             )
         }
     }
